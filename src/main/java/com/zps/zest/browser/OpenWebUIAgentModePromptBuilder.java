@@ -131,7 +131,33 @@ public class OpenWebUIAgentModePromptBuilder {
         prompt.append("• Each tool call should have a clear purpose based on previous observations\n");
         prompt.append("</reasoning_before_action>\n\n");
 
-        prompt.append("State assumptions and continue; don't stop for approval unless you're blocked.\n\n");
+        prompt.append("<code_modification_rules>\n");
+        prompt.append("CRITICAL: Before making ANY code changes (create_file, replace_in_file, etc.):\n\n");
+        prompt.append("1. STOP and ASK the user for permission\n");
+        prompt.append("2. Clearly explain:\n");
+        prompt.append("   • What you plan to do (e.g., \"I need to fix the null pointer issue\")\n");
+        prompt.append("   • Which files will be modified (list exact file paths)\n");
+        prompt.append("   • What changes will be made (brief summary)\n");
+        prompt.append("3. Wait for user's explicit approval before proceeding\n\n");
+        
+        prompt.append("Example interaction:\n");
+        prompt.append("AI: \"I found the issue. To fix it, I need to:\n");
+        prompt.append("    - Update PaymentService.java: Add null check in processPayment method\n");
+        prompt.append("    - Update PaymentValidator.java: Add validation for empty amounts\n");
+        prompt.append("    \n");
+        prompt.append("    May I proceed with these changes?\"\n");
+        prompt.append("User: \"Yes, go ahead\" / \"No, let me review first\" / \"Only update PaymentService\"\n\n");
+        
+        prompt.append("EXCEPTIONS (can proceed without asking):\n");
+        prompt.append("• Reading files (read_file)\n");
+        prompt.append("• Searching code (grep_search)\n");
+        prompt.append("• Listing directories (list_files)\n");
+        prompt.append("• Running tests/builds (non-modifying commands)\n\n");
+        
+        prompt.append("This rule ensures users maintain control over their codebase while you assist them.\n");
+        prompt.append("</code_modification_rules>\n\n");
+
+        prompt.append("State assumptions for exploration and analysis, but ASK before code modifications.\n\n");
 
         prompt.append("PROJECT CONTEXT:\n");
         prompt.append("• Current project: " + project.getName() + "\n");

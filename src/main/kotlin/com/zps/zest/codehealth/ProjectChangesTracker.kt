@@ -313,6 +313,21 @@ class ProjectChangesTracker(private val project: Project) :
     }
 
     fun getModifiedMethods(): Set<String> = methodModifications.keys.toSet()
+    
+    /**
+     * Get all tracked methods with their modification details
+     */
+    fun getTrackedMethods(): Map<String, ModifiedMethod> = methodModifications.toMap()
+    
+    /**
+     * Clear all tracking data
+     */
+    fun clearAllTracking() {
+        methodModifications.clear()
+        jsTsTracker.clearAllTracking()
+        persistStateAsync()
+        println("[ProjectChangesTracker] All tracking data cleared")
+    }
 
     fun getModifiedMethodDetails(): List<ModifiedMethod> {
         // Combine Java methods and JS/TS regions

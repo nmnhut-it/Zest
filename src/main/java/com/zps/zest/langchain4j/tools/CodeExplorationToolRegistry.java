@@ -29,9 +29,12 @@ public final class CodeExplorationToolRegistry {
      * Simplified to focus on essential tools that guide AI exploration.
      */
     private void registerDefaultTools() {
-        // Essential file operations (only tools that still exist and work)
-        register(new ReadFileTool(project));
+        // Search and navigation tools
+        register(new GrepSearchTool(project));  // Blazing fast ripgrep-based search
         register(new ListFilesInDirectoryTool(project));
+        
+        // Essential file operations
+        register(new ReadFileTool(project));
         register(new CreateFileTool(project));
         register(new ReplaceInFileTool(project));
         
@@ -43,7 +46,7 @@ public final class CodeExplorationToolRegistry {
         
         // Other exploration tools have been removed with the cleanup
         
-        LOG.info("Registered " + tools.size() + " essential exploration tools (focusing on AI-guided exploration)");
+        LOG.info("Registered " + tools.size() + " essential exploration tools (including ripgrep search)");
     }
     
     /**
@@ -82,14 +85,13 @@ public final class CodeExplorationToolRegistry {
         }
         
         sb.append("EXPLORATION STRATEGY:\n");
-        sb.append("1. Use retrieve_context to find relevant code using semantic search\n");
-        sb.append("2. Use execute_task to perform AI-assisted development tasks\n");
-        sb.append("3. Use execute_workflow for multi-step autonomous work\n");
-        sb.append("4. Use chat_with_context for conversational code assistance\n");
-        sb.append("5. Use list_files_in_directory to understand directory structures\n");
-        sb.append("6. Use read_file to examine specific files found during search\n");
-        sb.append("7. Use create_file and replace_in_file to implement solutions\n");
-        sb.append("8. Always combine RAG retrieval with traditional file operations\n");
+        sb.append("1. Use grep_search for blazing fast pattern/regex searching across codebase\n");
+        sb.append("2. Use list_files_in_directory to understand directory structures\n");
+        sb.append("3. Use read_file to examine specific files found during search\n");
+        sb.append("4. Use create_file and replace_in_file to implement solutions\n");
+        sb.append("5. Combine grep_search with file operations for efficient exploration\n");
+        sb.append("6. Use contextLines in grep_search to see surrounding code\n");
+        sb.append("7. Use filePattern/excludePattern to narrow search scope\n");
         
         return sb.toString();
     }

@@ -53,7 +53,7 @@ public class JavalinProxyServer {
                 });
                 
                 // Set max request size if needed for large code explorations
-                config.http.maxRequestSize = 10_000_000; // 10MB
+                config.http.maxRequestSize = ProxyServerConstants.MAX_REQUEST_SIZE;
                 
                 // Disable Jackson to avoid classloader conflicts
                 config.jsonMapper(new GsonMapper());
@@ -73,9 +73,9 @@ public class JavalinProxyServer {
             
             app.start(port);
             LOG.info("Javalin Proxy Server started on port " + port);
-            LOG.info("OpenAPI spec available at: http://localhost:" + port + "/zest/openapi.json");
-            LOG.info("Swagger UI available at: http://localhost:" + port + "/zest/docs");
-            LOG.info("ReDoc available at: http://localhost:" + port + "/zest/redoc");
+            LOG.info("OpenAPI spec available at: http://localhost:" + port + ProxyServerConstants.OPENAPI_PATH);
+            LOG.info("Swagger UI available at: http://localhost:" + port + ProxyServerConstants.SWAGGER_UI_PATH);
+            LOG.info("ReDoc available at: http://localhost:" + port + ProxyServerConstants.REDOC_PATH);
         } catch (Exception e) {
             LOG.error("Failed to start Javalin server", e);
             throw new RuntimeException("Failed to start server: " + e.getMessage(), e);
@@ -92,24 +92,24 @@ public class JavalinProxyServer {
         });
         
         // OpenAPI endpoint
-        app.get("/zest/openapi.json", this::handleOpenApi);
+        app.get(ProxyServerConstants.OPENAPI_PATH, this::handleOpenApi);
         
         // Interactive API documentation
-        app.get("/zest/docs", this::handleSwaggerUI);
-        app.get("/zest/redoc", this::handleReDoc);
+        app.get(ProxyServerConstants.SWAGGER_UI_PATH, this::handleSwaggerUI);
+        app.get(ProxyServerConstants.REDOC_PATH, this::handleReDoc);
         
         // Health check
-        app.get("/health", ctx -> {
+        app.get(ProxyServerConstants.HEALTH_PATH, ctx -> {
             Map<String, Object> health = new HashMap<>();
             health.put("status", "ok");
-            health.put("service", "zest-proxy");
+            health.put("service", ProxyServerConstants.SERVICE_NAME);
             health.put("port", port);
             health.put("project", project.getName());
             sendJson(ctx, health);
         });
         
         // Debug endpoint
-        app.get("/debug", ctx -> {
+        app.get(ProxyServerConstants.DEBUG_PATH, ctx -> {
             Map<String, Object> debug = new HashMap<>();
             debug.put("project", project != null ? project.getName() : "null");
             debug.put("projectPath", project != null ? project.getBasePath() : "null");
@@ -146,10 +146,7 @@ public class JavalinProxyServer {
         
         // Register all tool endpoints dynamically
         CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
-        Set<String> orchestrationEndpoints = Set.of(
-            "explore_code", "execute_tool", "list_tools", "augment_query", 
-            "get_config", "update_config", "status", "get_current_context"
-        );
+        Set<String> orchestrationEndpoints = ProxyServerConstants.ORCHESTRATION_ENDPOINTS;
         
         for (CodeExplorationTool tool : registry.getAllTools()) {
             // Skip if this tool name conflicts with an orchestration endpoint
@@ -158,7 +155,7 @@ public class JavalinProxyServer {
                 continue;
             }
             
-            String path = "/zest/" + tool.getName();
+            String path = ProxyServerConstants.API_BASE_PATH + "/" + tool.getName();
             app.post(path, ctx -> handleToolExecution(ctx, tool));
             LOG.info("Registered tool endpoint: " + path);
         }
@@ -205,58 +202,12 @@ public class JavalinProxyServer {
     
     // Swagger UI handler
     private void handleSwaggerUI(Context ctx) {
-        ctx.html("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Zest Code Explorer - Swagger UI</title>
-                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
-            </head>
-            <body>
-                <div id="swagger-ui"></div>
-                <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-                <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
-                <script>
-                window.onload = () => {
-                    SwaggerUIBundle({
-                        url: '/zest/openapi.json',
-                        dom_id: '#swagger-ui',
-                        deepLinking: true,
-                        presets: [
-                            SwaggerUIBundle.presets.apis,
-                            SwaggerUIStandalonePreset
-                        ],
-                        plugins: [
-                            SwaggerUIBundle.plugins.DownloadUrl
-                        ],
-                        layout: "StandaloneLayout"
-                    });
-                }
-                </script>
-            </body>
-            </html>
-        """);
+        ctx.html(ProxyServerConstants.getSwaggerUIHtml());
     }
     
     // ReDoc handler
     private void handleReDoc(Context ctx) {
-        ctx.html("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Zest Code Explorer - ReDoc</title>
-                <meta charset="utf-8"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <style>
-                    body { margin: 0; padding: 0; }
-                </style>
-            </head>
-            <body>
-                <redoc spec-url="/zest/openapi.json"></redoc>
-                <script src="https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js"></script>
-            </body>
-            </html>
-        """);
+        ctx.html(ProxyServerConstants.getReDocHtml());
     }
     
     // Explore code handler

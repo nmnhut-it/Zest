@@ -5,6 +5,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.components.service
 import com.zps.zest.codehealth.CodeHealthAnalyzer.*
+import com.zps.zest.codehealth.ReviewOptimizer
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
 import com.google.gson.Gson
@@ -188,6 +189,85 @@ class BackgroundHealthReviewer(private val project: Project) {
      * Get all reviewed methods (used by the 13h report)
      */
     fun getReviewedMethods(): Map<String, MethodHealthResult> = reviewedMethods.toMap()
+    
+    /**
+     * Get all pending reviews with their last modified times
+     */
+    fun getPendingReviews(): Map<String, Long> = pendingReviews.toMap()
+    
+    /**
+     * Trigger immediate review of specific methods
+     */
+    fun triggerImmediateReview(
+        methodFqns: List<String>,
+        progressCallback: ((String) -> Unit)? = null
+    ): CompletableFuture<List<MethodHealthResult>> {
+        val future = CompletableFuture<List<MethodHealthResult>>()
+        
+        reviewExecutor.submit {
+            try {
+                println("[BackgroundHealthReviewer] Starting immediate review of ${methodFqns.size} methods")
+                progressCallback?.invoke("Preparing methods for review...")
+                
+                // Convert to ModifiedMethod objects
+                val methods = methodFqns.map { fqn ->
+                    ProjectChangesTracker.ModifiedMethod(
+                        fqn = fqn,
+                        modificationCount = 1,
+                        lastModified = pendingReviews[fqn] ?: System.currentTimeMillis()
+                    )
+                }
+                
+                // Optimize into review units
+                val optimizer = ReviewOptimizer(project)
+                val reviewUnits = optimizer.optimizeReviewUnits(methodFqns)
+                
+                progressCallback?.invoke("Analyzing ${reviewUnits.size} review units...")
+                
+                // Analyze using the optimizer
+                val analyzer = CodeHealthAnalyzer.getInstance(project)
+                val results = if (reviewUnits.isNotEmpty()) {
+                    analyzer.analyzeReviewUnitsAsync(reviewUnits, optimizer, progressCallback)
+                } else {
+                    // Fallback to individual method analysis
+                    analyzer.analyzeAllMethodsAsync(methods, null)
+                }
+                
+                // Store results
+                results.forEach { result ->
+                    reviewedMethods[result.fqn] = result
+                    pendingReviews.remove(result.fqn)
+                }
+                
+                // Save to persistent storage
+                saveReviewedMethods()
+                
+                progressCallback?.invoke("Review complete: ${results.size} methods analyzed")
+                future.complete(results)
+                
+            } catch (e: Exception) {
+                println("[BackgroundHealthReviewer] Error in immediate review: ${e.message}")
+                e.printStackTrace()
+                future.completeExceptionally(e)
+            }
+        }
+        
+        return future
+    }
+    
+    /**
+     * Trigger immediate review of all pending methods
+     */
+    fun triggerImmediateReviewAll(
+        progressCallback: ((String) -> Unit)? = null
+    ): CompletableFuture<List<MethodHealthResult>> {
+        val methodsToReview = pendingReviews.keys.toList()
+        return if (methodsToReview.isNotEmpty()) {
+            triggerImmediateReview(methodsToReview, progressCallback)
+        } else {
+            CompletableFuture.completedFuture(emptyList())
+        }
+    }
     
     /**
      * Check if a review unit has been reviewed

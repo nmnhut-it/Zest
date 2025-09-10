@@ -107,8 +107,8 @@ public class WebBrowserPanel implements Disposable {
         this.urlField = (JBTextField) navigationPanel.getComponent(1);
         this.modeButton = (JButton) ((JPanel) navigationPanel.getComponent(0)).getComponent(1);
 
-        // Set default mode
-        setMode(browserModes.get(0));
+        // Set default mode to Agent Mode (index 3)
+        setMode(browserModes.get(3)); // Agent Mode
 
         browserManager.getBrowser().getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
             @Override

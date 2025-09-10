@@ -22,6 +22,7 @@ import java.awt.event.ActionEvent
 import javax.swing.*
 import javax.swing.border.EmptyBorder
 import javax.swing.text.*
+import java.awt.RenderingHints
 
 class CodeHealthIssueDetailDialog(
     private val project: Project,
@@ -30,323 +31,302 @@ class CodeHealthIssueDetailDialog(
 ) : DialogWrapper(project, true) {
     
     init {
-        title = "Code Health Issue Details"
+        title = "Code Health: ${formatMethodName(method.fqn)}"
         setOKButtonText("Close")
         init()
     }
     
     override fun createCenterPanel(): JComponent {
         val mainPanel = JPanel(BorderLayout())
-        mainPanel.preferredSize = Dimension(900, 700)
+        val screenSize = Toolkit.getDefaultToolkit().screenSize
+        mainPanel.preferredSize = Dimension(
+            (screenSize.width * 0.7).toInt().coerceAtMost(1200),
+            (screenSize.height * 0.8).toInt().coerceAtMost(900)
+        )
         mainPanel.background = UIUtil.getPanelBackground()
         
-        // Header with issue title and severity
-        mainPanel.add(createHeaderPanel(), BorderLayout.NORTH)
+        // Simplified header
+        mainPanel.add(createSimplifiedHeader(), BorderLayout.NORTH)
         
-        // Main content with issue details and code
-        mainPanel.add(createContentPanel(), BorderLayout.CENTER)
-        
-        // Footer with action buttons
-        mainPanel.add(createActionPanel(), BorderLayout.SOUTH)
+        // Single code editor panel with everything integrated
+        mainPanel.add(createIntegratedCodePanel(), BorderLayout.CENTER)
         
         return mainPanel
     }
     
-    private fun createHeaderPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
-        val severityColor = getSeverityColor(issue.severity)
-        panel.background = severityColor
-        panel.border = EmptyBorder(15, 20, 15, 20)
-        
-        // Issue title - use appropriate text color based on background
-        val titleLabel = JBLabel(issue.title)
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 18f)
-        titleLabel.foreground = getContrastingTextColor(severityColor)
-        panel.add(titleLabel, BorderLayout.WEST)
-        
-        // Severity badge
-        val severityPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
-        severityPanel.isOpaque = false
-        
-        val severityBadge = JBLabel("Severity: ${issue.severity}/5")
-        severityBadge.font = severityBadge.font.deriveFont(Font.BOLD, 14f)
-        val textColor = getContrastingTextColor(severityColor)
-        severityBadge.foreground = textColor
-        severityBadge.border = JBUI.Borders.compound(
-            JBUI.Borders.customLine(textColor, 2),
-            EmptyBorder(5, 10, 5, 10)
+    private fun createSimplifiedHeader(): JComponent {
+        val toolbar = JPanel(BorderLayout())
+        toolbar.background = UIUtil.getPanelBackground()
+        toolbar.border = JBUI.Borders.compound(
+            JBUI.Borders.customLine(UIUtil.getBoundsColor(), 0, 0, 1, 0),
+            EmptyBorder(10, 15, 10, 15)
         )
-        severityPanel.add(severityBadge)
         
-        panel.add(severityPanel, BorderLayout.EAST)
+        // Left side: Method info and health score
+        val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 15, 0))
+        leftPanel.isOpaque = false
+        
+        val methodLabel = JBLabel(formatMethodName(method.fqn))
+        methodLabel.font = methodLabel.font.deriveFont(Font.BOLD, 14f)
+        methodLabel.icon = AllIcons.Nodes.Method
+        leftPanel.add(methodLabel)
+        
+        val scoreLabel = JBLabel("Health: ${method.healthScore}/100")
+        scoreLabel.foreground = getScoreColor(method.healthScore)
+        leftPanel.add(scoreLabel)
+        
+        toolbar.add(leftPanel, BorderLayout.WEST)
+        
+        // Right side: Action buttons
+        val actionPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0))
+        actionPanel.isOpaque = false
+        
+        val goToMethodBtn = JButton(AllIcons.Actions.EditSource)
+        goToMethodBtn.toolTipText = "Go to Method"
+        goToMethodBtn.addActionListener { navigateToMethod() }
+        actionPanel.add(goToMethodBtn)
+        
+        val copyBtn = JButton(AllIcons.Actions.Copy)
+        copyBtn.toolTipText = "Copy Details"
+        copyBtn.addActionListener { copyDetailsToClipboard() }
+        actionPanel.add(copyBtn)
+        
+        val falsePositiveBtn = JButton(AllIcons.Actions.Cancel)
+        falsePositiveBtn.toolTipText = "Mark as False Positive"
+        falsePositiveBtn.addActionListener { markAsFalsePositive() }
+        actionPanel.add(falsePositiveBtn)
+        
+        toolbar.add(actionPanel, BorderLayout.EAST)
+        
+        return toolbar
+    }
+    
+    private fun createIntegratedCodePanel(): JComponent {
+        val panel = JPanel(BorderLayout())
+        panel.background = UIUtil.getPanelBackground()
+        
+        // Create code editor with line numbers
+        val codeTextPane = JTextPane()
+        codeTextPane.isEditable = false
+        codeTextPane.font = Font(Font.MONOSPACED, Font.PLAIN, 13)
+        codeTextPane.background = EditorColorsManager.getInstance().globalScheme.defaultBackground
+        codeTextPane.foreground = EditorColorsManager.getInstance().globalScheme.defaultForeground
+        
+        // Build the integrated content
+        val integratedCode = buildIntegratedCodeView()
+        displayIntegratedCode(codeTextPane, integratedCode)
+        
+        // Add line numbers
+        val scrollPane = JBScrollPane(codeTextPane)
+        scrollPane.border = null
+        val lineNumbers = LineNumberComponent(codeTextPane)
+        scrollPane.setRowHeaderView(lineNumbers)
+        
+        panel.add(scrollPane, BorderLayout.CENTER)
+        
+        // Add subtle severity indicator on the side
+        val severityIndicator = createSeverityIndicator()
+        panel.add(severityIndicator, BorderLayout.WEST)
         
         return panel
     }
     
-    private fun createContentPanel(): JComponent {
-        val contentPanel = JPanel(BorderLayout())
-        contentPanel.background = UIUtil.getPanelBackground()
-        contentPanel.border = EmptyBorder(20, 20, 20, 20)
-        
-        // Split pane for details and code
-        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT)
-        splitPane.dividerLocation = 250
-        splitPane.border = null
-        
-        // Top: Issue details
-        splitPane.topComponent = createDetailsPanel()
-        
-        // Bottom: Code view
-        splitPane.bottomComponent = createCodePanel()
-        
-        contentPanel.add(splitPane, BorderLayout.CENTER)
-        
-        return contentPanel
-    }
-    
-    private fun createDetailsPanel(): JComponent {
-        val panel = JPanel()
-        panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
-        panel.background = UIUtil.getPanelBackground()
-        
-        // Method info
-        panel.add(createInfoRow("📍 Method:", formatMethodName(method.fqn)))
-        panel.add(Box.createVerticalStrut(10))
-        
-        // Issue category
-        panel.add(createInfoRow("📂 Category:", issue.issueCategory))
-        panel.add(Box.createVerticalStrut(10))
-        
-        // Health score
-        panel.add(createInfoRow("💯 Health Score:", "${method.healthScore}/100"))
-        panel.add(Box.createVerticalStrut(15))
-        
-        // Description
-        panel.add(createSectionHeader("📋 Description"))
-        panel.add(createWrappedTextArea(issue.description))
-        panel.add(Box.createVerticalStrut(15))
-        
-        // Impact
-        panel.add(createSectionHeader("⚠️ Impact"))
-        panel.add(createWrappedTextArea(issue.impact))
-        panel.add(Box.createVerticalStrut(15))
-        
-        // Suggested fix
-        panel.add(createSectionHeader("💡 Suggested Fix"))
-        panel.add(createWrappedTextArea(issue.suggestedFix))
-        
-        return JBScrollPane(panel)
-    }
-    
-    private fun createCodePanel(): JComponent {
-        val codePanel = JPanel(BorderLayout())
-        codePanel.background = UIUtil.getPanelBackground()
-        
-        // Header - show what type of code preview we're displaying
-        val headerText = when {
-            method.annotatedCode.isNotBlank() -> "📝 Code Preview (with AI comments)"
-            method.originalCode.isNotBlank() -> "📝 Code Preview (original)"
-            else -> "📝 Code Preview"
+    private fun buildIntegratedCodeView(): String {
+        return buildString {
+            // Add comprehensive header comment with all issue details
+            appendLine("/**")
+            appendLine(" * CODE HEALTH ANALYSIS REPORT")
+            appendLine(" * " + "=".repeat(60))
+            appendLine(" * ")
+            appendLine(" * Method: ${method.fqn}")
+            appendLine(" * Health Score: ${method.healthScore}/100")
+            appendLine(" * Analysis Date: ${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))}")
+            appendLine(" * ")
+            appendLine(" * ISSUE: ${issue.title}")
+            appendLine(" * " + "-".repeat(60))
+            appendLine(" * Category: ${issue.issueCategory}")
+            appendLine(" * Severity: ${getSeverityText(issue.severity)} (${issue.severity}/5)")
+            appendLine(" * ")
+            appendLine(" * DESCRIPTION:")
+            wrapAndAppendComment(issue.description, " * ")
+            appendLine(" * ")
+            appendLine(" * IMPACT:")
+            wrapAndAppendComment(issue.impact, " * ")
+            appendLine(" * ")
+            appendLine(" * SUGGESTED FIX:")
+            wrapAndAppendComment(issue.suggestedFix, " * ")
+            appendLine(" */")
+            appendLine()
+            
+            // Add the actual code with AI annotations
+            val code = when {
+                method.annotatedCode.isNotBlank() -> method.annotatedCode
+                method.originalCode.isNotBlank() -> method.originalCode
+                method.codeContext.isNotBlank() -> method.codeContext
+                else -> "// Code preview not available\n// Navigate to the method to view the actual code"
+            }
+            append(code)
         }
-        val headerLabel = JBLabel(headerText)
-        headerLabel.font = headerLabel.font.deriveFont(Font.BOLD, 14f)
-        headerLabel.border = EmptyBorder(10, 10, 10, 10)
-        codePanel.add(headerLabel, BorderLayout.NORTH)
+    }
+    
+    private fun StringBuilder.wrapAndAppendComment(text: String, prefix: String, maxWidth: Int = 80) {
+        val words = text.split(" ")
+        var currentLine = StringBuilder()
         
-        // Code text pane
-        val codeTextPane = JTextPane()
-        codeTextPane.isEditable = false
-        codeTextPane.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+        for (word in words) {
+            if (currentLine.length + word.length + 1 > maxWidth - prefix.length) {
+                if (currentLine.isNotEmpty()) {
+                    appendLine(prefix + currentLine.toString().trim())
+                    currentLine = StringBuilder()
+                }
+            }
+            if (currentLine.isNotEmpty()) currentLine.append(" ")
+            currentLine.append(word)
+        }
         
-        // Set up syntax highlighting
-        val doc = codeTextPane.styledDocument
+        if (currentLine.isNotEmpty()) {
+            appendLine(prefix + currentLine.toString().trim())
+        }
+    }
+    
+    private fun createSeverityIndicator(): JComponent {
+        val indicator = JPanel()
+        indicator.preferredSize = Dimension(5, 0)
+        indicator.background = getSeverityIndicatorColor(issue.severity)
+        return indicator
+    }
+    
+    private fun getSeverityIndicatorColor(severity: Int): Color {
+        return when (severity) {
+            5 -> JBColor(Color(220, 53, 69), Color(220, 53, 69))     // Red
+            4 -> JBColor(Color(255, 138, 0), Color(255, 138, 0))     // Orange
+            3 -> JBColor(Color(255, 193, 7), Color(255, 193, 7))     // Yellow
+            2 -> JBColor(Color(40, 167, 69), Color(40, 167, 69))     // Green
+            else -> JBColor(Color(23, 162, 184), Color(23, 162, 184)) // Cyan
+        }
+    }
+    
+    private fun getSeverityText(severity: Int): String {
+        return when (severity) {
+            5 -> "CRITICAL"
+            4 -> "HIGH"
+            3 -> "MEDIUM"
+            2 -> "LOW"
+            else -> "INFO"
+        }
+    }
+    
+    private fun getScoreColor(score: Int): Color {
+        return when {
+            score >= 80 -> JBColor(Color(40, 167, 69), Color(40, 167, 69))    // Green
+            score >= 60 -> JBColor(Color(255, 193, 7), Color(255, 193, 7))    // Yellow
+            else -> JBColor(Color(220, 53, 69), Color(220, 53, 69))           // Red
+        }
+    }
+    
+    // Line number component for the code editor
+    private inner class LineNumberComponent(private val textPane: JTextPane) : JComponent() {
+        init {
+            font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+            preferredSize = Dimension(50, 0)
+            background = UIUtil.getPanelBackground()
+            border = JBUI.Borders.customLine(UIUtil.getBoundsColor(), 0, 0, 0, 1)
+        }
+        
+        override fun paintComponent(g: Graphics) {
+            super.paintComponent(g)
+            val g2d = g as Graphics2D
+            g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+            
+            g2d.color = background
+            g2d.fillRect(0, 0, width, height)
+            
+            g2d.color = UIUtil.getInactiveTextColor()
+            g2d.font = font
+            
+            val fontMetrics = g2d.fontMetrics
+            val fontHeight = fontMetrics.height
+            
+            try {
+                val doc = textPane.document
+                val text = doc.getText(0, doc.length)
+                val lines = text.split("\n")
+                
+                for (i in lines.indices) {
+                    val lineNumber = (i + 1).toString()
+                    val x = width - fontMetrics.stringWidth(lineNumber) - 5
+                    val y = (i + 1) * fontHeight
+                    g2d.drawString(lineNumber, x, y)
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+    
+    
+    
+    private fun displayIntegratedCode(textPane: JTextPane, code: String) {
+        val doc = textPane.styledDocument
         val defaultStyle = StyleContext.getDefaultStyleContext().getStyle(StyleContext.DEFAULT_STYLE)
         
-        // Define styles
+        // Define styles for different parts
+        val headerCommentStyle = doc.addStyle("headerComment", defaultStyle)
+        StyleConstants.setForeground(headerCommentStyle, JBColor(Color(0, 128, 0), Color(98, 151, 85)))
+        StyleConstants.setBackground(headerCommentStyle, JBColor(Color(245, 255, 245), Color(30, 40, 30)))
+        StyleConstants.setItalic(headerCommentStyle, true)
+        
         val keywordStyle = doc.addStyle("keyword", defaultStyle)
         StyleConstants.setForeground(keywordStyle, JBColor(Color(0, 0, 128), Color(134, 179, 255)))
         StyleConstants.setBold(keywordStyle, true)
-        
-        val stringStyle = doc.addStyle("string", defaultStyle)
-        StyleConstants.setForeground(stringStyle, JBColor(Color(0, 128, 0), Color(165, 194, 97)))
         
         val commentStyle = doc.addStyle("comment", defaultStyle)
         StyleConstants.setForeground(commentStyle, JBColor(Color(128, 128, 128), Color(128, 128, 128)))
         StyleConstants.setItalic(commentStyle, true)
         
-        val errorStyle = doc.addStyle("error", defaultStyle)
-        StyleConstants.setBackground(errorStyle, JBColor(Color(255, 230, 230), Color(90, 30, 30)))
-        StyleConstants.setForeground(errorStyle, JBColor(Color(139, 0, 0), Color(255, 100, 100)))
-        
-        // Load and display code
-        val codeContent = loadMethodCode()
-        if (codeContent != null) {
-            displayCodeWithHighlight(codeTextPane, codeContent)
-        } else {
-            doc.insertString(0, "// Code preview not available\n// Navigate to the method to view the actual code", commentStyle)
-        }
-        
-        val scrollPane = JBScrollPane(codeTextPane)
-        scrollPane.border = JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1)
-        codePanel.add(scrollPane, BorderLayout.CENTER)
-        
-        return codePanel
-    }
-    
-    private fun createActionPanel(): JComponent {
-        val panel = JPanel(FlowLayout(FlowLayout.CENTER, 15, 10))
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = JBUI.Borders.compound(
-            JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1, 0, 0, 0),
-            EmptyBorder(15, 20, 15, 20)
-        )
-        
-        // Go to Method button
-        val goToMethodBtn = JButton("🔍 Go to Method")
-        goToMethodBtn.font = goToMethodBtn.font.deriveFont(14f)
-        goToMethodBtn.addActionListener {
-            navigateToMethod()
-            close(OK_EXIT_CODE)
-        }
-        panel.add(goToMethodBtn)
-        
-        // Fix with AI button
-        val fixWithAIBtn = JButton("🤖 Fix with AI")
-        fixWithAIBtn.font = fixWithAIBtn.font.deriveFont(14f)
-        fixWithAIBtn.addActionListener {
-            fixWithAI()
-        }
-        panel.add(fixWithAIBtn)
-        
-        // Mark as False Positive button
-        val falsePositiveBtn = JButton("❌ Mark as False Positive")
-        falsePositiveBtn.font = falsePositiveBtn.font.deriveFont(14f)
-        falsePositiveBtn.addActionListener {
-            markAsFalsePositive()
-        }
-        panel.add(falsePositiveBtn)
-        
-        // Copy Details button
-        val copyBtn = JButton("📋 Copy Details")
-        copyBtn.font = copyBtn.font.deriveFont(14f)
-        copyBtn.addActionListener {
-            copyDetailsToClipboard()
-        }
-        panel.add(copyBtn)
-        
-        return panel
-    }
-    
-    private fun createInfoRow(label: String, value: String): JComponent {
-        val panel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
-        panel.isOpaque = false
-        panel.maximumSize = Dimension(Integer.MAX_VALUE, 30)
-        
-        val labelComponent = JBLabel(label)
-        labelComponent.font = labelComponent.font.deriveFont(Font.BOLD)
-        panel.add(labelComponent)
-        
-        panel.add(Box.createHorizontalStrut(10))
-        
-        val valueComponent = JBLabel(value)
-        panel.add(valueComponent)
-        
-        return panel
-    }
-    
-    private fun createSectionHeader(title: String): JComponent {
-        val label = JBLabel(title)
-        label.font = label.font.deriveFont(Font.BOLD, 13f)
-        label.border = EmptyBorder(5, 0, 5, 0)
-        return label
-    }
-    
-    private fun createWrappedTextArea(text: String): JComponent {
-        val textArea = JTextArea(text)
-        textArea.isEditable = false
-        textArea.lineWrap = true
-        textArea.wrapStyleWord = true
-        textArea.background = UIUtil.getPanelBackground()
-        textArea.font = textArea.font.deriveFont(12f)
-        textArea.border = EmptyBorder(5, 10, 5, 10)
-        return textArea
-    }
-    
-    private fun loadMethodCode(): String? {
-        println("[CodeHealthIssueDetailDialog] Debug - Loading code for ${method.fqn}:")
-        println("  annotatedCode length: ${method.annotatedCode.length}")
-        println("  originalCode length: ${method.originalCode.length}")
-        println("  codeContext length: ${method.codeContext.length}")
-        
-        // Use LLM-provided annotated code if available, otherwise fall back to original code
-        return when {
-            method.annotatedCode.isNotBlank() -> {
-                println("  Using annotatedCode")
-                method.annotatedCode
-            }
-            method.originalCode.isNotBlank() -> {
-                println("  Using originalCode")
-                method.originalCode
-            }
-            method.codeContext.isNotBlank() -> {
-                println("  Using codeContext as fallback")
-                method.codeContext
-            }
-            else -> {
-                println("  No code available - this indicates LLM didn't provide originalCode/annotatedCode")
-                "// Code preview debug info:\n// LLM analysis was performed but no code fields were returned\n// annotatedCode: ${if (method.annotatedCode.isEmpty()) "empty" else "has ${method.annotatedCode.length} chars"}\n// originalCode: ${if (method.originalCode.isEmpty()) "empty" else "has ${method.originalCode.length} chars"}\n// codeContext: ${if (method.codeContext.isEmpty()) "empty" else "has ${method.codeContext.length} chars"}"
-            }
-        }
-    }
-    
-    private fun displayCodeWithHighlight(textPane: JTextPane, code: String) {
-        val doc = textPane.styledDocument
-        val defaultStyle = doc.getStyle(StyleContext.DEFAULT_STYLE)
-        val errorStyle = doc.getStyle("error")
-        val keywordStyle = doc.getStyle("keyword")
-        val commentStyle = doc.getStyle("comment")
-        
-        // Create styles for LLM comments with different severity levels
         val criticalStyle = doc.addStyle("critical", defaultStyle)
-        StyleConstants.setBackground(criticalStyle, JBColor(Color(255, 235, 235), Color(80, 30, 30)))
-        StyleConstants.setForeground(criticalStyle, JBColor(Color(139, 0, 0), Color(255, 100, 100)))
+        StyleConstants.setForeground(criticalStyle, JBColor(Color(220, 53, 69), Color(255, 100, 100)))
         StyleConstants.setBold(criticalStyle, true)
         
         val warningStyle = doc.addStyle("warning", defaultStyle)
-        StyleConstants.setBackground(warningStyle, JBColor(Color(255, 248, 225), Color(80, 65, 20)))
-        StyleConstants.setForeground(warningStyle, JBColor(Color(204, 85, 0), Color(255, 180, 100)))
+        StyleConstants.setForeground(warningStyle, JBColor(Color(255, 138, 0), Color(255, 180, 100)))
         StyleConstants.setBold(warningStyle, true)
         
         val suggestionStyle = doc.addStyle("suggestion", defaultStyle)
-        StyleConstants.setBackground(suggestionStyle, JBColor(Color(240, 255, 240), Color(20, 60, 20)))
-        StyleConstants.setForeground(suggestionStyle, JBColor(Color(107, 142, 35), Color(150, 255, 150)))
-        StyleConstants.setBold(suggestionStyle, true)
+        StyleConstants.setForeground(suggestionStyle, JBColor(Color(40, 167, 69), Color(150, 255, 150)))
         
         try {
-            // Insert code with enhanced syntax highlighting including LLM comments
             val lines = code.split("\n")
+            var inHeaderComment = false
+            
             for (line in lines) {
+                // Check if we're in the header comment block
+                if (line.trim().startsWith("/**")) {
+                    inHeaderComment = true
+                }
+                
                 val style = when {
-                    // LLM Critical comments
-                    line.trim().startsWith("// 🔴 CRITICAL:") || line.contains("🔴 CRITICAL:") -> criticalStyle
-                    // LLM Warning comments  
-                    line.trim().startsWith("// 🟠 WARNING:") || line.contains("🟠 WARNING:") -> warningStyle
-                    // LLM Suggestion comments
-                    line.trim().startsWith("// 🟡 SUGGESTION:") || line.contains("🟡 SUGGESTION:") -> suggestionStyle
+                    // Header comment block
+                    inHeaderComment -> {
+                        if (line.trim().endsWith("*/")) inHeaderComment = false
+                        headerCommentStyle
+                    }
+                    // AI annotations
+                    line.contains("🔴 CRITICAL:") || line.contains("CRITICAL:") -> criticalStyle
+                    line.contains("🟠 WARNING:") || line.contains("WARNING:") -> warningStyle
+                    line.contains("🟡 SUGGESTION:") || line.contains("SUGGESTION:") -> suggestionStyle
                     // Regular comments
-                    line.trim().startsWith("//") -> commentStyle
-                    // Keywords
-                    line.contains("public") || line.contains("void") || line.contains("private") ||
-                    line.contains("try") || line.contains("catch") || line.contains("if") ||
-                    line.contains("for") || line.contains("while") || line.contains("return") -> keywordStyle
-                    // Default code
+                    line.trim().startsWith("//") || line.trim().startsWith("/*") || line.trim().startsWith("*") -> commentStyle
+                    // Keywords - more comprehensive list
+                    line.contains(Regex("\\b(public|private|protected|static|final|void|int|String|boolean|class|interface|extends|implements|return|if|else|for|while|try|catch|throw|new|this|super)\\b")) -> keywordStyle
+                    // Default
                     else -> defaultStyle
                 }
+                
                 doc.insertString(doc.length, line + "\n", style)
             }
         } catch (e: BadLocationException) {
-            // Handle error gracefully
-            println("Error highlighting code: ${e.message}")
+            // Silently handle
         }
     }
     
@@ -358,8 +338,7 @@ class CodeHealthIssueDetailDialog(
             if (parts.size >= 2) {
                 val filePath = parts[0]
                 val lineNumber = parts[1].toIntOrNull() ?: 1
-                // Navigate to file and line
-                // Implementation depends on your navigation logic
+                // TODO: Navigate to file and line
             }
         } else {
             // Java method - navigate using PSI
@@ -368,6 +347,7 @@ class CodeHealthIssueDetailDialog(
                 psiMethod.navigate(true)
             }
         }
+        close(OK_EXIT_CODE)
     }
     
     private fun findPsiMethod(fqn: String): com.intellij.psi.PsiMethod? {
@@ -383,15 +363,6 @@ class CodeHealthIssueDetailDialog(
         return psiClass?.findMethodsByName(methodName, false)?.firstOrNull()
     }
     
-    private fun fixWithAI() {
-        Messages.showInfoMessage(
-            project,
-            "AI-powered fix suggestion will be implemented soon.\n" +
-            "The AI will analyze the issue and suggest code changes.",
-            "Fix with AI"
-        )
-        // TODO: Implement AI fix integration
-    }
     
     private fun markAsFalsePositive() {
         issue.falsePositive = true
@@ -432,25 +403,6 @@ class CodeHealthIssueDetailDialog(
         Messages.showInfoMessage(project, "Issue details copied to clipboard!", "Copied")
     }
     
-    private fun getSeverityColor(severity: Int): Color {
-        return when (severity) {
-            5 -> JBColor(Color(139, 0, 0), Color(139, 0, 0))           // Critical - Dark Red (good contrast)
-            4 -> JBColor(Color(204, 85, 0), Color(204, 85, 0))         // High - Dark Orange (good contrast)
-            3 -> JBColor(Color(204, 119, 34), Color(204, 119, 34))     // Medium - Burnt Orange (good contrast)
-            2 -> JBColor(Color(107, 142, 35), Color(124, 179, 66))     // Low - Olive Green (good contrast)
-            else -> JBColor(Color(46, 125, 50), Color(67, 160, 71))    // Info - Green (good contrast)
-        }
-    }
-    
-    private fun getContrastingTextColor(backgroundColor: Color): Color {
-        // Calculate luminance to determine if we need light or dark text
-        val luminance = (0.299 * backgroundColor.red + 0.587 * backgroundColor.green + 0.114 * backgroundColor.blue) / 255
-        return if (luminance > 0.5) {
-            JBColor.BLACK  // Use black text on light backgrounds
-        } else {
-            JBColor.WHITE  // Use white text on dark backgrounds
-        }
-    }
     
     private fun formatMethodName(fqn: String): String {
         return if (fqn.contains(":")) {
@@ -473,9 +425,6 @@ class CodeHealthIssueDetailDialog(
         }
     }
     
-    private fun extractMethodName(fqn: String): String {
-        return fqn.substringAfterLast('.').substringAfterLast(':')
-    }
     
     override fun createActions(): Array<Action> {
         // Only show OK button (labeled as "Close")

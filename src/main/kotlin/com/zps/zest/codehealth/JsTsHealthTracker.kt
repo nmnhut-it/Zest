@@ -28,6 +28,13 @@ class JsTsHealthTracker(private val project: Project) {
     }
     
     /**
+     * Clear all tracking data
+     */
+    fun clearAllTracking() {
+        regionModifications.clear()
+    }
+    
+    /**
      * Handle document change for JS/TS files
      */
     fun handleJsTsDocument(document: Document, editor: Editor, fileName: String) {

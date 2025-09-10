@@ -4,41 +4,35 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileTypes.FileTypeManager
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.testgen.model.MergedTestClass
-import com.zps.zest.testgen.ui.dialogs.MergedTestPreviewDialog
-import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData
-import com.zps.zest.testgen.model.TestGenerationSession
-import com.zps.zest.langchain4j.ui.ChatMemoryDialog
 import java.awt.*
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
+import java.awt.datatransfer.StringSelection
+import java.io.File
 import javax.swing.*
-import javax.swing.border.EmptyBorder
 
 /**
- * Panel that displays merged test class with error detection and fixing capabilities.
- * Shows merge results, compilation errors, and provides access to merger agent chat memory.
+ * Simplified panel that shows side-by-side comparison of existing and merged test classes.
+ * Provides direct action to write the merged test to file.
  */
 class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
     
     private val statusLabel = JBLabel("No merged test class yet")
-    private var mergedClassEditor: EditorEx? = null
-    private val issuesListModel = DefaultListModel<TestIssue>()
-    private val issuesList = JList(issuesListModel)
-    private val issuesMap = mutableMapOf<String, TestIssue>()
-    
-    // Chat memory for AITestMergerAgent
-    private var mergerAgentMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
-    private var mergerAgentName: String = "AI Merger Agent"
+    private var existingCodeEditor: EditorEx? = null
+    private var mergedCodeEditor: EditorEx? = null
     
     // Current merged test class
     private var currentMergedClass: MergedTestClass? = null
+    private var existingTestCode: String? = null
     
     init {
         setupUI()
@@ -47,242 +41,160 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun setupUI() {
         background = UIUtil.getPanelBackground()
         
-        // Header
-        val headerPanel = JPanel(BorderLayout())
-        headerPanel.border = EmptyBorder(10, 10, 10, 10)
-        headerPanel.background = UIUtil.getPanelBackground()
-        
-        val titleLabel = JBLabel("🔗 Test Merging & Review")
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 14f)
-        headerPanel.add(titleLabel, BorderLayout.WEST)
-        
-        statusLabel.foreground = UIUtil.getContextHelpForeground()
-        headerPanel.add(statusLabel, BorderLayout.EAST)
-        
+        // Header with status
+        val headerPanel = createHeaderPanel()
         add(headerPanel, BorderLayout.NORTH)
         
-        // Main content - split between merged class and issues
-        val mainSplitter = JSplitPane(JSplitPane.VERTICAL_SPLIT)
-        mainSplitter.setDividerLocation(0.6)
-        mainSplitter.resizeWeight = 0.6
+        // Main content - side by side comparison
+        val comparisonPanel = createComparisonPanel()
+        add(comparisonPanel, BorderLayout.CENTER)
         
-        // Top: Merged class display
-        val classPanel = createMergedClassPanel()
-        mainSplitter.topComponent = classPanel
-        
-        // Bottom: Issues and fixes
-        val issuesPanel = createIssuesPanel()
-        mainSplitter.bottomComponent = issuesPanel
-        
-        add(mainSplitter, BorderLayout.CENTER)
-        
-        // Bottom panel with actions
-        val bottomPanel = JPanel(BorderLayout())
-        bottomPanel.border = EmptyBorder(5, 10, 10, 10)
-        bottomPanel.background = UIUtil.getPanelBackground()
-        
-        val actionsPanel = createActionsPanel()
-        bottomPanel.add(actionsPanel, BorderLayout.EAST)
-        
-        add(bottomPanel, BorderLayout.SOUTH)
+        // Bottom action panel
+        val actionPanel = createActionPanel()
+        add(actionPanel, BorderLayout.SOUTH)
     }
     
-    private fun createMergedClassPanel(): JComponent {
+    private fun createHeaderPanel(): JComponent {
         val panel = JPanel(BorderLayout())
-        panel.border = EmptyBorder(5, 10, 5, 10)
+        panel.border = JBUI.Borders.empty(10)
+        panel.background = UIUtil.getPanelBackground()
         
-        // Header with actions
-        val headerPanel = JPanel(BorderLayout())
+        val titleLabel = JBLabel("📝 Test Merge Result")
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 16f)
+        panel.add(titleLabel, BorderLayout.WEST)
         
-        val headerLabel = JBLabel("📄 Merged Test Class (with Java syntax highlighting)")
-        headerLabel.font = headerLabel.font.deriveFont(Font.BOLD, 12f)
-        headerPanel.add(headerLabel, BorderLayout.WEST)
-        
-        // Header actions
-        val headerActionsPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0))
-        headerActionsPanel.isOpaque = false
-        
-        val viewDialogButton = JButton("🔍 View in Dialog")
-        viewDialogButton.addActionListener { openCodeViewDialog() }
-        viewDialogButton.toolTipText = "Open merged test class in full-screen dialog"
-        headerActionsPanel.add(viewDialogButton)
-        
-        headerPanel.add(headerActionsPanel, BorderLayout.EAST)
-        panel.add(headerPanel, BorderLayout.NORTH)
-        
-        // Create syntax-highlighted editor
-        val editorPanel = createEditorPanel()
-        panel.add(editorPanel, BorderLayout.CENTER)
+        statusLabel.foreground = UIUtil.getContextHelpForeground()
+        statusLabel.font = statusLabel.font.deriveFont(14f)
+        panel.add(statusLabel, BorderLayout.EAST)
         
         return panel
     }
     
-    private fun createEditorPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
+    private fun createComparisonPanel(): JComponent {
+        val splitPane = JSplitPane(JSplitPane.HORIZONTAL_SPLIT)
+        splitPane.resizeWeight = 0.5
+        splitPane.dividerSize = 10
         
-        // Create editor for syntax highlighting (initially empty)
-        val editorFactory = EditorFactory.getInstance()
-        val document = editorFactory.createDocument("// Merged test class will appear here after merging")
-        mergedClassEditor = editorFactory.createViewer(document, project) as EditorEx
+        // Left side - existing test
+        val existingPanel = createCodePanel("📂 Existing Test", true)
+        splitPane.leftComponent = existingPanel
         
-        // Configure editor for optimal display
-        mergedClassEditor?.let { editor ->
-            editor.settings.apply {
-                isLineNumbersShown = true
-                isWhitespacesShown = false
-                isLineMarkerAreaShown = true
-                isFoldingOutlineShown = true
-                isIndentGuidesShown = true
-                isUseSoftWraps = false
-                additionalLinesCount = 2
-                additionalColumnsCount = 5
-            }
-            
-            // Set Java syntax highlighting
-            val javaFileType = FileTypeManager.getInstance().getFileTypeByExtension("java")
-            val highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(
-                project, javaFileType
-            )
-            editor.highlighter = highlighter
-            
-            // Set read-only
-            editor.isViewer = true
-            
-            // Add click listener for issue navigation
-            editor.contentComponent.addMouseListener(object : MouseAdapter() {
-                override fun mouseClicked(e: MouseEvent) {
-                    if (e.clickCount == 1) {
-                        val line = editor.xyToLogicalPosition(e.point).line + 1 // +1 for 1-based line numbers
-                        highlightIssueForLine(line)
-                    }
-                }
-            })
-            
-            panel.add(editor.component, BorderLayout.CENTER)
-        }
+        // Right side - merged test
+        val mergedPanel = createCodePanel("✨ Merged Test", false)
+        splitPane.rightComponent = mergedPanel
         
-        return panel
+        return splitPane
     }
     
-    private fun createIssuesPanel(): JComponent {
+    private fun createCodePanel(title: String, isExisting: Boolean): JComponent {
         val panel = JPanel(BorderLayout())
-        panel.border = EmptyBorder(5, 10, 5, 10)
+        panel.border = JBUI.Borders.empty(5)
         
-        // Header
-        val headerLabel = JBLabel("🔍 Issues & Fixes")
+        // Panel header
+        val headerLabel = JBLabel(title)
         headerLabel.font = headerLabel.font.deriveFont(Font.BOLD, 12f)
+        headerLabel.border = JBUI.Borders.emptyBottom(5)
         panel.add(headerLabel, BorderLayout.NORTH)
         
-        // Issues list
-        issuesList.selectionMode = ListSelectionModel.SINGLE_SELECTION
-        issuesList.cellRenderer = IssueListCellRenderer()
+        // Create editor
+        val editorFactory = EditorFactory.getInstance()
+        val initialText = if (isExisting) {
+            "// No existing test class found\n// New test will be created"
+        } else {
+            "// Merged test will appear here after generation"
+        }
         
-        // Add click listeners for issue navigation
-        issuesList.addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) {
-                val index = issuesList.locationToIndex(e.point)
-                if (index >= 0) {
-                    val issue = issuesListModel.getElementAt(index)
-                    
-                    if (e.clickCount == 1) {
-                        // Single click: navigate to line in editor
-                        issue.lineNumber?.let { lineNum ->
-                            navigateToLine(lineNum)
-                        }
-                    } else if (e.clickCount == 2) {
-                        // Double click: show fix suggestions
-                        showFixSuggestions(issue)
-                    }
-                }
-            }
-        })
+        val document = editorFactory.createDocument(initialText)
+        val editor = editorFactory.createViewer(document, project) as EditorEx
         
-        val scrollPane = JBScrollPane(issuesList)
-        scrollPane.border = BorderFactory.createCompoundBorder(
-            EmptyBorder(5, 0, 0, 0),
-            BorderFactory.createLineBorder(UIUtil.getBoundsColor())
+        // Configure editor
+        editor.settings.apply {
+            isLineNumbersShown = true
+            isWhitespacesShown = false
+            isLineMarkerAreaShown = false
+            isFoldingOutlineShown = true
+            isIndentGuidesShown = true
+            isUseSoftWraps = false
+            additionalLinesCount = 2
+        }
+        
+        // Set Java syntax highlighting
+        val javaFileType = FileTypeManager.getInstance().getFileTypeByExtension("java")
+        val highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(
+            project, javaFileType
         )
-        scrollPane.preferredSize = JBUI.size(400, 150)
-        panel.add(scrollPane, BorderLayout.CENTER)
+        editor.highlighter = highlighter
+        editor.isViewer = true
+        
+        // Store reference
+        if (isExisting) {
+            existingCodeEditor = editor
+        } else {
+            mergedCodeEditor = editor
+        }
+        
+        // Add to panel with border
+        val editorWrapper = JPanel(BorderLayout())
+        editorWrapper.border = BorderFactory.createLineBorder(UIUtil.getBoundsColor())
+        editorWrapper.add(editor.component, BorderLayout.CENTER)
+        panel.add(editorWrapper, BorderLayout.CENTER)
         
         return panel
     }
     
-    private fun createActionsPanel(): JComponent {
-        val panel = JPanel(FlowLayout(FlowLayout.RIGHT))
-        panel.isOpaque = false
+    private fun createActionPanel(): JComponent {
+        val panel = JPanel(FlowLayout(FlowLayout.CENTER, 10, 10))
+        panel.border = JBUI.Borders.empty(10)
+        panel.background = UIUtil.getPanelBackground()
         
-        val reviewButton = JButton("🔍 Review Code")
-        reviewButton.addActionListener { triggerCodeReview() }
-        reviewButton.toolTipText = "Analyze merged test class for errors and improvements"
-        panel.add(reviewButton)
+        // Primary action - Write to File
+        val writeButton = JButton("💾 Write Merged Test to File")
+        writeButton.font = writeButton.font.deriveFont(Font.BOLD, 14f)
+        writeButton.preferredSize = JBUI.size(250, 40)
+        writeButton.addActionListener { writeMergedTestToFile() }
+        writeButton.toolTipText = "Save the merged test class to your project"
+        panel.add(writeButton)
         
-        val autoFixButton = JButton("🔧 Auto-Fix Issues")
-        autoFixButton.addActionListener { triggerAutoFix() }
-        autoFixButton.toolTipText = "Automatically fix detected issues"
-        panel.add(autoFixButton)
-        
-        val chatButton = JButton("💬 Merger Chat")
-        chatButton.addActionListener { openMergerChatDialog() }
-        chatButton.toolTipText = "View AI Merger agent chat memory"
-        panel.add(chatButton)
-        
-        val exportButton = JButton("📋 Copy Class")
-        exportButton.addActionListener { copyMergedClassToClipboard() }
-        exportButton.toolTipText = "Copy merged test class to clipboard"
-        panel.add(exportButton)
+        // Secondary action - Copy
+        val copyButton = JButton("📋 Copy to Clipboard")
+        copyButton.preferredSize = JBUI.size(180, 40)
+        copyButton.addActionListener { copyMergedClassToClipboard() }
+        copyButton.toolTipText = "Copy the merged test code to clipboard"
+        panel.add(copyButton)
         
         return panel
     }
     
     /**
-     * Update the merged test class display with syntax highlighting
+     * Update the display with existing and merged test classes
      */
-    fun updateMergedClass(mergedClass: MergedTestClass) {
+    fun updateMergedClass(mergedClass: MergedTestClass, existingCode: String? = null) {
         SwingUtilities.invokeLater {
             currentMergedClass = mergedClass
+            existingTestCode = existingCode
             
-            // Update editor content with syntax highlighting
-            mergedClassEditor?.let { editor ->
-                val document = editor.document
+            // Update existing code editor
+            existingCodeEditor?.let { editor ->
                 ApplicationManager.getApplication().runWriteAction {
-                    document.setText(mergedClass.fullContent)
+                    val text = existingCode ?: "// No existing test class found\n// New test will be created from scratch"
+                    editor.document.setText(text)
+                }
+            }
+            
+            // Update merged code editor
+            mergedCodeEditor?.let { editor ->
+                ApplicationManager.getApplication().runWriteAction {
+                    editor.document.setText(mergedClass.fullContent)
                 }
             }
             
             // Update status
-            statusLabel.text = "${mergedClass.className} (${mergedClass.methodCount} methods)"
-            
-            // Auto-trigger basic review
-            detectBasicIssues(mergedClass)
-        }
-    }
-    
-    /**
-     * Add or update an issue in the issues list
-     */
-    fun addIssue(issue: TestIssue) {
-        SwingUtilities.invokeLater {
-            issuesMap[issue.id] = issue
-            
-            // Update list model
-            issuesListModel.clear()
-            issuesMap.values.sortedBy { it.severity.ordinal }.forEach { 
-                issuesListModel.addElement(it) 
+            val statusText = if (existingCode != null) {
+                "Merged: ${mergedClass.className} (${mergedClass.methodCount} methods)"
+            } else {
+                "New: ${mergedClass.className} (${mergedClass.methodCount} methods)"
             }
-            
-            updateIssuesStatus()
-        }
-    }
-    
-    /**
-     * Clear all issues
-     */
-    fun clearIssues() {
-        SwingUtilities.invokeLater {
-            issuesMap.clear()
-            issuesListModel.clear()
-            updateIssuesStatus()
+            statusLabel.text = statusText
         }
     }
     
@@ -292,93 +204,161 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
     fun clear() {
         SwingUtilities.invokeLater {
             currentMergedClass = null
+            existingTestCode = null
             
-            // Clear editor content
-            mergedClassEditor?.let { editor ->
+            existingCodeEditor?.let { editor ->
                 ApplicationManager.getApplication().runWriteAction {
-                    editor.document.setText("// Merged test class will appear here after merging")
+                    editor.document.setText("// No existing test class found\n// New test will be created")
+                }
+            }
+            
+            mergedCodeEditor?.let { editor ->
+                ApplicationManager.getApplication().runWriteAction {
+                    editor.document.setText("// Merged test will appear here after generation")
                 }
             }
             
             statusLabel.text = "No merged test class yet"
-            clearIssues()
         }
     }
     
     /**
-     * Highlight issue for specific line in editor
+     * Find the best test source root from project modules
      */
-    private fun highlightIssueForLine(lineNumber: Int) {
-        // Find issue for this line and select it in the issues list
-        val matchingIssue = issuesMap.values.find { it.lineNumber == lineNumber }
-        matchingIssue?.let { issue ->
-            val index = issuesListModel.indexOf(issue)
-            if (index >= 0) {
-                issuesList.selectedIndex = index
-                issuesList.ensureIndexIsVisible(index)
+    private fun findBestTestSourceRoot(): String {
+        // Try to find test roots from project modules
+        val moduleManager = ModuleManager.getInstance(project)
+        for (module in moduleManager.modules) {
+            val rootManager = ModuleRootManager.getInstance(module)
+            // Get test source roots (true = test roots only)
+            val testRoots = rootManager.getSourceRoots(true)
+            for (testRoot in testRoots) {
+                if (testRoot.path.contains("test")) {
+                    return testRoot.path
+                }
             }
         }
-    }
-    
-    /**
-     * Open code view dialog for full-screen editing
-     */
-    private fun openCodeViewDialog() {
-        currentMergedClass?.let { mergedClass ->
-            // Use MergedTestPreviewDialog which has the "Write to File" button
-            // Create a minimal TestGenerationSession for the dialog
-            // Create a dummy PsiFile for the request
-            val factory = com.intellij.psi.PsiFileFactory.getInstance(project)
-            val javaFileType = com.intellij.openapi.fileTypes.FileTypeManager.getInstance().getFileTypeByExtension("java")
-            val dummyPsiFile = factory.createFileFromText(
-                "DummyFile.java",
-                javaFileType,
-                "// Dummy file for preview"
-            )
-            
-            val dummyRequest = com.zps.zest.testgen.model.TestGenerationRequest(
-                dummyPsiFile, // dummy PsiFile for preview
-                emptyList(), // targetMethods - not needed for preview
-                null, // selectedCode - not needed for preview  
-                com.zps.zest.testgen.model.TestGenerationRequest.TestType.UNIT_TESTS,
-                null // additionalContext
-            )
-            
-            val session = TestGenerationSession(
-                "merged_preview_${System.currentTimeMillis()}",
-                dummyRequest,
-                TestGenerationSession.Status.COMPLETED
-            )
-            session.setMergedTestClass(mergedClass)
-            
-            val dialog = MergedTestPreviewDialog(project, session)
-            dialog.show()
-        } ?: run {
-            JOptionPane.showMessageDialog(
-                this,
-                "No merged test class available to view",
-                "Code View",
-                JOptionPane.INFORMATION_MESSAGE
-            )
+        
+        // Fallback to conventional paths
+        val basePath = project.basePath ?: return "src/test/java"
+        
+        // Check common test directories
+        return when {
+            File("$basePath/src/test/java").exists() -> "$basePath/src/test/java"
+            File("$basePath/src/test/kotlin").exists() -> "$basePath/src/test/kotlin"
+            File("$basePath/test/java").exists() -> "$basePath/test/java"
+            File("$basePath/test").exists() -> "$basePath/test"
+            else -> "$basePath/src/test/java" // Default to standard Maven/Gradle structure
         }
     }
     
     /**
-     * Navigate to specific line in the editor
+     * Write merged test to file - extracted from MergedTestPreviewDialog
      */
-    private fun navigateToLine(lineNumber: Int) {
-        mergedClassEditor?.let { editor ->
-            val line = (lineNumber - 1).coerceAtLeast(0) // Convert to 0-based, ensure non-negative
-            val document = editor.document
+    private fun writeMergedTestToFile() {
+        val mergedTest = currentMergedClass
+        if (mergedTest == null) {
+            Messages.showWarningDialog(
+                project,
+                "No merged test class available to save",
+                "No Test Available"
+            )
+            return
+        }
+        
+        try {
+            val targetFile: File
             
-            if (line < document.lineCount) {
-                val offset = document.getLineStartOffset(line)
-                editor.caretModel.moveToOffset(offset)
-                editor.scrollingModel.scrollToCaret(com.intellij.openapi.editor.ScrollType.CENTER)
+            if (mergedTest.hasInferredPath()) {
+                // Use AI-inferred path from merger agent
+                val inferredPath = mergedTest.fullFilePath!!
+                targetFile = File(inferredPath)
                 
-                // Request focus to make the navigation visible
-                editor.contentComponent.requestFocus()
+                // Ensure parent directories exist
+                val parentDir = targetFile.parentFile
+                if (!parentDir.exists()) {
+                    parentDir.mkdirs()
+                }
+            } else {
+                // Use proper test source root detection
+                val testSourceRoot = findBestTestSourceRoot()
+                val testDir = File(testSourceRoot)
+                
+                // Create test directory if it doesn't exist
+                if (!testDir.exists()) {
+                    testDir.mkdirs()
+                }
+                
+                // Create package directories
+                val packagePath = mergedTest.packageName.replace('.', File.separatorChar)
+                val packageDir = File(testDir, packagePath)
+                if (!packageDir.exists()) {
+                    packageDir.mkdirs()
+                }
+                
+                targetFile = File(packageDir, mergedTest.fileName)
             }
+            
+            // Write the test file
+            targetFile.writeText(mergedTest.fullContent)
+            
+            // Open the saved file in IntelliJ editor
+            openFileInEditor(targetFile.absolutePath)
+            
+            // Show success notification
+            statusLabel.text = "✅ Saved: ${targetFile.name}"
+            
+        } catch (e: Exception) {
+            Messages.showErrorDialog(
+                project,
+                "Failed to write test file:\n${e.message}",
+                "Write Error"
+            )
+        }
+    }
+    
+    /**
+     * Open the saved test file in IntelliJ's editor
+     */
+    private fun openFileInEditor(filePath: String) {
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath)
+                if (virtualFile != null) {
+                    virtualFile.refresh(false, false)
+                    FileEditorManager.getInstance(project).openFile(virtualFile, true)
+                }
+            } catch (e: Exception) {
+                // Silently fail - file was saved successfully even if we can't open it
+            }
+        }
+    }
+    
+    private fun copyMergedClassToClipboard() {
+        currentMergedClass?.let { mergedClass ->
+            val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+            clipboard.setContents(StringSelection(mergedClass.fullContent), null)
+            
+            // Update status to show success
+            statusLabel.text = "✅ Copied to clipboard"
+            
+            // Reset status after 3 seconds
+            Timer(3000) {
+                SwingUtilities.invokeLater {
+                    currentMergedClass?.let {
+                        statusLabel.text = "Merged: ${it.className} (${it.methodCount} methods)"
+                    }
+                }
+            }.apply {
+                isRepeats = false
+                start()
+            }
+        } ?: run {
+            Messages.showWarningDialog(
+                project,
+                "No merged test class available to copy",
+                "No Test Available"
+            )
         }
     }
     
@@ -386,411 +366,13 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
      * Dispose of editor resources
      */
     fun dispose() {
-        mergedClassEditor?.let { 
+        existingCodeEditor?.let { 
             EditorFactory.getInstance().releaseEditor(it)
-            mergedClassEditor = null
+            existingCodeEditor = null
         }
-    }
-    
-    /**
-     * Set chat memory for the merger agent
-     */
-    fun setChatMemory(chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory?, agentName: String = "AI Merger Agent") {
-        this.mergerAgentMemory = chatMemory
-        this.mergerAgentName = agentName
-    }
-    
-    /**
-     * Detect basic issues in merged test class
-     */
-    private fun detectBasicIssues(mergedClass: MergedTestClass) {
-        clearIssues()
-        
-        val content = mergedClass.fullContent
-        val lines = content.split("\n")
-        
-        // Check for missing imports
-        if (!content.contains("import org.junit") && content.contains("@Test")) {
-            addIssue(TestIssue(
-                "missing_junit_import",
-                "Missing JUnit imports",
-                "Test class uses @Test annotation but missing JUnit imports",
-                TestIssue.Severity.ERROR,
-                null,
-                "Add: import org.junit.jupiter.api.Test"
-            ))
-        }
-        
-        // Check for test methods without assertions
-        val testMethods = extractTestMethods(content)
-        testMethods.forEachIndexed { index, method ->
-            if (!method.body.contains("assert") && !method.body.contains("verify") && !method.body.contains("expect")) {
-                addIssue(TestIssue(
-                    "no_assertions_${index}",
-                    "Missing assertions in ${method.name}",
-                    "Test method ${method.name} has no assertions - tests should verify expected behavior",
-                    TestIssue.Severity.WARNING,
-                    method.lineNumber,
-                    "Add assertions like assertEquals(), assertTrue(), or assertThat()"
-                ))
-            }
-        }
-        
-        // Check for empty test methods
-        testMethods.forEach { method ->
-            val bodyTrimmed = method.body.replace(Regex("//.*"), "").replace(Regex("/\\*.*?\\*/"), "").trim()
-            if (bodyTrimmed.isEmpty()) {
-                addIssue(TestIssue(
-                    "empty_method_${method.name}",
-                    "Empty test method: ${method.name}",
-                    "Test method ${method.name} has no implementation",
-                    TestIssue.Severity.ERROR,
-                    method.lineNumber,
-                    "Implement test logic with Given-When-Then pattern"
-                ))
-            }
-        }
-    }
-    
-    private fun extractTestMethods(content: String): List<TestMethod> {
-        val methods = mutableListOf<TestMethod>()
-        val lines = content.split("\n")
-        
-        for (i in lines.indices) {
-            val line = lines[i].trim()
-            if (line.startsWith("@Test")) {
-                // Find method signature in next few lines
-                for (j in (i + 1)..minOf(i + 5, lines.size - 1)) {
-                    val methodLine = lines[j].trim()
-                    if (methodLine.contains("void ") && methodLine.contains("(")) {
-                        val methodName = extractMethodName(methodLine)
-                        val methodBody = extractMethodBody(lines, j)
-                        methods.add(TestMethod(methodName, methodBody, j + 1))
-                        break
-                    }
-                }
-            }
-        }
-        
-        return methods
-    }
-    
-    private fun extractMethodName(methodLine: String): String {
-        val voidIndex = methodLine.indexOf("void ")
-        val parenIndex = methodLine.indexOf("(")
-        return if (voidIndex >= 0 && parenIndex > voidIndex) {
-            methodLine.substring(voidIndex + 5, parenIndex).trim()
-        } else {
-            "unknownMethod"
-        }
-    }
-    
-    private fun extractMethodBody(lines: List<String>, startIndex: Int): String {
-        val body = StringBuilder()
-        var braceCount = 0
-        var foundOpenBrace = false
-        
-        for (i in startIndex until lines.size) {
-            val line = lines[i]
-            
-            for (char in line) {
-                if (char == '{') {
-                    braceCount++
-                    foundOpenBrace = true
-                }
-                if (char == '}') braceCount--
-            }
-            
-            if (foundOpenBrace && braceCount > 0) {
-                body.append(line).append("\n")
-            } else if (foundOpenBrace && braceCount == 0) {
-                break
-            }
-        }
-        
-        return body.toString().trim()
-    }
-    
-    private fun updateIssuesStatus() {
-        val errorCount = issuesMap.values.count { it.severity == TestIssue.Severity.ERROR }
-        val warningCount = issuesMap.values.count { it.severity == TestIssue.Severity.WARNING }
-        
-        statusLabel.text = buildString {
-            currentMergedClass?.let { 
-                append("${it.className} (${it.methodCount} methods)")
-                if (errorCount > 0 || warningCount > 0) {
-                    append(" | ")
-                    if (errorCount > 0) append("❌ $errorCount errors ")
-                    if (warningCount > 0) append("⚠️ $warningCount warnings")
-                }
-            }
-        }
-    }
-    
-    private fun triggerCodeReview() {
-        currentMergedClass?.let { mergedClass ->
-            // Clear existing issues before review
-            clearIssues()
-            
-            // Placeholder for AITestMergerAgent integration
-            // In actual implementation, this would call: aiMergerAgent.reviewTestClass(mergedClass.fullContent)
-            val worker = object : SwingWorker<String, Void>() {
-                override fun doInBackground(): String {
-                    Thread.sleep(1000) // Simulate review time
-                    return simulateReviewResults(mergedClass.fullContent)
-                }
-                
-                override fun done() {
-                    try {
-                        val reviewResults = get()
-                        parseAndDisplayReviewResults(reviewResults)
-                    } catch (e: Exception) {
-                        JOptionPane.showMessageDialog(
-                            this@TestMergingPanel,
-                            "Code review failed: ${e.message}",
-                            "Review Error", 
-                            JOptionPane.ERROR_MESSAGE
-                        )
-                    }
-                }
-            }
-            worker.execute()
-        } ?: run {
-            JOptionPane.showMessageDialog(
-                this,
-                "No merged test class available for review",
-                "Code Review",
-                JOptionPane.INFORMATION_MESSAGE
-            )
-        }
-    }
-    
-    private fun simulateReviewResults(testClassCode: String): String {
-        return """
-        COMPILATION_ERRORS:
-        - Line 15: Missing import for Assertions class
-        
-        LOGICAL_ISSUES:
-        - Line 23: Test method has no assertions - add assertEquals or assertTrue
-        - Line 35: Empty test method needs implementation
-        
-        QUALITY_IMPROVEMENTS:
-        - Line 28: Method name should follow testMethod_WhenCondition_ThenResult pattern
-        - Line 42: Add meaningful assertion failure message
-        
-        SUGGESTIONS:
-        - Add import: static org.junit.jupiter.api.Assertions.*
-        - Implement missing assertions in testUserCreation()
-        - Add proper Given-When-Then structure to empty test methods
-        """.trimIndent()
-    }
-    
-    private fun parseAndDisplayReviewResults(reviewResults: String) {
-        val lines = reviewResults.split("\n")
-        var currentSection = ""
-        
-        for (line in lines) {
-            when {
-                line.startsWith("COMPILATION_ERRORS:") -> currentSection = "COMPILATION"
-                line.startsWith("LOGICAL_ISSUES:") -> currentSection = "LOGICAL"
-                line.startsWith("QUALITY_IMPROVEMENTS:") -> currentSection = "QUALITY"
-                line.startsWith("- Line ") -> {
-                    parseIssueLine(line, currentSection)
-                }
-            }
-        }
-    }
-    
-    private fun parseIssueLine(line: String, section: String) {
-        try {
-            // Parse "- Line X: Description"
-            val parts = line.substring(2).split(": ", limit = 2) // Remove "- "
-            if (parts.size == 2) {
-                val lineNum = parts[0].replace("Line ", "").toIntOrNull()
-                val description = parts[1]
-                
-                val severity = when (section) {
-                    "COMPILATION" -> TestIssue.Severity.ERROR
-                    "LOGICAL" -> TestIssue.Severity.WARNING
-                    "QUALITY" -> TestIssue.Severity.INFO
-                    else -> TestIssue.Severity.INFO
-                }
-                
-                addIssue(TestIssue(
-                    "${section}_${lineNum}_${System.currentTimeMillis()}",
-                    if (lineNum != null) "Line $lineNum: $description" else description,
-                    description,
-                    severity,
-                    lineNum,
-                    "Auto-fix available" // Placeholder
-                ))
-            }
-        } catch (e: Exception) {
-            // Skip malformed lines
-        }
-    }
-    
-    private fun triggerAutoFix() {
-        val selectedIssue = issuesList.selectedValue
-        if (selectedIssue != null) {
-            // TODO: Implement auto-fix functionality
-            JOptionPane.showMessageDialog(
-                this,
-                "Auto-fix for: ${selectedIssue.title}\n\nSuggestion: ${selectedIssue.suggestion}",
-                "Auto-Fix",
-                JOptionPane.INFORMATION_MESSAGE
-            )
-        } else if (issuesMap.isNotEmpty()) {
-            // Auto-fix all issues
-            JOptionPane.showMessageDialog(
-                this,
-                "Auto-fixing ${issuesMap.size} issues...\n\nThis will be implemented with enhanced AITestMergerAgent",
-                "Auto-Fix All",
-                JOptionPane.INFORMATION_MESSAGE
-            )
-        } else {
-            JOptionPane.showMessageDialog(
-                this,
-                "No issues detected to fix",
-                "Auto-Fix",
-                JOptionPane.INFORMATION_MESSAGE
-            )
-        }
-    }
-    
-    private fun showFixSuggestions(issue: TestIssue) {
-        val message = buildString {
-            appendLine("Issue: ${issue.title}")
-            appendLine()
-            appendLine("Description: ${issue.description}")
-            if (issue.lineNumber != null) {
-                appendLine("Line: ${issue.lineNumber}")
-            }
-            appendLine()
-            appendLine("Suggested Fix:")
-            appendLine(issue.suggestion)
-        }
-        
-        JOptionPane.showMessageDialog(
-            this,
-            message,
-            "Fix Suggestion",
-            JOptionPane.INFORMATION_MESSAGE
-        )
-    }
-    
-    private fun openMergerChatDialog() {
-        val dialog = ChatMemoryDialog(project, mergerAgentMemory, mergerAgentName)
-        dialog.show()
-    }
-    
-    private fun copyMergedClassToClipboard() {
-        currentMergedClass?.let { mergedClass ->
-            val clipboard = Toolkit.getDefaultToolkit().systemClipboard
-            clipboard.setContents(java.awt.datatransfer.StringSelection(mergedClass.fullContent), null)
-            
-            JOptionPane.showMessageDialog(
-                this,
-                "Merged test class copied to clipboard",
-                "Export Successful",
-                JOptionPane.INFORMATION_MESSAGE
-            )
-        } ?: run {
-            JOptionPane.showMessageDialog(
-                this,
-                "No merged test class available to copy",
-                "Export",
-                JOptionPane.INFORMATION_MESSAGE
-            )
-        }
-    }
-    
-    /**
-     * Get all detected issues for external processing
-     */
-    fun getDetectedIssues(): List<TestIssue> {
-        return issuesMap.values.toList()
-    }
-    
-    /**
-     * Data class for test issues
-     */
-    data class TestIssue(
-        val id: String,
-        val title: String,
-        val description: String,
-        val severity: Severity,
-        val lineNumber: Int? = null,
-        val suggestion: String? = null
-    ) {
-        enum class Severity {
-            ERROR, WARNING, INFO
-        }
-        
-        fun getIcon(): String = when (severity) {
-            Severity.ERROR -> "❌"
-            Severity.WARNING -> "⚠️"
-            Severity.INFO -> "ℹ️"
-        }
-        
-        fun getSummary(): String = "${getIcon()} $title${lineNumber?.let { " (line $it)" } ?: ""}"
-    }
-    
-    /**
-     * Data class for test methods
-     */
-    private data class TestMethod(
-        val name: String,
-        val body: String,
-        val lineNumber: Int
-    )
-    
-    /**
-     * Custom cell renderer for issues list
-     */
-    private class IssueListCellRenderer : DefaultListCellRenderer() {
-        override fun getListCellRendererComponent(
-            list: JList<*>,
-            value: Any?,
-            index: Int,
-            isSelected: Boolean,
-            cellHasFocus: Boolean
-        ): Component {
-            val component = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
-            
-            if (value is TestIssue && component is JLabel) {
-                val panel = JPanel(BorderLayout())
-                panel.background = if (isSelected) list.selectionBackground else list.background
-                panel.border = EmptyBorder(8, 10, 8, 10)
-                
-                // Issue summary with icon
-                val titleLabel = JBLabel(value.getSummary())
-                titleLabel.foreground = when {
-                    isSelected -> list.selectionForeground
-                    value.severity == TestIssue.Severity.ERROR -> Color(255, 0, 0)
-                    value.severity == TestIssue.Severity.WARNING -> Color(255, 140, 0)
-                    else -> list.foreground
-                }
-                titleLabel.font = titleLabel.font.deriveFont(Font.BOLD)
-                panel.add(titleLabel, BorderLayout.NORTH)
-                
-                // Description
-                val descLabel = JBLabel("<html>${value.description}</html>")
-                descLabel.foreground = if (isSelected) list.selectionForeground else UIUtil.getContextHelpForeground()
-                panel.add(descLabel, BorderLayout.CENTER)
-                
-                // Suggestion hint
-                if (value.suggestion != null) {
-                    val suggestionLabel = JBLabel("💡 Double-click for fix suggestion")
-                    suggestionLabel.foreground = UIUtil.getContextHelpForeground()
-                    suggestionLabel.font = suggestionLabel.font.deriveFont(10f)
-                    panel.add(suggestionLabel, BorderLayout.SOUTH)
-                }
-                
-                return panel
-            }
-            
-            return component
+        mergedCodeEditor?.let { 
+            EditorFactory.getInstance().releaseEditor(it)
+            mergedCodeEditor = null
         }
     }
 }

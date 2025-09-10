@@ -263,7 +263,13 @@ class StateMachineTestGenerationEditor(
         
         override fun onMergedTestClassUpdated(mergedClass: com.zps.zest.testgen.model.MergedTestClass) {
             SwingUtilities.invokeLater {
-                testMergingPanel.updateMergedClass(mergedClass)
+                // Get existing test code from AITestMergerAgent if available
+                val aiMergerAgent = currentStateMachine?.sessionData?.get("aiMergerAgent") as? com.zps.zest.testgen.agents.AITestMergerAgent
+                val existingTestCode = aiMergerAgent?.lastExistingTestCode
+                
+                // Update panel with both merged and existing code
+                testMergingPanel.updateMergedClass(mergedClass, existingTestCode)
+                
                 // Switch to test merging tab
                 tabbedPane.selectedIndex = 3
             }
@@ -1042,9 +1048,7 @@ class StateMachineTestGenerationEditor(
             val coordinatorAgent = stateMachine?.sessionData?.get("coordinatorAgent") as? com.zps.zest.testgen.agents.CoordinatorAgent
             testPlanDisplayPanel.setChatMemory(coordinatorAgent?.getChatMemory(), "Coordinator")
             
-            // Get AITestMergerAgent memory for merging and review
-            val aiMergerAgent = stateMachine?.sessionData?.get("aiMergerAgent") as? com.zps.zest.testgen.agents.AITestMergerAgent
-            testMergingPanel.setChatMemory(aiMergerAgent?.getChatMemory(), "AI Merger")
+            // AITestMergerAgent is now accessed directly in onMergedTestClassUpdated
             
             // Only log when there are significant changes
             if (wasContextAgentNull && contextAgent != null) {

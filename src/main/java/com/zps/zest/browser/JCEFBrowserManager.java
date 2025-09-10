@@ -473,8 +473,8 @@ public class JCEFBrowserManager implements Disposable {
                 cefBrowser.executeJavaScript(codeExtractorScript, frame.getURL(), 0);
                 
                 // Load and inject the exploration UI script
-                String explorationUIScript = loadResourceAsString("/js/explorationUI.js");
-                cefBrowser.executeJavaScript(explorationUIScript, frame.getURL(), 0);
+//                String explorationUIScript = loadResourceAsString("/js/explorationUI.js");
+//                cefBrowser.executeJavaScript(explorationUIScript, frame.getURL(), 0);
                 
                 // Load and inject the context debugger script
                 String contextDebuggerScript = loadResourceAsString("/js/contextDebugger.js");

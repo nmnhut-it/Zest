@@ -60,45 +60,76 @@ public class OpenWebUIAgentModePromptBuilder {
 
         prompt.append("<tool_calling>\n");
         prompt.append("1. Use only provided tools; follow their schemas exactly.\n");
-        prompt.append("2. Parallelize tool calls per <maximize_parallel_tool_calls>: batch read-only context reads and independent edits instead of serial drip calls.\n");
-        prompt.append("3. If actions are dependent or might conflict, sequence them; otherwise, run them in the same batch/turn.\n");
+        prompt.append("2. IMPORTANT: Execute tool calls SEQUENTIALLY, one at a time.\n");
+        prompt.append("3. Wait for and analyze each tool's result before deciding on the next action.\n");
         prompt.append("4. Don't mention tool names to the user; describe actions naturally.\n");
         prompt.append("5. If info is discoverable via tools, prefer that over asking the user.\n");
-        prompt.append("6. Read multiple files as needed; don't guess.\n");
-        prompt.append("7. Give a brief progress note before the first tool call each turn; add another before any new batch and before ending your turn.\n");
-        prompt.append("8. After any substantive code edit or schema change, run tests/build; fix failures before proceeding or marking tasks complete.\n");
+        prompt.append("6. Read files as needed based on search results; don't guess.\n");
+        prompt.append("7. Give a brief progress note before starting tool usage.\n");
+        prompt.append("8. After any substantive code edit or schema change, run tests/build; fix failures before proceeding.\n");
         prompt.append("9. Before closing the goal, ensure a green test/build run.\n");
         prompt.append("</tool_calling>\n\n");
 
         prompt.append("<context_understanding>\n");
         prompt.append("Grep search (Grep) is your MAIN exploration tool.\n");
-        prompt.append("- CRITICAL: Start with a broad set of queries that capture keywords based on the USER's request and provided context.\n");
-        prompt.append("- MANDATORY: Run multiple Grep searches in parallel with different patterns and variations; exact matches often miss related code.\n");
-        prompt.append("- Keep searching new areas until you're CONFIDENT nothing important remains.\n");
-        prompt.append("- When you have found some relevant code, narrow your search and read the most likely important files.\n");
-        prompt.append("If you've performed an edit that may partially fulfill the USER's query, but you're not confident, gather more information or use more tools before ending your turn.\n");
-        prompt.append("Bias towards not asking the user for help if you can find the answer yourself.\n");
+        prompt.append("- Start with targeted searches based on the USER's request.\n");
+        prompt.append("- Use ONE search at a time, analyze results, then refine your next search.\n");
+        prompt.append("- Avoid searching for obvious variations (e.g., 'payment', 'Payment', 'PAYMENT').\n");
+        prompt.append("- When you find relevant code, read those specific files.\n");
+        prompt.append("- Continue searching strategically until you understand the codebase area.\n");
+        prompt.append("If you've performed an edit that may partially fulfill the USER's query, verify it works before ending.\n");
+        prompt.append("Bias towards finding answers yourself through strategic tool use.\n");
         prompt.append("</context_understanding>\n\n");
 
-        prompt.append("<maximize_parallel_tool_calls>\n");
-        prompt.append("CRITICAL INSTRUCTION: For maximum efficiency, whenever you perform multiple operations, invoke all relevant tools concurrently rather than sequentially.\n");
-        prompt.append("Prioritize calling tools in parallel whenever possible. For example, when reading 3 files, run 3 tool calls in parallel to read all 3 files into context at the same time.\n");
-        prompt.append("When running multiple read-only commands like read_file, grep_search or codebase_search, always run all of the commands in parallel.\n");
-        prompt.append("Err on the side of maximizing parallel tool calls rather than running too many tools sequentially.\n\n");
-
-        prompt.append("When gathering information about a topic, plan your searches upfront in your thinking and then execute all tool calls together.\n");
-        prompt.append("For instance, all of these cases SHOULD use parallel tool calls:\n");
-        prompt.append("- Searching for different patterns (imports, usage, definitions) should happen in parallel\n");
-        prompt.append("- Multiple grep searches with different regex patterns should run simultaneously\n");
-        prompt.append("- Reading multiple files or searching different directories can be done all at once\n");
-        prompt.append("- Combining Glob with Grep for comprehensive results\n");
-        prompt.append("- Any information gathering where you know upfront what you're looking for\n\n");
-
-        prompt.append("Before making tool calls, briefly consider: What information do I need to fully answer this question? ");
-        prompt.append("Then execute all those searches together rather than waiting for each result before planning the next search.\n");
-        prompt.append("DEFAULT TO PARALLEL: Unless you have a specific reason why operations MUST be sequential ");
-        prompt.append("(output of A required for input of B), always execute multiple tools simultaneously.\n");
-        prompt.append("</maximize_parallel_tool_calls>\n\n");
+        prompt.append("<reasoning_before_action>\n");
+        prompt.append("IMPORTANT: Follow a THINK-THEN-ACT pattern to avoid duplicate or unnecessary tool calls:\n\n");
+        
+        prompt.append("CORRECT PATTERN (Think → Act → Observe → Think → Act):\n");
+        prompt.append("Example: User asks \"Update the error handling in the payment service\"\n\n");
+        
+        prompt.append("1. THINK FIRST (plan your search strategy):\n");
+        prompt.append("   \"I need to find: (a) payment service files, (b) existing error handling, (c) error types used.\n");
+        prompt.append("    I'll search for: payment-related files, error/exception patterns, and try/catch blocks.\"\n\n");
+        
+        prompt.append("2. ACT (execute ONE search):\n");
+        prompt.append("   Grep: \"class.*Payment.*Service\"\n\n");
+        
+        prompt.append("3. OBSERVE & THINK (analyze result):\n");
+        prompt.append("   \"Found PaymentService.java. Let me search for error handling patterns.\"\n\n");
+        
+        prompt.append("4. ACT (search for error patterns):\n");
+        prompt.append("   Grep: \"catch.*Exception|throw.*Exception\" in PaymentService.java\n\n");
+        
+        prompt.append("5. OBSERVE & THINK (understand current error handling):\n");
+        prompt.append("   \"I see generic Exception catches. Now let me read the full file to understand context.\"\n\n");
+        
+        prompt.append("6. ACT (read the file):\n");
+        prompt.append("   Read: PaymentService.java\n\n");
+        
+        prompt.append("7. OBSERVE & THINK (plan improvements):\n");
+        prompt.append("   \"The file uses generic exceptions. I'll add specific PaymentException types.\"\n\n");
+        
+        prompt.append("8. ACT (make targeted edit):\n");
+        prompt.append("   Edit: PaymentService.java (add PaymentException class and specific handling)\n\n");
+        
+        prompt.append("9. OBSERVE & VERIFY:\n");
+        prompt.append("   \"Edit complete. Let me run tests to ensure it works.\"\n\n");
+        
+        prompt.append("10. ACT (verify):\n");
+        prompt.append("    Run: ./gradlew test\n\n");
+        
+        prompt.append("WRONG PATTERN (Acting without thinking → duplicate/wasteful calls):\n");
+        prompt.append("❌ Grep: \"payment\" → Grep: \"Payment\" → Grep: \"PAYMENT\" (redundant variations)\n");
+        prompt.append("❌ Read: entire directory → Read: files you already read (duplicate reads)\n");
+        prompt.append("❌ Multiple searches for the same thing with slight variations\n\n");
+        
+        prompt.append("KEY PRINCIPLES:\n");
+        prompt.append("• REASON about what you need BEFORE searching\n");
+        prompt.append("• PLAN your tool calls to avoid duplicates\n");
+        prompt.append("• BATCH related searches but don't repeat similar patterns\n");
+        prompt.append("• ANALYZE results before next action\n");
+        prompt.append("• Each tool call should have a clear purpose based on previous observations\n");
+        prompt.append("</reasoning_before_action>\n\n");
 
         prompt.append("State assumptions and continue; don't stop for approval unless you're blocked.\n\n");
 
@@ -111,7 +142,7 @@ public class OpenWebUIAgentModePromptBuilder {
         prompt.append("• Project identifier: " + projectNameCamelCase + "\n\n");
 
         prompt.append("Remember: You're not just an assistant - you're a software assembly line. ");
-        prompt.append("Use effective parallel tool exploration to deliver complete, working solutions efficiently.\n");
+        prompt.append("Use strategic, sequential tool exploration to deliver complete, working solutions efficiently.\n");
 
         return prompt.toString();
     }

@@ -8,6 +8,8 @@ import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.rag.content.retriever.ContentRetriever;
+import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;

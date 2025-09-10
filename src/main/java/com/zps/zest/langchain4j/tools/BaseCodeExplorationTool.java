@@ -31,7 +31,28 @@ public abstract class BaseCodeExplorationTool implements CodeExplorationTool {
 
     @Override
     public ToolResult execute(JsonObject parameters) {
-        return doExecute(parameters);
+        try {
+            return doExecute(parameters);
+        } catch (Exception e) {
+            // Log the error for debugging
+            String errorMessage = String.format("Error executing tool '%s': %s", 
+                name, 
+                e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            
+            // Include stack trace in development/debug mode
+            if (project != null && project.isDefault()) {
+                StringBuilder sb = new StringBuilder(errorMessage);
+                sb.append("\nStack trace:\n");
+                for (StackTraceElement element : e.getStackTrace()) {
+                    sb.append("  at ").append(element.toString()).append("\n");
+                    // Limit stack trace to first 5 elements to avoid too much noise
+                    if (sb.length() > 1000) break;
+                }
+                errorMessage = sb.toString();
+            }
+            
+            return ToolResult.error(errorMessage);
+        }
     }
 
     /**

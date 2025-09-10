@@ -21,6 +21,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     private final TestMergingAssistant assistant;
     private final MessageWindowChatMemory chatMemory;
     private final ExistingTestAnalyzer existingTestAnalyzer;
+    private String lastExistingTestCode = null; // Store for UI display
     
     public AITestMergerAgent(@NotNull Project project,
                             @NotNull ZestLangChain4jService langChainService,
@@ -219,7 +220,10 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         // Check for existing test file
         try {
             ExistingTestAnalyzer.ExistingTestClass existingTest = 
-                existingTestAnalyzer.findExistingTestClass(result.getTargetClass());
+                com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
+                    (com.intellij.openapi.util.Computable<ExistingTestAnalyzer.ExistingTestClass>) () -> 
+                        existingTestAnalyzer.findExistingTestClass(result.getTargetClass())
+                );
             
             if (existingTest != null) {
                 request.append("=== EXISTING TEST CLASS FOUND ===\n");
@@ -228,11 +232,16 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                 request.append("Existing methods: ").append(existingTest.getTestMethodCount()).append("\n");
                 
                 // Get source code from PSI class
-                String existingCode = getSourceCodeFromPsiClass(existingTest.getPsiClass());
+                String existingCode = com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
+                    (com.intellij.openapi.util.Computable<String>) () -> 
+                        getSourceCodeFromPsiClass(existingTest.getPsiClass())
+                );
                 if (existingCode != null && !existingCode.isEmpty()) {
+                    lastExistingTestCode = existingCode; // Store for UI
                     request.append("\nEXISTING TEST CLASS CODE:\n");
                     request.append("```java\n").append(existingCode).append("\n```\n\n");
                 } else {
+                    lastExistingTestCode = null;
                     request.append("(Could not read existing test class code)\n\n");
                 }
                 
@@ -246,6 +255,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             } else {
                 request.append("=== NO EXISTING TEST CLASS FOUND ===\n");
                 request.append("This is a new test class - return the new test class as-is.\n");
+                lastExistingTestCode = null; // No existing test
             }
         } catch (Exception e) {
             LOG.warn("Could not analyze existing test class", e);
@@ -400,21 +410,86 @@ public class AITestMergerAgent extends StreamingBaseAgent {
      * Determine output path for the test file
      */
     private String determineOutputPath(TestGenerationResult result, ContextAgent.ContextGatheringTools contextTools) {
-        // Try to get framework-specific path
-        String testPath = "src/test/java/" + result.getPackageName().replace('.', '/') + "/" + result.getClassName() + ".java";
-        
         // Check if existing test file has a different path
         try {
             ExistingTestAnalyzer.ExistingTestClass existingTest = 
-                existingTestAnalyzer.findExistingTestClass(result.getTargetClass());
+                com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
+                    (com.intellij.openapi.util.Computable<ExistingTestAnalyzer.ExistingTestClass>) () -> 
+                        existingTestAnalyzer.findExistingTestClass(result.getTargetClass())
+                );
             if (existingTest != null) {
+                // Return the existing test's absolute path
                 return existingTest.getFilePath();
             }
         } catch (Exception e) {
             LOG.warn("Could not determine existing test path", e);
         }
         
-        return testPath;
+        // Find the best test source root
+        String testSourceRoot = findBestTestSourceRoot();
+        
+        // Build the full absolute path using File to handle path separators correctly
+        java.io.File testDir = new java.io.File(testSourceRoot);
+        
+        // Create package directories path
+        String packagePath = result.getPackageName().replace('.', java.io.File.separatorChar);
+        java.io.File packageDir = packagePath.isEmpty() ? testDir : new java.io.File(testDir, packagePath);
+        
+        // Create the full file path
+        java.io.File testFile = new java.io.File(packageDir, result.getClassName() + ".java");
+        
+        // Return the absolute path
+        return testFile.getAbsolutePath();
+    }
+    
+    /**
+     * Find the best test source root from project modules
+     */
+    private String findBestTestSourceRoot() {
+        // Try to find test roots from project modules
+        com.intellij.openapi.module.ModuleManager moduleManager = com.intellij.openapi.module.ModuleManager.getInstance(project);
+        for (com.intellij.openapi.module.Module module : moduleManager.getModules()) {
+            com.intellij.openapi.roots.ModuleRootManager rootManager = com.intellij.openapi.roots.ModuleRootManager.getInstance(module);
+            // Get test source roots (true = test roots only)
+            com.intellij.openapi.vfs.VirtualFile[] testRoots = rootManager.getSourceRoots(true);
+            for (com.intellij.openapi.vfs.VirtualFile testRoot : testRoots) {
+                if (testRoot.getPath().contains("test")) {
+                    return testRoot.getPath();
+                }
+            }
+        }
+        
+        // Fallback to conventional paths
+        String basePath = project.getBasePath();
+        if (basePath == null) {
+            return "src/test/java"; // Last resort fallback
+        }
+        
+        // Check common test directories using File to handle separators correctly
+        java.io.File baseDir = new java.io.File(basePath);
+        
+        java.io.File srcTestJava = new java.io.File(baseDir, "src/test/java");
+        if (srcTestJava.exists()) {
+            return srcTestJava.getAbsolutePath();
+        }
+        
+        java.io.File srcTestKotlin = new java.io.File(baseDir, "src/test/kotlin");
+        if (srcTestKotlin.exists()) {
+            return srcTestKotlin.getAbsolutePath();
+        }
+        
+        java.io.File testJava = new java.io.File(baseDir, "test/java");
+        if (testJava.exists()) {
+            return testJava.getAbsolutePath();
+        }
+        
+        java.io.File test = new java.io.File(baseDir, "test");
+        if (test.exists()) {
+            return test.getAbsolutePath();
+        }
+        
+        // Default to standard Maven/Gradle structure
+        return new java.io.File(baseDir, "src/test/java").getAbsolutePath();
     }
     
     
@@ -439,9 +514,122 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         return null;
     }
     
+    /**
+     * Review test class for issues and return detailed analysis
+     */
+    @NotNull
+    public CompletableFuture<String> reviewTestClass(@NotNull String testClassCode) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                LOG.debug("Starting test class review");
+                
+                String reviewRequest = "REVIEW TASK: Analyze this test class for issues\n\n" +
+                    "Please identify:\n" +
+                    "1. COMPILATION_ERRORS: Missing imports, syntax errors, undefined references\n" +
+                    "2. LOGICAL_ISSUES: Missing assertions, empty methods, incomplete setup\n" +
+                    "3. QUALITY_IMPROVEMENTS: Poor naming, missing annotations, no documentation\n\n" +
+                    "Test Class:\n```java\n" + testClassCode + "\n```\n\n" +
+                    "Format your response EXACTLY as:\n" +
+                    "COMPILATION_ERRORS:\n" +
+                    "- Line X: Description\n\n" +
+                    "LOGICAL_ISSUES:\n" +
+                    "- Line X: Description\n\n" +
+                    "QUALITY_IMPROVEMENTS:\n" +
+                    "- Line X: Description\n\n" +
+                    "SUGGESTIONS:\n" +
+                    "- Suggestion text";
+                
+                // Use the AI assistant to review
+                String reviewResult = assistant.mergeAndFixTestClass(reviewRequest);
+                
+                // If AI returns code instead of review, extract issues from the improvements made
+                if (reviewResult.startsWith("package ")) {
+                    return extractIssuesFromComparison(testClassCode, reviewResult);
+                }
+                
+                return reviewResult;
+                
+            } catch (Exception e) {
+                LOG.error("Test review failed", e);
+                return "REVIEW_ERROR:\n- Failed to analyze test class: " + e.getMessage();
+            }
+        });
+    }
+    
+    /**
+     * Auto-fix issues in test class
+     */
+    @NotNull
+    public CompletableFuture<String> autoFixTestClass(@NotNull String testClassCode, @NotNull String issues) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                LOG.debug("Starting auto-fix for test class");
+                
+                String fixRequest = "FIX TASK: Fix all issues in this test class\n\n" +
+                    "Issues found:\n" + issues + "\n\n" +
+                    "Test Class to fix:\n```java\n" + testClassCode + "\n```\n\n" +
+                    "Generate the complete FIXED Java test class.";
+                
+                // Use the AI assistant to fix
+                String fixedCode = assistant.mergeAndFixTestClass(fixRequest);
+                
+                return fixedCode;
+                
+            } catch (Exception e) {
+                LOG.error("Auto-fix failed", e);
+                throw new RuntimeException("Auto-fix failed: " + e.getMessage(), e);
+            }
+        });
+    }
+    
+    /**
+     * Extract issues by comparing original and improved code
+     */
+    private String extractIssuesFromComparison(String original, String improved) {
+        StringBuilder issues = new StringBuilder();
+        
+        issues.append("DETECTED_IMPROVEMENTS:\n");
+        
+        // Check for added imports
+        if (!original.contains("import org.junit") && improved.contains("import org.junit")) {
+            issues.append("- Line 1: Added missing JUnit imports\n");
+        }
+        
+        // Check for assertion additions
+        int originalAsserts = countOccurrences(original, "assert");
+        int improvedAsserts = countOccurrences(improved, "assert");
+        if (improvedAsserts > originalAsserts) {
+            issues.append("- Multiple lines: Added missing assertions to test methods\n");
+        }
+        
+        // Generic improvement message
+        issues.append("- Overall: Code has been improved and fixed\n");
+        
+        return issues.toString();
+    }
+    
+    private int countOccurrences(String text, String pattern) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(pattern, index)) != -1) {
+            count++;
+            index += pattern.length();
+        }
+        return count;
+    }
+    
     @NotNull
     public MessageWindowChatMemory getChatMemory() {
         return chatMemory;
+    }
+    
+    /**
+     * Get the last existing test code that was found during merging
+     * @return The existing test code or null if no existing test was found
+     */
+    @Nullable
+    public String getLastExistingTestCode() {
+        return lastExistingTestCode;
     }
     
     /**

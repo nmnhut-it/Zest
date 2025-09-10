@@ -36,10 +36,10 @@ public final class CodeExplorationToolRegistry {
         register(new ReplaceInFileTool(project));
         
         // LangChain4j RAG and Agent tools
-        register(new RetrievalTool(project));
-        register(new TaskExecutionTool(project));
-        register(new WorkflowTool(project));
-        register(new ChatWithContextTool(project));
+//        register(new RetrievalTool(project));
+//        register(new TaskExecutionTool(project));
+//        register(new WorkflowTool(project));
+//        register(new ChatWithContextTool(project));
         
         // Other exploration tools have been removed with the cleanup
         

@@ -736,8 +736,13 @@ class CodeHealthOverviewEditor(
     }
     
     private fun loadRecentData() {
-        // First check for Git-triggered report (has priority)
-        currentData = storage.getGitTriggeredReport()
+        // First check for immediate review results (highest priority)
+        currentData = storage.getImmediateReviewResults()
+        
+        // If no immediate review, check for Git-triggered report
+        if (currentData == null) {
+            currentData = storage.getGitTriggeredReport()
+        }
         
         // If no Git-triggered report, try to load the most recent daily data
         if (currentData == null) {

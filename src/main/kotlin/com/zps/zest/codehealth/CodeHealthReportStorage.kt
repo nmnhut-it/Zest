@@ -31,7 +31,9 @@ class CodeHealthReportStorage(private val project: Project) : PersistentStateCom
      */
     data class State(
         var reports: MutableMap<String, SerializableHealthReport> = mutableMapOf(),
-        var gitTriggeredReport: SerializableHealthReport? = null
+        var gitTriggeredReport: SerializableHealthReport? = null,
+        var immediateReviewReport: SerializableHealthReport? = null,
+        var immediateReviewFileName: String? = null
     )
     
     /**
@@ -251,6 +253,84 @@ class CodeHealthReportStorage(private val project: Project) : PersistentStateCom
      */
     fun getGitTriggeredReportDate(): String? {
         return state.gitTriggeredReport?.date
+    }
+    
+    /**
+     * Save immediate review results
+     */
+    fun saveImmediateReviewResults(fileName: String, results: List<CodeHealthAnalyzer.MethodHealthResult>) {
+        val today = LocalDate.now().format(DATE_FORMATTER)
+        
+        val serializableReport = SerializableHealthReport(
+            date = today,
+            results = results.map { result ->
+                SerializableMethodResult(
+                    fqn = result.fqn,
+                    healthScore = result.healthScore,
+                    modificationCount = result.modificationCount,
+                    summary = result.summary,
+                    issues = result.issues.map { issue ->
+                        SerializableHealthIssue(
+                            issueCategory = issue.issueCategory,
+                            severity = issue.severity,
+                            title = issue.title,
+                            description = issue.description,
+                            impact = issue.impact,
+                            suggestedFix = issue.suggestedFix,
+                            confidence = issue.confidence,
+                            verified = issue.verified,
+                            falsePositive = issue.falsePositive,
+                            verificationReason = issue.verificationReason
+                        )
+                    }.toMutableList(),
+                    impactedCallers = result.impactedCallers.toMutableList()
+                )
+            }.toMutableList()
+        )
+        
+        state.immediateReviewReport = serializableReport
+        state.immediateReviewFileName = fileName
+    }
+    
+    /**
+     * Get immediate review results
+     */
+    fun getImmediateReviewResults(): List<CodeHealthAnalyzer.MethodHealthResult>? {
+        val report = state.immediateReviewReport ?: return null
+        
+        return report.results.map { result ->
+            CodeHealthAnalyzer.MethodHealthResult(
+                fqn = result.fqn,
+                healthScore = result.healthScore,
+                modificationCount = result.modificationCount,
+                summary = result.summary,
+                issues = result.issues.map { issue ->
+                    CodeHealthAnalyzer.HealthIssue(
+                        issueCategory = issue.issueCategory,
+                        severity = issue.severity,
+                        title = issue.title,
+                        description = issue.description,
+                        impact = issue.impact,
+                        suggestedFix = issue.suggestedFix,
+                        confidence = issue.confidence,
+                        verified = issue.verified,
+                        falsePositive = issue.falsePositive,
+                        verificationReason = issue.verificationReason
+                    )
+                },
+                impactedCallers = result.impactedCallers,
+                originalCode = "",
+                annotatedCode = "",
+                codeContext = ""
+            )
+        }
+    }
+    
+    /**
+     * Get immediate review file name
+     */
+    fun getImmediateReviewFileName(): String? {
+        return state.immediateReviewFileName
     }
     
     /**

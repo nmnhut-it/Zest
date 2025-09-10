@@ -245,6 +245,14 @@
                     text="🔄 Process Review Queue / Xử Lý Hàng Đợi"
                     description="Review all pending methods in background / Đánh giá các method đang chờ">
             </action>
+
+            <action id="Zest.ReviewCurrentFile"
+                    class="com.zps.zest.codehealth.actions.ReviewCurrentFileAction"
+                    text="🔍 Review This File Now"
+                    description="Immediately analyze current file for code health issues">
+                <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Zest.GenerateTests"/>
+                <keyboard-shortcut first-keystroke="ctrl alt H" keymap="$default"/>
+            </action>
             
             <action id="Zest.TriggerFinalReview"
                     class="com.zps.zest.codehealth.actions.TriggerFinalReviewAction"

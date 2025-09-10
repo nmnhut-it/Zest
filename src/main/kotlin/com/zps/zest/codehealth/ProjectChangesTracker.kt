@@ -328,6 +328,27 @@ class ProjectChangesTracker(private val project: Project) :
         persistStateAsync()
         println("[ProjectChangesTracker] All tracking data cleared")
     }
+    
+    /**
+     * Track a method for immediate review
+     */
+    fun trackMethodForImmediateReview(fqn: String) {
+        val now = System.currentTimeMillis()
+        val method = ModifiedMethod(
+            fqn = fqn,
+            modificationCount = 1,
+            lastModified = now
+        )
+        methodModifications[fqn] = method
+        
+        // Also queue for background reviewer
+        BackgroundHealthReviewer.getInstance(project)
+            .queueMethodForReview(fqn, now)
+            
+        // Persist state
+        persistStateAsync()
+        println("[ProjectChangesTracker] Tracked for immediate review: $fqn")
+    }
 
     fun getModifiedMethodDetails(): List<ModifiedMethod> {
         // Combine Java methods and JS/TS regions
@@ -595,7 +616,9 @@ class ProjectChangesTracker(private val project: Project) :
                 }
             } finally {
                 isAnalysisRunning.set(false)
-//                println("[CodeHealth] Analysis finished")
+                // Clear all tracking after review completes
+                clearAllTracking()
+//                println("[CodeHealth] Analysis finished and tracking cleared")
             }
         }
     }

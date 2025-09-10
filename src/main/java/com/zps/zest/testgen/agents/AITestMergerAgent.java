@@ -191,8 +191,12 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         request.append("Framework: ").append(result.getFramework()).append("\n");
         request.append("Methods to add: ").append(result.getMethodCount()).append("\n\n");
         
-        // Generate the new test class first
-        String newTestClass = generateCompleteTestClass(result);
+        // Use the complete test class from TestWriterAgent if available
+        String newTestClass = result.getCompleteTestClass();
+        if (newTestClass == null || newTestClass.isEmpty()) {
+            // Fallback to generating from components if complete class not available
+            newTestClass = generateCompleteTestClass(result);
+        }
         request.append("NEW TEST CLASS CODE:\n");
         request.append("```java\n").append(newTestClass).append("\n```\n\n");
         

@@ -1,12 +1,18 @@
 package com.zps.zest.testgen.ui.panels
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
+import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.testgen.model.MergedTestClass
+import com.zps.zest.testgen.ui.dialogs.TestCodeViewerDialog
+import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData
 import com.zps.zest.langchain4j.ui.ChatMemoryDialog
 import java.awt.*
 import java.awt.event.MouseAdapter
@@ -21,7 +27,7 @@ import javax.swing.border.EmptyBorder
 class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
     
     private val statusLabel = JBLabel("No merged test class yet")
-    private val mergedClassArea = JBTextArea()
+    private var mergedClassEditor: EditorEx? = null
     private val issuesListModel = DefaultListModel<TestIssue>()
     private val issuesList = JList(issuesListModel)
     private val issuesMap = mutableMapOf<String, TestIssue>()
@@ -84,24 +90,75 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
         val panel = JPanel(BorderLayout())
         panel.border = EmptyBorder(5, 10, 5, 10)
         
-        // Header
-        val headerLabel = JBLabel("📄 Merged Test Class")
+        // Header with actions
+        val headerPanel = JPanel(BorderLayout())
+        
+        val headerLabel = JBLabel("📄 Merged Test Class (with Java syntax highlighting)")
         headerLabel.font = headerLabel.font.deriveFont(Font.BOLD, 12f)
-        panel.add(headerLabel, BorderLayout.NORTH)
+        headerPanel.add(headerLabel, BorderLayout.WEST)
         
-        // Merged class code display
-        mergedClassArea.isEditable = false
-        mergedClassArea.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-        mergedClassArea.background = UIUtil.getTextFieldBackground()
-        mergedClassArea.text = "// Merged test class will appear here after merging"
+        // Header actions
+        val headerActionsPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0))
+        headerActionsPanel.isOpaque = false
         
-        // Add syntax highlighting would be nice but complex - keeping simple for now
-        val scrollPane = JBScrollPane(mergedClassArea)
-        scrollPane.border = BorderFactory.createCompoundBorder(
-            EmptyBorder(5, 0, 0, 0),
-            BorderFactory.createLineBorder(UIUtil.getBoundsColor())
-        )
-        panel.add(scrollPane, BorderLayout.CENTER)
+        val viewDialogButton = JButton("🔍 View in Dialog")
+        viewDialogButton.addActionListener { openCodeViewDialog() }
+        viewDialogButton.toolTipText = "Open merged test class in full-screen dialog"
+        headerActionsPanel.add(viewDialogButton)
+        
+        headerPanel.add(headerActionsPanel, BorderLayout.EAST)
+        panel.add(headerPanel, BorderLayout.NORTH)
+        
+        // Create syntax-highlighted editor
+        val editorPanel = createEditorPanel()
+        panel.add(editorPanel, BorderLayout.CENTER)
+        
+        return panel
+    }
+    
+    private fun createEditorPanel(): JComponent {
+        val panel = JPanel(BorderLayout())
+        
+        // Create editor for syntax highlighting (initially empty)
+        val editorFactory = EditorFactory.getInstance()
+        val document = editorFactory.createDocument("// Merged test class will appear here after merging")
+        mergedClassEditor = editorFactory.createViewer(document, project) as EditorEx
+        
+        // Configure editor for optimal display
+        mergedClassEditor?.let { editor ->
+            editor.settings.apply {
+                isLineNumbersShown = true
+                isWhitespacesShown = false
+                isLineMarkerAreaShown = true
+                isFoldingOutlineShown = true
+                isIndentGuidesShown = true
+                isUseSoftWraps = false
+                additionalLinesCount = 2
+                additionalColumnsCount = 5
+            }
+            
+            // Set Java syntax highlighting
+            val javaFileType = FileTypeManager.getInstance().getFileTypeByExtension("java")
+            val highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(
+                project, javaFileType
+            )
+            editor.highlighter = highlighter
+            
+            // Set read-only
+            editor.isViewer = true
+            
+            // Add click listener for issue navigation
+            editor.contentComponent.addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    if (e.clickCount == 1) {
+                        val line = editor.xyToLogicalPosition(e.point).line + 1 // +1 for 1-based line numbers
+                        highlightIssueForLine(line)
+                    }
+                }
+            })
+            
+            panel.add(editor.component, BorderLayout.CENTER)
+        }
         
         return panel
     }
@@ -119,13 +176,20 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
         issuesList.selectionMode = ListSelectionModel.SINGLE_SELECTION
         issuesList.cellRenderer = IssueListCellRenderer()
         
-        // Add double-click to show fix suggestions
+        // Add click listeners for issue navigation
         issuesList.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
-                if (e.clickCount == 2) {
-                    val index = issuesList.locationToIndex(e.point)
-                    if (index >= 0) {
-                        val issue = issuesListModel.getElementAt(index)
+                val index = issuesList.locationToIndex(e.point)
+                if (index >= 0) {
+                    val issue = issuesListModel.getElementAt(index)
+                    
+                    if (e.clickCount == 1) {
+                        // Single click: navigate to line in editor
+                        issue.lineNumber?.let { lineNum ->
+                            navigateToLine(lineNum)
+                        }
+                    } else if (e.clickCount == 2) {
+                        // Double click: show fix suggestions
                         showFixSuggestions(issue)
                     }
                 }
@@ -171,12 +235,19 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     /**
-     * Update the merged test class display
+     * Update the merged test class display with syntax highlighting
      */
     fun updateMergedClass(mergedClass: MergedTestClass) {
         SwingUtilities.invokeLater {
             currentMergedClass = mergedClass
-            mergedClassArea.text = mergedClass.fullContent
+            
+            // Update editor content with syntax highlighting
+            mergedClassEditor?.let { editor ->
+                val document = editor.document
+                ApplicationManager.getApplication().runWriteAction {
+                    document.setText(mergedClass.fullContent)
+                }
+            }
             
             // Update status
             statusLabel.text = "${mergedClass.className} (${mergedClass.methodCount} methods)"
@@ -220,9 +291,90 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
     fun clear() {
         SwingUtilities.invokeLater {
             currentMergedClass = null
-            mergedClassArea.text = "// Merged test class will appear here after merging"
+            
+            // Clear editor content
+            mergedClassEditor?.let { editor ->
+                ApplicationManager.getApplication().runWriteAction {
+                    editor.document.setText("// Merged test class will appear here after merging")
+                }
+            }
+            
             statusLabel.text = "No merged test class yet"
             clearIssues()
+        }
+    }
+    
+    /**
+     * Highlight issue for specific line in editor
+     */
+    private fun highlightIssueForLine(lineNumber: Int) {
+        // Find issue for this line and select it in the issues list
+        val matchingIssue = issuesMap.values.find { it.lineNumber == lineNumber }
+        matchingIssue?.let { issue ->
+            val index = issuesListModel.indexOf(issue)
+            if (index >= 0) {
+                issuesList.selectedIndex = index
+                issuesList.ensureIndexIsVisible(index)
+            }
+        }
+    }
+    
+    /**
+     * Open code view dialog for full-screen editing
+     */
+    private fun openCodeViewDialog() {
+        currentMergedClass?.let { mergedClass ->
+            // Use TestCodeViewerDialog instead of MergedTestPreviewDialog to avoid session dependencies
+            val testDisplayData = GeneratedTestDisplayData(
+                testName = "Complete Test Class",
+                scenarioId = "complete_merged_class",
+                scenarioName = "Merged Test Class",
+                testCode = mergedClass.fullContent,
+                validationStatus = GeneratedTestDisplayData.ValidationStatus.NOT_VALIDATED,
+                validationMessages = emptyList(),
+                lineCount = mergedClass.fullContent.lines().size,
+                timestamp = System.currentTimeMillis(),
+                completeClassContext = mergedClass.fullContent
+            )
+            
+            val dialog = TestCodeViewerDialog(project, testDisplayData)
+            dialog.show()
+        } ?: run {
+            JOptionPane.showMessageDialog(
+                this,
+                "No merged test class available to view",
+                "Code View",
+                JOptionPane.INFORMATION_MESSAGE
+            )
+        }
+    }
+    
+    /**
+     * Navigate to specific line in the editor
+     */
+    private fun navigateToLine(lineNumber: Int) {
+        mergedClassEditor?.let { editor ->
+            val line = (lineNumber - 1).coerceAtLeast(0) // Convert to 0-based, ensure non-negative
+            val document = editor.document
+            
+            if (line < document.lineCount) {
+                val offset = document.getLineStartOffset(line)
+                editor.caretModel.moveToOffset(offset)
+                editor.scrollingModel.scrollToCaret(com.intellij.openapi.editor.ScrollType.CENTER)
+                
+                // Request focus to make the navigation visible
+                editor.contentComponent.requestFocus()
+            }
+        }
+    }
+    
+    /**
+     * Dispose of editor resources
+     */
+    fun dispose() {
+        mergedClassEditor?.let { 
+            EditorFactory.getInstance().releaseEditor(it)
+            mergedClassEditor = null
         }
     }
     

@@ -185,18 +185,18 @@ class StateMachineTestGenerationEditor(
                     }
                     "write_file" -> {
                         showActionBanner(
-                            "Your tests are ready to save",
-                            "Save to File"
+                            "Your tests are ready! Use the Test Merging tab to review and save.",
+                            "View Results"
                         ) {
-                            saveTestFile()
+                            tabbedPane.selectedIndex = 3 // Switch to Test Merging tab
                         }
                         
-                        primaryActionButton.text = "💾 Save Test File"
+                        primaryActionButton.text = "✅ Generation Complete"
                         primaryActionButton.background = Color(76, 175, 80) // Green
-                        primaryActionButton.isEnabled = true
+                        primaryActionButton.isEnabled = false
                         
-                        statusIndicator.text = "⏳ Tests ready to save"
-                        logEvent("⚠️ ACTION REQUIRED: Click 'Save Test File' button to save the generated tests")
+                        statusIndicator.text = "✅ Tests ready for review"
+                        logEvent("✅ Generation complete - review in Test Merging tab")
                     }
                     "retry_generation" -> {
                         showActionBanner(
@@ -741,9 +741,9 @@ class StateMachineTestGenerationEditor(
                 
                 state == TestGenerationState.COMPLETED -> {
                     primaryActionButton.apply {
-                        text = "💾 Save Test File"
+                        text = "✅ Generation Complete"
                         background = Color(76, 175, 80) // Green
-                        isEnabled = true
+                        isEnabled = false  // No action needed - use dialog for saving
                         isVisible = true
                     }
                     cancelButton.isVisible = false
@@ -1127,8 +1127,8 @@ class StateMachineTestGenerationEditor(
                 continueExecution()
             }
             state == TestGenerationState.COMPLETED -> {
-                // Save test file
-                saveTestFile()
+                // Show final results - no save action needed (handled by dialog)
+                tabbedPane.selectedIndex = 3 // Switch to Test Merging tab
             }
             testGenService.canRetry(sessionId) -> {
                 // Retry current state
@@ -1193,6 +1193,8 @@ class StateMachineTestGenerationEditor(
     override fun getCurrentLocation(): FileEditorLocation? = null
     override fun dispose() {
         currentSessionId?.let { testGenService.cleanupSession(it) }
+        // Dispose of editor resources in panels
+        testMergingPanel.dispose()
     }
     override fun setState(state: FileEditorState) {}
     override fun getFile(): VirtualFile = virtualFile

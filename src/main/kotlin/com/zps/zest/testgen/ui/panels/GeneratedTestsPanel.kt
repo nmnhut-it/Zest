@@ -94,14 +94,6 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
         }
         actionsPanel.add(viewCodeButton)
         
-        val exportButton = JButton("Export All Tests")
-        exportButton.addActionListener { exportAllTests() }
-        actionsPanel.add(exportButton)
-        
-        val viewCompleteClassButton = JButton("📄 Complete Class")
-        viewCompleteClassButton.addActionListener { showCompleteClass() }
-        viewCompleteClassButton.toolTipText = "View complete test class"
-        actionsPanel.add(viewCompleteClassButton)
         
         val chatButton = JButton("💬 Writer Chat")
         chatButton.addActionListener { openTestWriterChatDialog() }
@@ -210,41 +202,6 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
         dialog.show()
     }
     
-    /**
-     * Export all tests to clipboard or file
-     */
-    private fun exportAllTests() {
-        if (testsMap.isEmpty()) {
-            JOptionPane.showMessageDialog(
-                this,
-                "No tests to export",
-                "Export Tests",
-                JOptionPane.INFORMATION_MESSAGE
-            )
-            return
-        }
-        
-        val allCode = testsMap.values.joinToString("\n\n") { test ->
-            """
-            |// Test: ${test.testName}
-            |// Scenario: ${test.scenarioName}
-            |// Status: ${test.validationStatus}
-            |
-            |${test.testCode}
-            """.trimMargin()
-        }
-        
-        // Copy to clipboard
-        val clipboard = Toolkit.getDefaultToolkit().systemClipboard
-        clipboard.setContents(java.awt.datatransfer.StringSelection(allCode), null)
-        
-        JOptionPane.showMessageDialog(
-            this,
-            "All tests copied to clipboard",
-            "Export Successful",
-            JOptionPane.INFORMATION_MESSAGE
-        )
-    }
     
     /**
      * Get all generated tests for saving
@@ -321,37 +278,6 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
         this.testWriterAgentName = agentName
     }
     
-    /**
-     * Show complete test class if available
-     */
-    private fun showCompleteClass() {
-        // Find any test with complete class context
-        val testWithContext = testsMap.values.firstOrNull { it.hasCompleteClassContext() }
-        
-        if (testWithContext != null && testWithContext.completeClassContext != null) {
-            // Create a special display data for the complete class
-            val completeClassData = GeneratedTestDisplayData(
-                testName = "Complete Test Class",
-                scenarioId = "complete_class",
-                scenarioName = "Complete Test Class",
-                testCode = testWithContext.completeClassContext!!,
-                validationStatus = testWithContext.validationStatus,
-                validationMessages = emptyList(),
-                lineCount = testWithContext.completeClassContext!!.lines().size,
-                timestamp = testWithContext.timestamp
-            )
-            
-            val dialog = TestCodeViewerDialog(project, completeClassData)
-            dialog.show()
-        } else {
-            JOptionPane.showMessageDialog(
-                this,
-                "No complete class context available.\nTests were generated individually.",
-                "Complete Class",
-                JOptionPane.INFORMATION_MESSAGE
-            )
-        }
-    }
     
     /**
      * Open test writer chat memory dialog

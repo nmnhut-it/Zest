@@ -506,15 +506,15 @@ class ProjectChangesTracker(private val project: Project) :
                     val analyzer = CodeHealthAnalyzer.getInstance(project)
                     val startTime = System.currentTimeMillis()
                     
-                    // Limit units if needed
-                    val limitedUnits = needsReviewUnits.take(10) // Limit to 10 review units
+                    // Limit units if needed - increased to allow more files
+                    val limitedUnits = needsReviewUnits.take(50) // Limit to 50 review units for broader coverage
                     if (limitedUnits.size < needsReviewUnits.size) {
                         ApplicationManager.getApplication().invokeLater {
                             NotificationGroupManager.getInstance()
                                 .getNotificationGroup("Zest Code Health")
                                 .createNotification(
                                     "⚡ Analysis Optimized",
-                                    "🎯 Focusing on ${limitedUnits.size} of ${needsReviewUnits.size} code units for faster results.",
+                                    "🎯 Reviewing ${limitedUnits.size} of ${needsReviewUnits.size} code units.",
                                     NotificationType.WARNING
                                 )
                                 .notify(project)

@@ -5,6 +5,7 @@ import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.util.ExistingTestAnalyzer;
+import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import org.jetbrains.annotations.NotNull;
@@ -34,6 +35,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                 .chatModel(getChatModelWithStreaming())
                 .maxSequentialToolsInvocations(5) // Simple merging, fewer tools needed
                 .chatMemory(chatMemory)
+                .tools(new DummyTool()) // Dummy tool to satisfy parallelToolCalls requirement
                 .build();
     }
     
@@ -394,5 +396,16 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     @NotNull
     public MessageWindowChatMemory getChatMemory() {
         return chatMemory;
+    }
+    
+    /**
+     * Dummy tool to satisfy parallelToolCalls requirement when no real tools are needed
+     */
+    public static class DummyTool {
+        
+        @Tool("Mark merge task as done - no-op tool for compatibility")
+        public String markMergeDone(String status) {
+            return "Merge status: " + status;
+        }
     }
 }

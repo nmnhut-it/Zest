@@ -5,6 +5,7 @@ import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.util.LLMService;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData;
+import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import org.jetbrains.annotations.NotNull;
@@ -29,13 +30,14 @@ public class TestWriterAgent extends StreamingBaseAgent {
                           @NotNull LLMService llmService) {
         super(project, langChainService, llmService, "TestWriterAgent");
         
-        // Build the simplified agent (no tools needed)
+        // Build the simplified agent (with dummy tool for parallelToolCalls compatibility)
         this.chatMemory = MessageWindowChatMemory.withMaxMessages(50);
         this.assistant = AgenticServices
                 .agentBuilder(TestWritingAssistant.class)
                 .chatModel(getChatModelWithStreaming()) // Use wrapped model for streaming
-                .maxSequentialToolsInvocations(1) // Simple - just one response needed
+                .maxSequentialToolsInvocations(10) // Simple - just one response needed
                 .chatMemory(chatMemory)
+                .tools(new DummyTool()) // Dummy tool to satisfy parallelToolCalls requirement
                 .build();
     }
     
@@ -52,7 +54,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
         Return ONLY the complete Java test class code, including:
         - Package declaration
         - All necessary imports
-        - Class declaration with proper annotations  
+        - Class declaration with proper annotations
         - Field declarations (if needed)
         - Setup method (@BeforeEach) if needed
         - All test methods with @Test annotations
@@ -66,24 +68,42 @@ public class TestWriterAgent extends StreamingBaseAgent {
         - Proper Java formatting and indentation
         - Complete method implementations with assertions
         
-        TESTING STRATEGY - DEPENDENCY-AWARE APPROACH:
-        1. IF code has NO external dependencies (pure business logic):
-           → Write UNIT TESTS without any mocking - test the actual logic directly
+        DEPENDENCY-AWARE TESTING STRATEGY:
+        
+        1. **PURE BUSINESS LOGIC** (no external dependencies):
+           → Write UNIT TESTS - test actual logic directly, no mocking needed
            
-        2. IF code interacts with databases, message queues, file systems, or external services:
-           → Write INTEGRATION TESTS with Testcontainers
-           → Use @Container annotations for database/service containers
-           → Use @Testcontainers annotation on test class
+        2. **DATABASE INTERACTIONS** (JPA, JDBC, repositories):
+           → Use TESTCONTAINERS with appropriate database containers
+           → Add @Container field with database setup
+           → Use @Testcontainers annotation on class
+           → Example containers: PostgreSQLContainer, MySQLContainer, MongoDBContainer
            
-        3. IF external API calls that cannot use testcontainers:
-           → ONLY THEN use mocking as absolute last resort
-           → Add TODO comments suggesting refactoring for better testability
+        3. **MESSAGE QUEUES** (Kafka, RabbitMQ, ActiveMQ):
+           → Use TESTCONTAINERS with message broker containers
+           → Example: KafkaContainer, RabbitMQContainer
            
-        FRAMEWORK DETECTION:
-        - Use JUnit 5 by default (org.junit.jupiter.api.*)
-        - If Spring Boot context available, use @SpringBootTest
-        - If Testcontainers available, use for database/external service testing
-        - Use AssertJ assertions if available (org.assertj.core.api.Assertions.*)
+        4. **EXTERNAL SERVICES** (Redis, Elasticsearch, etc.):
+           → Use TESTCONTAINERS with service containers
+           → Example: GenericContainer, ElasticsearchContainer
+           
+        5. **FILE SYSTEM OPERATIONS**:
+           → Use @TempDir for temporary directories (JUnit 5)
+           → Or Files.createTempDirectory() for other frameworks
+           
+        6. **HTTP CLIENTS/APIS** (last resort):
+           → Prefer WireMock or MockWebServer over mocking
+           → If no choice, use framework-appropriate mocking (Mockito, EasyMock, etc.)
+           
+        FRAMEWORK DETECTION AND ADAPTATION:
+        FIRST analyze the provided context to detect the testing framework:
+        - JUnit 4: Use @Test from org.junit.Test, @Before/@After for setup/teardown
+        - JUnit 5: Use @Test from org.junit.jupiter.api.Test, @BeforeEach/@AfterEach
+        - TestNG: Use @Test from org.testng.annotations.Test, @BeforeMethod/@AfterMethod
+        - Spring Boot: Add @SpringBootTest, @TestConfiguration, @MockBean as needed
+        - Testcontainers: Add @Testcontainers on class, @Container on fields
+        
+        ADAPT YOUR OUTPUT to use the DETECTED framework, not a default assumption.
         
         F.I.R.S.T Principles:
         - Fast: Tests should run quickly 
@@ -92,39 +112,63 @@ public class TestWriterAgent extends StreamingBaseAgent {
         - Self-validating: Pass or fail, no manual checking
         - Timely: Choose the RIGHT test type for the dependencies
         
-        EXAMPLE OUTPUT:
+        CONTAINER SETUP PATTERNS:
+        
+        **PostgreSQL Example:**
         ```java
-        package com.example.service;
-
-        import org.junit.jupiter.api.Test;
-        import org.junit.jupiter.api.BeforeEach;
-        import static org.junit.jupiter.api.Assertions.*;
-
-        public class UserServiceTest {
-            
-            private UserService userService;
-            
-            @BeforeEach
-            void setUp() {
-                userService = new UserService();
-            }
-            
-            @Test
-            void testCreateUser_WhenValidInput_ThenUserCreated() {
-                // Given
-                String username = "testuser";
-                String email = "test@example.com";
-                
-                // When
-                User result = userService.createUser(username, email);
-                
-                // Then
-                assertNotNull(result);
-                assertEquals(username, result.getUsername());
-                assertEquals(email, result.getEmail());
+        @Testcontainers
+        class UserRepositoryTest {
+            @Container
+            static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:13")
+                    .withDatabaseName("testdb")
+                    .withUsername("test")
+                    .withPassword("test");
+        
+            @DynamicPropertySource
+            static void configureProperties(DynamicPropertyRegistry registry) {
+                registry.add("spring.datasource.url", postgres::getJdbcUrl);
+                registry.add("spring.datasource.username", postgres::getUsername);  
+                registry.add("spring.datasource.password", postgres::getPassword);
             }
         }
         ```
+        
+        **Kafka Example:**
+        ```java
+        @Testcontainers
+        class MessageServiceTest {
+            @Container
+            static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:latest"));
+        
+            @DynamicPropertySource
+            static void kafkaProperties(DynamicPropertyRegistry registry) {
+                registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+            }
+        }
+        ```
+        
+        **Redis Example:**
+        ```java
+        @Testcontainers
+        class CacheServiceTest {
+            @Container
+            static GenericContainer<?> redis = new GenericContainer<>("redis:6-alpine")
+                    .withExposedPorts(6379);
+        
+            @DynamicPropertySource
+            static void redisProperties(DynamicPropertyRegistry registry) {
+                registry.add("spring.redis.host", redis::getHost);
+                registry.add("spring.redis.port", redis::getFirstMappedPort);
+            }
+        }
+        ```
+        
+        ASSERTION FRAMEWORKS (use what's detected):
+        - **JUnit 4**: assertEquals(), assertTrue(), assertNotNull() from org.junit.Assert
+        - **JUnit 5**: assertEquals(), assertTrue(), assertThrows() from org.junit.jupiter.api.Assertions
+        - **AssertJ**: assertThat().isEqualTo(), assertThat().isTrue() from org.assertj.core.api.Assertions
+        - **TestNG**: assertEquals(), assertTrue() from org.testng.Assert
+        - **Hamcrest**: assertThat(result, is(equalTo(expected))) from org.hamcrest.MatcherAssert
         
         Generate the complete Java test class now. Do NOT use tools - return the complete test class directly.
         """)
@@ -208,19 +252,19 @@ public class TestWriterAgent extends StreamingBaseAgent {
             } catch (Exception e) {
                 lastException = e;
                 sendToUI(String.format("❌ Attempt %d failed: %s\n", attempt, e.getMessage()));
-                
+
                 if (attempt < maxRetries) {
                     // Add error context to chat memory for self-correction
                     String errorFeedback = buildErrorFeedbackMessage(e, attempt);
                     sendToUI("🔄 Adding error context to conversation for self-correction...\n");
-                    
+
                     try {
                         // Let the assistant reason about the error and continue
                         assistant.generateTest(errorFeedback);
                     } catch (Exception feedbackException) {
                         LOG.warn("Error feedback failed, proceeding with basic retry: " + feedbackException.getMessage());
                     }
-                    
+
                     sendToUI("⏳ Retrying with error context in 2 seconds...\n");
                     try {
                         Thread.sleep(2000); // Wait 2 seconds before retry
@@ -282,6 +326,14 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 feedback.append("- Use valid Java method naming conventions\n");
                 feedback.append("- Provide complete method bodies with proper assertions\n\n");
             }
+            
+            if (errorMsg.contains("rate limit") || errorMsg.contains("tpm") || errorMsg.contains("429")) {
+                feedback.append("RATE LIMIT ERROR DETECTED:\n");
+                feedback.append("- API rate limit was exceeded - request was too fast\n");
+                feedback.append("- The system will automatically apply exponential backoff\n");
+                feedback.append("- Consider reducing the complexity of the request\n");
+                feedback.append("- This error will be automatically retried with longer delays\n\n");
+            }
         }
         
         feedback.append("RECOVERY INSTRUCTIONS:\n");
@@ -323,6 +375,31 @@ public class TestWriterAgent extends StreamingBaseAgent {
         sendToUI("  • Extracted " + imports.size() + " imports\n");
         sendToUI("  • Extracted " + fields.size() + " fields\n");
         sendToUI("  • Extracted " + methods.size() + " test methods\n");
+        
+        // Send individual test methods to UI for display (maintains existing UI behavior)
+        sendToUI("📤 Sending individual test methods to UI...\n");
+        for (GeneratedTestMethod method : methods) {
+            // Try to find matching scenario for better context
+            String scenarioName = findMatchingScenario(method.getMethodName(), testPlan);
+            String scenarioId = scenarioName != null ? 
+                "scenario_" + scenarioName.hashCode() : 
+                "scenario_" + method.getMethodName().hashCode();
+            
+            // Create display data with better scenario association and complete class context
+            GeneratedTestDisplayData displayData = new GeneratedTestDisplayData(
+                method.getMethodName(),
+                scenarioId,
+                scenarioName != null ? scenarioName : method.getMethodName(),
+                buildCompleteMethodCode(method), // Include method signature and annotations
+                GeneratedTestDisplayData.ValidationStatus.NOT_VALIDATED,
+                new ArrayList<>(),
+                method.getMethodBody().split("\n").length + 2, // +2 for signature and closing brace
+                System.currentTimeMillis(),
+                cleanTestClass // Pass complete class context
+            );
+            
+            sendTestGenerated(displayData);
+        }
         
         // Create result with the complete test class
         TestGenerationResult result = new TestGenerationResult(
@@ -446,6 +523,78 @@ public class TestWriterAgent extends StreamingBaseAgent {
         return afterEachCode.toString().trim();
     }
     
+    /**
+     * Try to find a matching scenario for a test method based on method name
+     */
+    private String findMatchingScenario(String methodName, TestPlan testPlan) {
+        String lowerMethodName = methodName.toLowerCase();
+        
+        // Try to match with scenario names
+        for (TestPlan.TestScenario scenario : testPlan.getTestScenarios()) {
+            String scenarioName = scenario.getName().toLowerCase();
+            
+            // Direct match
+            if (lowerMethodName.contains(scenarioName.replace(" ", "")) || 
+                scenarioName.replace(" ", "").contains(lowerMethodName.replace("test", ""))) {
+                return scenario.getName();
+            }
+            
+            // Keyword matching
+            String[] scenarioWords = scenarioName.split("\\s+");
+            String[] methodWords = lowerMethodName.replace("test", "").split("(?=[A-Z])|_");
+            
+            int matches = 0;
+            for (String scenarioWord : scenarioWords) {
+                for (String methodWord : methodWords) {
+                    if (scenarioWord.length() > 3 && methodWord.length() > 3 && 
+                        (scenarioWord.contains(methodWord) || methodWord.contains(scenarioWord))) {
+                        matches++;
+                        break;
+                    }
+                }
+            }
+            
+            // If we have good word overlap, consider it a match
+            if (matches >= 2 || (matches >= 1 && scenarioWords.length <= 2)) {
+                return scenario.getName();
+            }
+        }
+        
+        return null; // No good match found
+    }
+    
+    /**
+     * Build complete method code including annotations and signature
+     */
+    private String buildCompleteMethodCode(GeneratedTestMethod method) {
+        StringBuilder methodCode = new StringBuilder();
+        
+        // Add annotations
+        for (String annotation : method.getAnnotations()) {
+            methodCode.append("    @").append(annotation).append("\n");
+        }
+        
+        // Add method signature
+        methodCode.append("    public void ").append(method.getMethodName()).append("() {\n");
+        
+        // Add method body with proper indentation
+        String[] bodyLines = method.getMethodBody().split("\n");
+        for (String line : bodyLines) {
+            if (!line.trim().isEmpty()) {
+                // Ensure proper indentation (8 spaces for method body)
+                if (line.startsWith("    ")) {
+                    methodCode.append("    ").append(line).append("\n");
+                } else {
+                    methodCode.append("        ").append(line.trim()).append("\n");
+                }
+            }
+        }
+        
+        // Close method
+        methodCode.append("    }\n");
+        
+        return methodCode.toString();
+    }
     
     /**
      * Extract class name from AI response.
@@ -579,84 +728,98 @@ public class TestWriterAgent extends StreamingBaseAgent {
     }
     
     /**
-     * Extract test methods from response.
+     * Extract test methods from response with better annotation and boundary detection.
      */
     private List<GeneratedTestMethod> extractTestMethods(String response, TestPlan testPlan) {
         List<GeneratedTestMethod> methods = new ArrayList<>();
         String[] lines = response.split("\n");
         
-        String currentMethodName = null;
-        StringBuilder currentMethodBody = new StringBuilder();
-        boolean inTestMethod = false;
-        int braceCount = 0;
-        
-        for (String line : lines) {
-            String trimmed = line.trim();
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
             
-            // Look for method signature with @Test annotation or test method pattern
-            if ((trimmed.contains("@Test") || 
-                 (trimmed.contains("void ") && trimmed.contains("test") && trimmed.contains("("))) &&
-                !inTestMethod) {
-                
-                // Extract method name
-                if (trimmed.contains("void ")) {
-                    int voidIndex = trimmed.indexOf("void ");
-                    int parenIndex = trimmed.indexOf("(");
-                    if (voidIndex >= 0 && parenIndex > voidIndex) {
-                        currentMethodName = trimmed.substring(voidIndex + 5, parenIndex).trim();
-                        inTestMethod = true;
-                        braceCount = 0;
-                        currentMethodBody = new StringBuilder();
-                        
-                        if (trimmed.contains("{")) {
-                            braceCount = 1;
-                        }
-                    }
-                }
-            } else if (inTestMethod) {
-                // Count braces to detect method end
-                for (char c : line.toCharArray()) {
-                    if (c == '{') braceCount++;
-                    if (c == '}') braceCount--;
-                }
-                
-                if (braceCount == 0) {
-                    // End of method
-                    inTestMethod = false;
-                    
-                    if (currentMethodName != null && currentMethodBody.length() > 0) {
-                        GeneratedTestMethod method = new GeneratedTestMethod.Builder(currentMethodName)
-                            .methodBody(currentMethodBody.toString().trim())
-                            .addAnnotation("Test")
-                            .build();
-                        
-                        methods.add(method);
-                        
-                        // Send to UI
-                        sendTestGenerated(new GeneratedTestDisplayData(
-                            currentMethodName,
-                            "scenario_" + currentMethodName.hashCode(),
-                            currentMethodName,
-                            currentMethodBody.toString().trim(),
-                            GeneratedTestDisplayData.ValidationStatus.NOT_VALIDATED,
-                            new ArrayList<>(),
-                            currentMethodBody.toString().split("\n").length,
-                            System.currentTimeMillis()
-                        ));
-                    }
-                    
-                    currentMethodName = null;
-                    currentMethodBody = new StringBuilder();
-                } else {
-                    // Add line to method body (exclude the closing brace line)
-                    if (!(braceCount == 0 && trimmed.equals("}"))) {
-                        currentMethodBody.append(line).append("\n");
-                    }
+            // Look for @Test annotation
+            if (line.startsWith("@Test")) {
+                // Extract method starting from this annotation
+                GeneratedTestMethod method = extractSingleMethod(lines, i, testPlan);
+                if (method != null) {
+                    methods.add(method);
                 }
             }
         }
         
         return methods;
+    }
+    
+    /**
+     * Extract a single test method starting from an annotation line
+     */
+    private GeneratedTestMethod extractSingleMethod(String[] lines, int startIndex, TestPlan testPlan) {
+        List<String> annotations = new ArrayList<>();
+        StringBuilder methodBody = new StringBuilder();
+        String methodName = null;
+        int currentIndex = startIndex;
+        
+        // Collect annotations
+        while (currentIndex < lines.length && lines[currentIndex].trim().startsWith("@")) {
+            String annotation = lines[currentIndex].trim().substring(1); // Remove @
+            annotations.add(annotation);
+            currentIndex++;
+        }
+        
+        // Find method signature
+        while (currentIndex < lines.length) {
+            String line = lines[currentIndex].trim();
+            
+            if (line.contains("void ") && line.contains("(")) {
+                // Extract method name
+                int voidIndex = line.indexOf("void ");
+                int parenIndex = line.indexOf("(");
+                if (voidIndex >= 0 && parenIndex > voidIndex) {
+                    methodName = line.substring(voidIndex + 5, parenIndex).trim();
+                    
+                    // Find method body
+                    if (line.contains("{")) {
+                        currentIndex++;
+                        break;
+                    }
+                }
+            }
+            currentIndex++;
+        }
+        
+        if (methodName == null) {
+            return null; // Could not parse method
+        }
+        
+        // Extract method body
+        int braceCount = 1; // We've seen the opening brace
+        while (currentIndex < lines.length && braceCount > 0) {
+            String line = lines[currentIndex];
+            
+            // Count braces
+            for (char c : line.toCharArray()) {
+                if (c == '{') braceCount++;
+                if (c == '}') braceCount--;
+            }
+            
+            // Add line to body if we're still inside the method
+            if (braceCount > 0) {
+                methodBody.append(line).append("\n");
+            }
+            
+            currentIndex++;
+        }
+        
+        // Build the method
+        GeneratedTestMethod.Builder builder = new GeneratedTestMethod.Builder(methodName)
+            .methodBody(methodBody.toString().trim());
+        
+        // Add annotations
+        for (String annotation : annotations) {
+            builder.addAnnotation(annotation);
+        }
+        
+        return builder.build();
     }
     
     /**
@@ -865,5 +1028,16 @@ public class TestWriterAgent extends StreamingBaseAgent {
                fileName.equals("application.yml") ||
                fileName.equals("application.yaml") ||
                fileName.equals("package.json");
+    }
+    
+    /**
+     * Dummy tool to satisfy parallelToolCalls requirement when no real tools are needed
+     */
+    public static class DummyTool {
+        
+        @Tool("Mark task as done - no-op tool for compatibility")
+        public String markDone(String task) {
+            return "Task marked as done: " + task;
+        }
     }
 }

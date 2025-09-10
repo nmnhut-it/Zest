@@ -27,7 +27,7 @@ const req = http.request(options, function (res) {
 });
 
 req.write(JSON.stringify({
-  model: 'gpt-4o',
+  model: 'gpt-4o-mini',
   messages: [
     {
       role: 'system',

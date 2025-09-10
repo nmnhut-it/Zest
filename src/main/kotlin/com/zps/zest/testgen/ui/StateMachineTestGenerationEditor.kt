@@ -955,8 +955,8 @@ class StateMachineTestGenerationEditor(
             
             // Get CoordinatorAgent memory for planning
             val coordinatorAgent = stateMachine?.sessionData?.get("coordinatorAgent") as? com.zps.zest.testgen.agents.CoordinatorAgent
-            println("[DEBUG] CoordinatorAgent: $coordinatorAgent")
-            println("[DEBUG] CoordinatorAgent ChatMemory: ${coordinatorAgent?.getChatMemory()}")
+//            println("[DEBUG] CoordinatorAgent: $coordinatorAgent")
+//            println("[DEBUG] CoordinatorAgent ChatMemory: ${coordinatorAgent?.getChatMemory()}")
             testPlanDisplayPanel.setChatMemory(coordinatorAgent?.getChatMemory(), "Coordinator")
             
             // Only log when there are significant changes

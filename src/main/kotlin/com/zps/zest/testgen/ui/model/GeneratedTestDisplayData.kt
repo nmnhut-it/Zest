@@ -12,7 +12,8 @@ data class GeneratedTestDisplayData(
     val validationStatus: ValidationStatus = ValidationStatus.NOT_VALIDATED,
     val validationMessages: List<ValidationMessage> = emptyList(),
     val lineCount: Int = testCode.lines().size,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val completeClassContext: String? = null // Optional: complete test class for context
 ) {
     
     enum class ValidationStatus {
@@ -84,5 +85,19 @@ data class GeneratedTestDisplayData(
         ValidationStatus.PASSED -> "All checks passed"
         ValidationStatus.WARNINGS -> "${getWarningCount()} warning(s)"
         ValidationStatus.FAILED -> "${getErrorCount()} error(s), ${getWarningCount()} warning(s)"
+    }
+    
+    /**
+     * Check if complete class context is available
+     */
+    fun hasCompleteClassContext(): Boolean = !completeClassContext.isNullOrBlank()
+    
+    /**
+     * Get display text indicating if this is part of a complete class
+     */
+    fun getClassContextInfo(): String = if (hasCompleteClassContext()) {
+        "Part of complete test class"
+    } else {
+        "Individual test method"
     }
 }

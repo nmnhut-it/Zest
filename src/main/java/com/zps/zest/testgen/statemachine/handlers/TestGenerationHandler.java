@@ -234,7 +234,8 @@ public class TestGenerationHandler extends AbstractStateHandler {
                         com.zps.zest.testgen.ui.model.GeneratedTestDisplayData.ValidationStatus.NOT_VALIDATED, // validationStatus
                         new java.util.ArrayList<>(), // validationMessages
                         testMethod.getMethodBody().split("\n").length, // lineCount
-                        System.currentTimeMillis() // timestamp
+                        System.currentTimeMillis(), // timestamp
+                        null // completeClassContext - not available in this legacy handler
                     );
                 
                 // Trigger UI update

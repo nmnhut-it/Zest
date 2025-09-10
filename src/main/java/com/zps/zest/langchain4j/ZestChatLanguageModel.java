@@ -39,42 +39,38 @@ public class ZestChatLanguageModel implements ChatModel {
     private final ConfigurationManager config;
 //    private final TokenUsageTracker tokenTracker;
     
-    // Rate limiting configuration
-    private static final long MIN_DELAY_MS = 1000; // Minimum 1 second between requests
+    // Rate limiting configuration - now configurable via environment variables
+    private static final long DEFAULT_MIN_DELAY_MS = 3000; // Default 3 seconds between requests (more conservative)
+    private static final long DEFAULT_REQUEST_DELAY_MS = 5000; // Default 5 second delay for rate limiting
     private static final long TPM_LIMIT = 150000; // Tokens per minute limit (adjust based on your tier)
+    
+    // Configurable delays
+    private final long minDelayMs;
+    private final long requestDelayMs;
     
     // Track last request time for rate limiting
     private final AtomicLong lastRequestTime = new AtomicLong(0);
     
     /**
-     * Apply rate limiting based on actual token usage
+     * Apply rate limiting with configurable delays to prevent hitting API limits
      */
     private void applyRateLimit() {
-        // Check if we need to delay based on actual token usage
-        long estimatedDelay = 2000; ;// tokenTracker.estimateDelayForTokens(0, TPM_LIMIT);
-        if (estimatedDelay > 0) {
-            LOG.info("Rate limiting based on token usage: Delaying request by " + estimatedDelay + "ms");
-            try {
-                TimeUnit.MILLISECONDS.sleep(estimatedDelay);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                LOG.warn("Rate limiting delay was interrupted", e);
-            }
-        } else {
-            // Apply minimum delay between requests
-            long currentTime = System.currentTimeMillis();
-            long lastTime = lastRequestTime.get();
+        long currentTime = System.currentTimeMillis();
+        long lastTime = lastRequestTime.get();
+        
+        // Always apply the configured request delay for conservative rate limiting
+        if (lastTime > 0) {
+            long timeSinceLastRequest = currentTime - lastTime;
+            long requiredDelay = Math.max(minDelayMs, requestDelayMs);
             
-            if (lastTime > 0) {
-                long timeSinceLastRequest = currentTime - lastTime;
-                if (timeSinceLastRequest < MIN_DELAY_MS) {
-                    long delayMs = MIN_DELAY_MS - timeSinceLastRequest;
-                    try {
-                        TimeUnit.MILLISECONDS.sleep(delayMs);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        LOG.warn("Minimum delay was interrupted", e);
-                    }
+            if (timeSinceLastRequest < requiredDelay) {
+                long delayMs = requiredDelay - timeSinceLastRequest;
+                LOG.info("Rate limiting: Delaying request by " + delayMs + "ms (total delay: " + requiredDelay + "ms)");
+                try {
+                    TimeUnit.MILLISECONDS.sleep(delayMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    LOG.warn("Rate limiting delay was interrupted", e);
                 }
             }
         }
@@ -117,10 +113,36 @@ public class ZestChatLanguageModel implements ChatModel {
         this.llmService = llmService;
         this.usage = usage;
         this.config = ConfigurationManager.getInstance(llmService.getProject());
+        
+        // Load configurable delays from environment variables
+        this.minDelayMs = loadDelayFromEnv("OPENAI_MIN_DELAY_MS", DEFAULT_MIN_DELAY_MS);
+        this.requestDelayMs = loadDelayFromEnv("OPENAI_REQUEST_DELAY_MS", DEFAULT_REQUEST_DELAY_MS);
+        
+        LOG.info("Rate limiting configured - Min delay: " + minDelayMs + "ms, Request delay: " + requestDelayMs + "ms");
+        
         this.delegateModel = createOpenAiModel(llmService.getProject());
         
         // Trigger username fetch
         LLMService.fetchAndStoreUsername(llmService.getProject());
+    }
+    
+    /**
+     * Load delay configuration from environment variables with fallback to defaults
+     */
+    private long loadDelayFromEnv(String envVarName, long defaultValue) {
+        try {
+            String envValue = EnvLoader.getEnv(envVarName);
+            if (envValue != null && !envValue.isEmpty()) {
+                long delay = Long.parseLong(envValue);
+                if (delay >= 0) {
+                    LOG.info("Using " + envVarName + " = " + delay + "ms");
+                    return delay;
+                }
+            }
+        } catch (NumberFormatException e) {
+            LOG.warn("Invalid " + envVarName + " value, using default: " + defaultValue + "ms");
+        }
+        return defaultValue;
     }
 
     private OpenAiChatModel createOpenAiModel(LLMService llmService) {
@@ -139,7 +161,7 @@ public class ZestChatLanguageModel implements ChatModel {
 
         // Check for OpenAI configuration in .env file first
         String envApiKey = EnvLoader.getEnv("OPENAI_API_KEY");
-        String envModel = EnvLoader.getEnv("OPENAI_MODEL", "gpt-4o");
+        String envModel = EnvLoader.getEnv("OPENAI_MODEL", "gpt-4o-mini");
         String envBaseUrl = EnvLoader.getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1");
 
         String apiUrl, apiKey, modelName;
@@ -227,10 +249,11 @@ public class ZestChatLanguageModel implements ChatModel {
                 .user(username != null && !username.isEmpty() ? username : null)
                 .logRequests(true)
                 .logResponses(true)
-                .timeout(Duration.ofSeconds(120));
+                .timeout(Duration.ofSeconds(1200));
                 
-            // Add metadata for all models (GPT-4o supports metadata)
-            if (!finalModelName.equals("gpt-4.1")) {
+            // Only add metadata for models that support it without store
+            // GPT-4.1 and GPT-4o-mini require 'store' to be enabled for metadata
+            if (!finalModelName.equals("gpt-4.1") && !finalModelName.equals("gpt-4o-mini")) {
                 builder.metadata(metadata);
             }
             
@@ -242,7 +265,19 @@ public class ZestChatLanguageModel implements ChatModel {
     @Override
     public ChatResponse chat(ChatRequest chatRequest) {
         applyRateLimit();
-         return executeWithPluginClassLoader(() -> delegateModel.chat(chatRequest));
+        
+        try {
+            return executeWithPluginClassLoader(() -> delegateModel.chat(chatRequest));
+        } catch (Exception e) {
+            // Check if this is a rate limit error and apply exponential backoff
+            if (isRateLimitError(e)) {
+                handleRateLimitError(e);
+                // Retry once after exponential backoff
+                applyRateLimit(); // Apply additional delay
+                return executeWithPluginClassLoader(() -> delegateModel.chat(chatRequest));
+            }
+            throw e;
+        }
     }
 
     @Override
@@ -279,5 +314,73 @@ public class ZestChatLanguageModel implements ChatModel {
         LOG.debug("Current time: " + now + ", Office hours: " + startTime + " - " + endTime + ", Within hours: " + withinHours);
         
         return withinHours;
+    }
+    
+    /**
+     * Check if the exception indicates a rate limit error
+     */
+    private boolean isRateLimitError(Exception e) {
+        if (e.getMessage() == null) {
+            return false;
+        }
+        
+        String message = e.getMessage().toLowerCase();
+        return message.contains("rate limit") || 
+               message.contains("too many requests") ||
+               message.contains("quota exceeded") ||
+               message.contains("429") ||
+               message.contains("tpm");
+    }
+    
+    /**
+     * Handle rate limit errors with exponential backoff
+     */
+    private void handleRateLimitError(Exception e) {
+        // Extract suggested wait time from error message if available
+        long suggestedDelay = extractSuggestedDelay(e.getMessage());
+        
+        // Use exponential backoff: either suggested delay or double the request delay
+        long backoffDelay = suggestedDelay > 0 ? suggestedDelay : requestDelayMs * 2;
+        
+        LOG.warn("Rate limit detected, applying exponential backoff: " + backoffDelay + "ms");
+        LOG.warn("Rate limit error: " + e.getMessage());
+        
+        try {
+            TimeUnit.MILLISECONDS.sleep(backoffDelay);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            LOG.warn("Rate limit backoff was interrupted", ie);
+        }
+    }
+    
+    /**
+     * Extract suggested delay from rate limit error message
+     * Example: "Please try again in 32.747s" -> returns 33000ms
+     */
+    private long extractSuggestedDelay(String errorMessage) {
+        if (errorMessage == null) {
+            return 0;
+        }
+        
+        try {
+            // Look for "try again in X seconds" or "try again in X.Xs"
+            if (errorMessage.contains("try again in")) {
+                String[] parts = errorMessage.split("try again in");
+                if (parts.length > 1) {
+                    String delayPart = parts[1].trim();
+                    // Extract number before 's' (seconds)
+                    int sIndex = delayPart.indexOf('s');
+                    if (sIndex > 0) {
+                        String numberStr = delayPart.substring(0, sIndex).replaceAll("[^0-9.]", "");
+                        double seconds = Double.parseDouble(numberStr);
+                        return (long) Math.ceil(seconds * 1000); // Convert to ms and round up
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not parse suggested delay from error message", e);
+        }
+        
+        return 0;
     }
 }

@@ -11,8 +11,9 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.testgen.model.MergedTestClass
-import com.zps.zest.testgen.ui.dialogs.TestCodeViewerDialog
+import com.zps.zest.testgen.ui.dialogs.MergedTestPreviewDialog
 import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData
+import com.zps.zest.testgen.model.TestGenerationSession
 import com.zps.zest.langchain4j.ui.ChatMemoryDialog
 import java.awt.*
 import java.awt.event.MouseAdapter
@@ -324,20 +325,33 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
      */
     private fun openCodeViewDialog() {
         currentMergedClass?.let { mergedClass ->
-            // Use TestCodeViewerDialog instead of MergedTestPreviewDialog to avoid session dependencies
-            val testDisplayData = GeneratedTestDisplayData(
-                testName = "Complete Test Class",
-                scenarioId = "complete_merged_class",
-                scenarioName = "Merged Test Class",
-                testCode = mergedClass.fullContent,
-                validationStatus = GeneratedTestDisplayData.ValidationStatus.NOT_VALIDATED,
-                validationMessages = emptyList(),
-                lineCount = mergedClass.fullContent.lines().size,
-                timestamp = System.currentTimeMillis(),
-                completeClassContext = mergedClass.fullContent
+            // Use MergedTestPreviewDialog which has the "Write to File" button
+            // Create a minimal TestGenerationSession for the dialog
+            // Create a dummy PsiFile for the request
+            val factory = com.intellij.psi.PsiFileFactory.getInstance(project)
+            val javaFileType = com.intellij.openapi.fileTypes.FileTypeManager.getInstance().getFileTypeByExtension("java")
+            val dummyPsiFile = factory.createFileFromText(
+                "DummyFile.java",
+                javaFileType,
+                "// Dummy file for preview"
             )
             
-            val dialog = TestCodeViewerDialog(project, testDisplayData)
+            val dummyRequest = com.zps.zest.testgen.model.TestGenerationRequest(
+                dummyPsiFile, // dummy PsiFile for preview
+                emptyList(), // targetMethods - not needed for preview
+                null, // selectedCode - not needed for preview  
+                com.zps.zest.testgen.model.TestGenerationRequest.TestType.UNIT_TESTS,
+                null // additionalContext
+            )
+            
+            val session = TestGenerationSession(
+                "merged_preview_${System.currentTimeMillis()}",
+                dummyRequest,
+                TestGenerationSession.Status.COMPLETED
+            )
+            session.setMergedTestClass(mergedClass)
+            
+            val dialog = MergedTestPreviewDialog(project, session)
             dialog.show()
         } ?: run {
             JOptionPane.showMessageDialog(

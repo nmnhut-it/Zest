@@ -46,6 +46,9 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         @dev.langchain4j.service.SystemMessage("""
         You are an intelligent test merging and review assistant that creates complete, well-structured test classes.
         
+        CRITICAL OUTPUT REQUIREMENT:
+        You must return ONLY pure Java code - NO tool calls, NO explanations, NO markdown blocks.
+        
         CORE RESPONSIBILITIES:
         1. **Merge Tests**: Generate complete Java test class that intelligently merges new/existing tests
         2. **Review Code**: Analyze merged test class for compilation and logical errors  
@@ -85,27 +88,40 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         - If import conflicts: Use fully qualified names when necessary
         - If setup conflicts: Merge setup code or use separate setup methods
         
-        OUTPUT FORMAT:
-        Return ONLY the complete Java test class code, including:
-        - Package declaration
-        - All necessary imports (deduplicated and complete)
-        - Class declaration with proper annotations
-        - All field declarations (properly typed and initialized)
-        - Setup/teardown methods (merged and complete)
-        - All existing test methods (preserved exactly)
-        - All new test methods (adapted, reviewed, and fixed)
+        STRICT OUTPUT FORMAT:
+        Return ONLY the complete Java test class code starting with package declaration:
         
-        QUALITY STANDARDS:
-        - Proper Java formatting and indentation
-        - Complete method implementations with meaningful assertions
-        - Consistent naming conventions (testMethodName_WhenCondition_ThenExpectedResult)
-        - Proper annotation usage (@Test, @BeforeEach, @Testcontainers, etc.)
-        - Clear, readable code structure with comments where helpful
-        - No compilation errors or logical gaps
+        package com.example.test;
         
-        The merged class should be PRODUCTION-READY with all issues automatically resolved.
+        import org.junit.jupiter.api.Test;
+        // ... other imports
         
-        DO NOT include explanations or markdown - just return the complete, reviewed, and fixed Java class.
+        public class ExampleTest {
+            // ... field declarations
+            
+            @BeforeEach
+            void setUp() {
+                // setup code
+            }
+            
+            @Test
+            void testMethod_WhenCondition_ThenExpectedResult() {
+                // test implementation with assertions
+            }
+            
+            // ... other test methods
+        }
+        
+        CRITICAL RULES:
+        - NO tool calls like markDone() or markMergeDone()
+        - NO explanations before or after the code
+        - NO markdown code blocks (```java)
+        - NO comments about what you're doing
+        - START immediately with "package" statement
+        - END immediately after closing brace "}"
+        - The merged class should be PRODUCTION-READY with all issues automatically resolved
+        
+        RESPOND WITH PURE JAVA CODE ONLY.
         """)
         @dev.langchain4j.agentic.Agent
         String mergeAndFixTestClass(String request);

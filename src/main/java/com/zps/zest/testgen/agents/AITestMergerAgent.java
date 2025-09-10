@@ -40,14 +40,16 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     }
     
     /**
-     * AI assistant for intelligent test class merging
+     * AI assistant for intelligent test class merging with integrated error review and fixing
      */
     public interface TestMergingAssistant {
         @dev.langchain4j.service.SystemMessage("""
-        You are an intelligent test merging assistant that creates complete, well-structured test classes.
+        You are an intelligent test merging and review assistant that creates complete, well-structured test classes.
         
-        CORE RESPONSIBILITY:
-        Generate a COMPLETE Java test class that intelligently merges new test methods with existing ones.
+        CORE RESPONSIBILITIES:
+        1. **Merge Tests**: Generate complete Java test class that intelligently merges new/existing tests
+        2. **Review Code**: Analyze merged test class for compilation and logical errors  
+        3. **Fix Issues**: Automatically correct detected problems
         
         MERGING RULES:
         1. **Preserve Existing Tests**: Never remove or modify existing test methods
@@ -56,6 +58,26 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         4. **Import Management**: Deduplicate imports, keep existing ones, add new ones as needed
         5. **Code Style**: Match the existing code style and patterns
         6. **Setup/Teardown**: Consolidate setup/teardown methods intelligently
+        
+        ERROR DETECTION & FIXING (automatically applied during merging):
+        1. **Compilation Errors**:
+           - Missing imports (add required imports)
+           - Syntax errors (fix brackets, semicolons, etc.)
+           - Type mismatches (correct variable types)
+           - Undefined references (fix class/method names)
+           
+        2. **Logical Errors**:
+           - Missing assertions (add appropriate assertEquals, assertTrue, etc.)
+           - Empty test methods (implement Given-When-Then pattern)
+           - Incomplete test setup (ensure proper initialization)
+           - Unused fields/methods (remove or utilize properly)
+           - Missing exception testing (add assertThrows where appropriate)
+           
+        3. **Quality Issues**:
+           - Inconsistent naming (standardize method names)
+           - Missing @Test annotations (add where needed)
+           - Poor assertion messages (add meaningful failure messages)
+           - Missing test documentation (add comments for complex scenarios)
         
         CONFLICT RESOLUTION:
         - If method names conflict: Add suffix like "2" or rename descriptively  
@@ -66,24 +88,27 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         OUTPUT FORMAT:
         Return ONLY the complete Java test class code, including:
         - Package declaration
-        - All necessary imports (deduplicated)
+        - All necessary imports (deduplicated and complete)
         - Class declaration with proper annotations
-        - All field declarations
-        - Setup/teardown methods (merged if applicable)
+        - All field declarations (properly typed and initialized)
+        - Setup/teardown methods (merged and complete)
         - All existing test methods (preserved exactly)
-        - All new test methods (adapted to match style)
+        - All new test methods (adapted, reviewed, and fixed)
         
         QUALITY STANDARDS:
         - Proper Java formatting and indentation
-        - Complete method implementations with proper assertions
-        - Consistent naming conventions
-        - Proper annotation usage (@Test, @BeforeEach, etc.)
-        - Clear, readable code structure
+        - Complete method implementations with meaningful assertions
+        - Consistent naming conventions (testMethodName_WhenCondition_ThenExpectedResult)
+        - Proper annotation usage (@Test, @BeforeEach, @Testcontainers, etc.)
+        - Clear, readable code structure with comments where helpful
+        - No compilation errors or logical gaps
         
-        DO NOT include explanations or markdown - just return the complete Java class.
+        The merged class should be PRODUCTION-READY with all issues automatically resolved.
+        
+        DO NOT include explanations or markdown - just return the complete, reviewed, and fixed Java class.
         """)
         @dev.langchain4j.agentic.Agent
-        String mergeTestClass(String request);
+        String mergeAndFixTestClass(String request);
     }
     
     /**
@@ -108,8 +133,8 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                 sendToUI("🤖 Assistant Response:\n");
                 sendToUI("-".repeat(40) + "\n");
                 
-                // Let AI generate the complete merged test class
-                String mergedTestCode = assistant.mergeTestClass(mergeRequest);
+                // Let AI generate the complete merged and reviewed test class
+                String mergedTestCode = assistant.mergeAndFixTestClass(mergeRequest);
                 
                 // Send response to UI
                 sendToUI(mergedTestCode);
@@ -371,6 +396,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         
         return testPath;
     }
+    
     
     /**
      * Get source code from PSI class

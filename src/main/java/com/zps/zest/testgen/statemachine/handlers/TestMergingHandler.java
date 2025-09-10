@@ -19,14 +19,21 @@ import java.util.function.Consumer;
 public class TestMergingHandler extends AbstractStateHandler {
     
     private final Consumer<String> streamingCallback;
+    private final com.zps.zest.testgen.ui.StreamingEventListener uiEventListener;
     
     public TestMergingHandler() {
-        this(null);
+        this(null, null);
     }
     
     public TestMergingHandler(Consumer<String> streamingCallback) {
+        this(streamingCallback, null);
+    }
+    
+    public TestMergingHandler(Consumer<String> streamingCallback,
+                             com.zps.zest.testgen.ui.StreamingEventListener uiEventListener) {
         super(TestGenerationState.MERGING_TESTS);
         this.streamingCallback = streamingCallback;
+        this.uiEventListener = uiEventListener;
     }
     
     @NotNull
@@ -56,9 +63,17 @@ public class TestMergingHandler extends AbstractStateHandler {
             LLMService llmService = getProject(stateMachine).getService(LLMService.class);
             AITestMergerAgent aiMerger = new AITestMergerAgent(getProject(stateMachine), langChainService, llmService);
             
+            // Store AITestMergerAgent in session data for chat memory access
+            setSessionData(stateMachine, "aiMergerAgent", aiMerger);
+            
             CompletableFuture<MergedTestClass> mergeFuture = aiMerger.mergeTests(result, contextTools);
             
             MergedTestClass mergedTestClass = waitForMerging(stateMachine, mergeFuture, "AI merging");
+            
+            // Trigger UI update for merged test class
+            if (uiEventListener != null && mergedTestClass != null) {
+                uiEventListener.onMergedTestClassUpdated(mergedTestClass);
+            }
             
             if (mergedTestClass == null) {
                 return StateResult.failure(
@@ -80,13 +95,13 @@ public class TestMergingHandler extends AbstractStateHandler {
                 session.setStatus(TestGenerationSession.Status.COMPLETED);
             }
             
-            String summary = String.format("AI test merging completed: %s with %d methods", 
+            String summary = String.format("AI test merging and review completed: %s with %d methods", 
                 mergedTestClass.getClassName(), 
                 mergedTestClass.getMethodCount());
             LOG.info(summary);
             
-            // Explicitly transition to FIXING_TESTS state
-            return StateResult.success(mergedTestClass, summary, TestGenerationState.FIXING_TESTS);
+            // Transition directly to COMPLETED since merging now includes error review and fixing
+            return StateResult.success(mergedTestClass, summary, TestGenerationState.COMPLETED);
             
         } catch (Exception e) {
             LOG.error("AI test merging failed", e);

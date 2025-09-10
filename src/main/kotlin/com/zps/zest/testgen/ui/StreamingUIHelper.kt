@@ -13,6 +13,7 @@ interface StreamingEventListener {
     fun onFileAnalyzed(data: ContextDisplayData)
     fun onTestPlanUpdated(data: TestPlanDisplayData)
     fun onTestGenerated(data: GeneratedTestDisplayData)
+    fun onMergedTestClassUpdated(mergedClass: MergedTestClass) {}  // Default empty implementation
     fun onStatusChanged(status: String)
     fun onProgressChanged(percent: Int, message: String)
     fun onGenerationCompleted(session: TestGenerationSession) {}  // Default empty implementation

@@ -59,6 +59,7 @@ class StateMachineTestGenerationEditor(
     private lateinit var contextDisplayPanel: ContextDisplayPanel
     private lateinit var testPlanDisplayPanel: TestPlanDisplayPanel
     private lateinit var generatedTestsPanel: GeneratedTestsPanel
+    private lateinit var testMergingPanel: TestMergingPanel
     private lateinit var streamingHelper: StreamingUIHelper
     
     // Simplified control system
@@ -260,6 +261,14 @@ class StateMachineTestGenerationEditor(
             }
         }
         
+        override fun onMergedTestClassUpdated(mergedClass: com.zps.zest.testgen.model.MergedTestClass) {
+            SwingUtilities.invokeLater {
+                testMergingPanel.updateMergedClass(mergedClass)
+                // Switch to test merging tab
+                tabbedPane.selectedIndex = 3
+            }
+        }
+        
         override fun onStatusChanged(status: String) {
             SwingUtilities.invokeLater {
                 logEvent("Status: $status")
@@ -299,8 +308,8 @@ class StateMachineTestGenerationEditor(
         topPanel.add(createStateDisplayPanel(), BorderLayout.CENTER)
         component.add(topPanel, BorderLayout.NORTH)
         
-        // Center with tabbed pane and log area
-        val splitter = com.intellij.ui.JBSplitter(true, 0.7f)
+        // Center with tabbed pane and compact log area
+        val splitter = com.intellij.ui.JBSplitter(true, 0.85f)
         splitter.firstComponent = createTabbedPane()
         splitter.secondComponent = createLogPanel()
         component.add(splitter, BorderLayout.CENTER)
@@ -389,14 +398,31 @@ class StateMachineTestGenerationEditor(
         val panel = JPanel(BorderLayout())
         panel.border = EmptyBorder(0, 15, 0, 15)
         
+        // Header for log area
+        val headerPanel = JPanel(BorderLayout())
+        headerPanel.background = UIUtil.getPanelBackground()
+        
+        val titleLabel = JBLabel("📋 Activity Log (Key Events)")
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 12f)
+        titleLabel.foreground = UIUtil.getContextHelpForeground()
+        headerPanel.add(titleLabel, BorderLayout.WEST)
+        
+        val infoLabel = JBLabel("💬 Use Chat buttons for detailed debugging")
+        infoLabel.font = infoLabel.font.deriveFont(10f)
+        infoLabel.foreground = UIUtil.getContextHelpForeground()
+        headerPanel.add(infoLabel, BorderLayout.EAST)
+        
+        panel.add(headerPanel, BorderLayout.NORTH)
+        
         logArea = JBTextArea()
         logArea.isEditable = false
-        logArea.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+        logArea.font = Font(Font.MONOSPACED, Font.PLAIN, 11) // Slightly smaller font
         logArea.background = UIUtil.getTextFieldBackground()
-        logArea.text = "Test generation editor initialized\n"
+        logArea.text = "[${java.time.LocalTime.now().toString().substring(0, 8)}] Test generation editor initialized\n"
         
         val scrollPane = JBScrollPane(logArea)
-        scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS
+        scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+        scrollPane.preferredSize = JBUI.size(400, 120) // Compact height
         panel.add(scrollPane, BorderLayout.CENTER)
         
         return panel
@@ -473,6 +499,10 @@ class StateMachineTestGenerationEditor(
         generatedTestsPanel = GeneratedTestsPanel(project)
         tabbedPane.addTab("Generated Tests", generatedTestsPanel)
         
+        // Test Merging tab - merged class display with error review
+        testMergingPanel = TestMergingPanel(project)
+        tabbedPane.addTab("Test Merging", testMergingPanel)
+        
         return tabbedPane
     }
     
@@ -487,13 +517,51 @@ class StateMachineTestGenerationEditor(
      */
     private fun processStreamingText(text: String) {
         SwingUtilities.invokeLater {
-            // Append to log area
-            logArea.append(text)
-            logArea.caretPosition = logArea.document.length
+            // Filter verbose streaming output - only show key events in log
+            if (shouldLogStreamingText(text)) {
+                logArea.append(text)
+                // Apply line limiting after each append
+                limitLogLines(100)
+                logArea.caretPosition = logArea.document.length
+            }
             
-            // Process with streaming helper for real-time panel updates
+            // Always process with streaming helper for real-time panel updates
             streamingHelper.processStreamingText(text)
         }
+    }
+    
+    /**
+     * Filter streaming text to reduce log verbosity - only log important events
+     */
+    private fun shouldLogStreamingText(text: String): Boolean {
+        val lowerText = text.lowercase()
+        
+        // Always log important events
+        if (lowerText.contains("error") || 
+            lowerText.contains("failed") || 
+            lowerText.contains("completed") ||
+            lowerText.contains("summary") ||
+            lowerText.contains("starting") ||
+            lowerText.contains("✅") ||
+            lowerText.contains("❌") ||
+            lowerText.contains("⚠️") ||
+            lowerText.startsWith("attempt ")) {
+            return true
+        }
+        
+        // Skip verbose tool output and incremental progress
+        if (lowerText.contains("🔧") || // Tool calls
+            lowerText.contains("extracted") || 
+            lowerText.contains("detected") ||
+            lowerText.contains("parsed") ||
+            lowerText.contains("parsing") ||
+            lowerText.contains("analyzing") ||
+            text.startsWith("-") || // Separator lines
+            text.trim().isEmpty()) {
+            return false
+        }
+        
+        return true // Log everything else
     }
     
     private fun startTestGeneration(request: com.zps.zest.testgen.model.TestGenerationRequest) {
@@ -518,6 +586,7 @@ class StateMachineTestGenerationEditor(
         contextDisplayPanel.clear()
         testPlanDisplayPanel.clear()
         generatedTestsPanel.clear()
+        testMergingPanel.clear()
         stopChatMemoryPeriodicUpdates() // Stop any existing periodic updates
         streamingHelper.reset()
         
@@ -922,7 +991,23 @@ class StateMachineTestGenerationEditor(
     private fun logEvent(message: String) {
         val timestamp = java.time.LocalTime.now().toString().substring(0, 8)
         logArea.append("[$timestamp] $message\n")
+        
+        // Limit log area to last 100 lines for better performance
+        limitLogLines(100)
+        
+        // Auto-scroll to bottom
         logArea.caretPosition = logArea.document.length
+    }
+    
+    /**
+     * Limit log area to specified number of lines, removing oldest entries
+     */
+    private fun limitLogLines(maxLines: Int) {
+        val lines = logArea.text.split("\n")
+        if (lines.size > maxLines) {
+            val keepLines = lines.takeLast(maxLines)
+            logArea.text = keepLines.joinToString("\n")
+        }
     }
     
     /**
@@ -955,9 +1040,11 @@ class StateMachineTestGenerationEditor(
             
             // Get CoordinatorAgent memory for planning
             val coordinatorAgent = stateMachine?.sessionData?.get("coordinatorAgent") as? com.zps.zest.testgen.agents.CoordinatorAgent
-//            println("[DEBUG] CoordinatorAgent: $coordinatorAgent")
-//            println("[DEBUG] CoordinatorAgent ChatMemory: ${coordinatorAgent?.getChatMemory()}")
             testPlanDisplayPanel.setChatMemory(coordinatorAgent?.getChatMemory(), "Coordinator")
+            
+            // Get AITestMergerAgent memory for merging and review
+            val aiMergerAgent = stateMachine?.sessionData?.get("aiMergerAgent") as? com.zps.zest.testgen.agents.AITestMergerAgent
+            testMergingPanel.setChatMemory(aiMergerAgent?.getChatMemory(), "AI Merger")
             
             // Only log when there are significant changes
             if (wasContextAgentNull && contextAgent != null) {

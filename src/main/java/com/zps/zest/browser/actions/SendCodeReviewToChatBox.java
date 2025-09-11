@@ -82,10 +82,10 @@ public class SendCodeReviewToChatBox extends BaseChatAction {
     }
     
     private String createReviewPrompt(String fileName, String fileType, String codeContent) {
-        return "Review this code for issues and improvements:\n\n" +
+        return
                "**" + fileName + "**\n" +
                "```" + fileType + "\n" + codeContent + "\n```\n\n" +
-               "Analyze: quality, bugs, performance, security, best practices, test-ability\n" +
+               "Analyze: quality, bugs, performance, security, best practices, and test-ability\n" +
                "Style: Be concise, specific, actionable. Use bullet points.\n" +
                "Format: Summary → Critical Issues (with line numbers) → Suggestions";
     }

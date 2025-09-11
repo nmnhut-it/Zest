@@ -35,6 +35,7 @@ class SimpleChatDialog(
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
     private var isProcessing = false
     private var conversationMarkdown = StringBuilder()
+    private var lastMessageStartPosition = 0
 
     init {
         title = "💬 Zest Chat"
@@ -268,13 +269,17 @@ class SimpleChatDialog(
     }
 
     /**
-     * Append a new message to the conversation markdown
+     * Append a new message to the conversation markdown and scroll to message start
      */
     private fun appendToConversation(header: String, content: String) {
         val timestamp = timeFormatter.format(java.util.Date())
         
+        // Track where this new message starts
+        lastMessageStartPosition = conversationMarkdown.length
+        
         if (conversationMarkdown.isNotEmpty()) {
             conversationMarkdown.append("\n\n---\n\n")
+            lastMessageStartPosition = conversationMarkdown.length // Update position after separator
         }
         
         conversationMarkdown.append("## $header `($timestamp)`\n\n")
@@ -283,11 +288,8 @@ class SimpleChatDialog(
         // Update the markdown display
         updateConversationDisplay()
         
-        // Auto-scroll to bottom
-        SwingUtilities.invokeLater {
-            val vertical = chatScrollPane.verticalScrollBar
-            vertical.value = vertical.maximum
-        }
+        // Scroll to the beginning of this new message (not the end)
+        scrollToMessageStart()
     }
     
     /**
@@ -299,6 +301,45 @@ class SimpleChatDialog(
             conversationArea.text = html
             conversationArea.revalidate()
             conversationArea.repaint()
+        }
+    }
+    
+    /**
+     * Scroll to the beginning of the last message instead of the end
+     */
+    private fun scrollToMessageStart() {
+        SwingUtilities.invokeLater {
+            try {
+                // Convert markdown position to HTML/rendered position (approximate)
+                val markdownText = conversationMarkdown.toString()
+                val messageStartInMarkdown = lastMessageStartPosition
+                
+                // For HTML content, we need to estimate the position
+                // Simple approach: find the last ## header in the content
+                val lastHeaderIndex = markdownText.lastIndexOf("## ")
+                if (lastHeaderIndex >= 0) {
+                    // Set caret to the start of the last message header
+                    val htmlText = conversationArea.text
+                    val headerPattern = "<h2>"
+                    val lastHtmlHeaderIndex = htmlText.lastIndexOf(headerPattern)
+                    
+                    if (lastHtmlHeaderIndex >= 0) {
+                        conversationArea.caretPosition = lastHtmlHeaderIndex
+                        conversationArea.scrollRectToVisible(conversationArea.modelToView(lastHtmlHeaderIndex))
+                    } else {
+                        // Fallback: scroll to a reasonable position (80% down instead of 100%)
+                        val doc = conversationArea.document
+                        val docLength = doc.length
+                        val scrollPosition = maxOf(0, docLength - (docLength * 0.2).toInt())
+                        conversationArea.caretPosition = scrollPosition
+                        conversationArea.scrollRectToVisible(conversationArea.modelToView(scrollPosition))
+                    }
+                }
+            } catch (e: Exception) {
+                // Fallback to simple bottom scroll if positioning fails
+                val vertical = chatScrollPane.verticalScrollBar
+                vertical.value = vertical.maximum
+            }
         }
     }
     

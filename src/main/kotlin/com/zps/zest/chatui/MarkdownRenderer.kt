@@ -97,22 +97,22 @@ object MarkdownRenderer {
                 <style type="text/css">
                     body { 
                         font-family: SansSerif;
-                        font-size: 13px;
-                        margin: 8px;
+                        font-size: 11px;
+                        margin: 6px;
                         width: 100%;
                         color: ${getTextColor()};
                     }
                     pre { 
                         background-color: ${getCodeBackgroundColor()};
                         border: 1px solid ${getBorderColor()};
-                        padding: 8px;
+                        padding: 6px;
                         font-family: Monospaced;
-                        font-size: 12px;
+                        font-size: 10px;
                     }
                     code {
                         background-color: ${getInlineCodeBackgroundColor()};
                         font-family: Monospaced;
-                        font-size: 12px;
+                        font-size: 10px;
                     }
                     blockquote {
                         border-left: 3px solid ${getAccentColor()};
@@ -122,22 +122,25 @@ object MarkdownRenderer {
                     }
                     h1, h2, h3, h4, h5, h6 {
                         font-weight: bold;
-                        margin: 8px 0;
+                        margin: 6px 0;
+                        font-size: 12px;
                     }
                     ul, ol {
-                        margin: 4px 0;
-                        padding-left: 20px;
+                        margin: 3px 0;
+                        padding-left: 16px;
+                        font-size: 11px;
                     }
                     li {
-                        margin: 2px 0;
+                        margin: 1px 0;
                     }
                     table {
                         border-collapse: collapse;
-                        margin: 4px 0;
+                        margin: 3px 0;
+                        font-size: 10px;
                     }
                     th, td {
                         border: 1px solid ${getBorderColor()};
-                        padding: 4px 8px;
+                        padding: 3px 6px;
                         text-align: left;
                     }
                     th {
@@ -145,7 +148,8 @@ object MarkdownRenderer {
                         font-weight: bold;
                     }
                     p {
-                        margin: 4px 0;
+                        margin: 3px 0;
+                        font-size: 11px;
                     }
                 </style>
             </head>

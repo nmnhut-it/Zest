@@ -391,15 +391,23 @@ class FileContextPrePopulationService(private val project: Project) {
     private suspend fun analyzeFileStructure(virtualFile: VirtualFile) {
         ApplicationManager.getApplication().invokeLater {
             ApplicationManager.getApplication().runReadAction {
-                val psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(virtualFile)
-                if (psiFile is PsiJavaFile) {
-                    // Use ClassAnalyzer to pre-analyze file structure
-                    try {
+                // Check if the virtual file is still valid before accessing it
+                if (!virtualFile.isValid) {
+                    logger.debug("Skipping invalid virtual file: ${virtualFile.path}")
+                    return@runReadAction
+                }
+                
+                try {
+                    val psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(virtualFile)
+                    if (psiFile is PsiJavaFile) {
+                        // Use ClassAnalyzer to pre-analyze file structure
                         com.zps.zest.ClassAnalyzer.collectClassContext(psiFile.classes.firstOrNull())
                         logger.debug("Pre-analyzed file structure for: ${virtualFile.path}")
-                    } catch (e: Exception) {
-                        logger.debug("Failed to analyze file structure: ${e.message}")
                     }
+                } catch (e: com.intellij.openapi.vfs.InvalidVirtualFileAccessException) {
+                    logger.debug("Virtual file became invalid during analysis: ${virtualFile.path}")
+                } catch (e: Exception) {
+                    logger.debug("Failed to analyze file structure: ${e.message}")
                 }
             }
         }

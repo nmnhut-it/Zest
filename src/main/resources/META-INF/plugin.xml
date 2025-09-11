@@ -194,15 +194,14 @@
             <add-to-group group-id="MainToolbarRight" anchor="after" relative-to-action="Zest.OpenChat"/>
         </action>
 
-        <!-- Temporarily disabled - needs reimplementation
         <action id="Zest.SendCodeReviewToChatBox"
                 class="com.zps.zest.browser.actions.SendCodeReviewToChatBox"
                 text="Code Review (Chat)"
                 icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
                 description="Review code và đưa ra gợi ý cải thiện">
             <add-to-group group-id="ZestGroup" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Zest.ReviewCurrentFile"/>
         </action>
-        -->
 
         <action id="Zest.GitCommitMessageGeneratorAction"
                 class="com.zps.zest.GitCommitMessageGeneratorAction"
@@ -234,17 +233,17 @@
             
             <!-- Removed non-functional "Activate Code Health" action -->
             
-            <action id="Zest.AddMethodAtCaret"
-                    class="com.zps.zest.codehealth.actions.AddMethodAtCaretAction"
-                    text="🎯 Track This Method / Theo Dõi Method Này"
-                    description="Add method to quality monitoring queue / Thêm method vào hàng đợi giám sát chất lượng">
-            </action>
+<!--            <action id="Zest.AddMethodAtCaret"-->
+<!--                    class="com.zps.zest.codehealth.actions.AddMethodAtCaretAction"-->
+<!--                    text="🎯 Track This Method / Theo Dõi Method Này"-->
+<!--                    description="Add method to quality monitoring queue / Thêm method vào hàng đợi giám sát chất lượng">-->
+<!--            </action>-->
             
-            <action id="Zest.TriggerBackgroundReview"
-                    class="com.zps.zest.codehealth.actions.TriggerBackgroundReviewAction"
-                    text="🔄 Process Review Queue / Xử Lý Hàng Đợi"
-                    description="Review all pending methods in background / Đánh giá các method đang chờ">
-            </action>
+<!--            <action id="Zest.TriggerBackgroundReview"-->
+<!--                    class="com.zps.zest.codehealth.actions.TriggerBackgroundReviewAction"-->
+<!--                    text="🔄 Process Review Queue / Xử Lý Hàng Đợi"-->
+<!--                    description="Review all pending methods in background / Đánh giá các method đang chờ">-->
+<!--            </action>-->
 
             <action id="Zest.ReviewCurrentFile"
                     class="com.zps.zest.codehealth.actions.ReviewCurrentFileAction"
@@ -259,11 +258,16 @@
                     text="📊 Daily Health Report / Báo Cáo Hàng Ngày"
                     description="Generate comprehensive daily code quality report / Tạo báo cáo tổng hợp chất lượng code">
             </action>
+            <action id="Zest.ShowGuardianHelp"
+                    class="com.zps.zest.codehealth.actions.ShowGuardianHelpAction"
+                    text="❓ Usage guide"
+                    description="View Code Health usage guide / Xem hướng dẫn sử dụng Code Health">
+            </action>
         </group>
         
         <!-- Code Health Debug Actions Group -->
         <group id="Zest.CodeHealthDebug" text="Debug Tools / Công Cụ Debug" popup="true">
-            <add-to-group group-id="Zest.CodeHealth" anchor="last"/>
+<!--            <add-to-group group-id="Zest.CodeHealth" anchor="last"/>-->
             
             <action id="Zest.ShowReviewQueueStatus"
                     class="com.zps.zest.codehealth.actions.ShowReviewQueueStatusAction"
@@ -279,11 +283,7 @@
             
             <separator/>
             
-            <action id="Zest.ShowGuardianHelp"
-                    class="com.zps.zest.codehealth.actions.ShowGuardianHelpAction"
-                    text="❓ Help / Trợ Giúp"
-                    description="View Code Health usage guide / Xem hướng dẫn sử dụng Code Health">
-            </action>
+
         </group>
         
         <!-- Moved debug actions to a debug submenu -->

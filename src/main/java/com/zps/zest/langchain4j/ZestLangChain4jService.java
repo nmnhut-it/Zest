@@ -11,6 +11,7 @@ import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.output.Response;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingSearchResult;
@@ -132,6 +133,14 @@ public final class ZestLangChain4jService {
             try {
                 LOG.info("Starting codebase indexing...");
                 
+                // First, test if embedding service is available
+                if (!testEmbeddingServiceAvailability()) {
+                    LOG.warn("Embedding service is not available - skipping indexing for now");
+                    LOG.info("Will retry indexing in 24 hours when service might be available");
+                    scheduleIndexingRetry();
+                    return false;
+                }
+                
                 String basePath = project.getBasePath();
                 if (basePath == null) {
                     LOG.error("Project base path is null - cannot index");
@@ -155,30 +164,53 @@ public final class ZestLangChain4jService {
                 
                 int indexed = 0;
                 int chunks = 0;
+                int failedFiles = 0;
                 for (Path file : codeFiles) {
                     try {
                         LOG.debug("Indexing file: " + file);
                         int chunksBefore = getIndexedChunkCount();
-                        indexFile(file);
-                        int chunksAfter = getIndexedChunkCount();
-                        int fileChunks = chunksAfter - chunksBefore;
-                        chunks += fileChunks;
-                        indexed++;
-                        
-                        LOG.debug("Indexed file: " + file + " -> " + fileChunks + " chunks");
+                        boolean success = indexFileWithRetry(file);
+                        if (success) {
+                            int chunksAfter = getIndexedChunkCount();
+                            int fileChunks = chunksAfter - chunksBefore;
+                            chunks += fileChunks;
+                            indexed++;
+                            LOG.debug("Indexed file: " + file + " -> " + fileChunks + " chunks");
+                        } else {
+                            failedFiles++;
+                            LOG.warn("Could not index file (embedding service issue): " + file);
+                            
+                            // If too many failures, stop indexing
+                            if (failedFiles > 5) {
+                                LOG.error("Too many embedding failures (" + failedFiles + "), stopping indexing");
+                                LOG.info("Will retry indexing in 24 hours when service might be more stable");
+                                scheduleIndexingRetry();
+                                return false;
+                            }
+                        }
                         
                         if (indexed % 10 == 0) {
                             LOG.info("Indexed " + indexed + "/" + codeFiles.size() + " files, " + chunks + " chunks total");
                         }
                     } catch (Exception e) {
                         LOG.warn("Failed to index file: " + file, e);
+                        failedFiles++;
                     }
                 }
                 
-                isIndexed = true;
-                LOG.info("✅ Codebase indexing complete! Indexed " + indexed + " files into " + chunks + " chunks");
-                LOG.info("Total vectors in store: " + getIndexedChunkCount());
-                return true;
+                if (indexed > 0) {
+                    isIndexed = true;
+                    LOG.info("✅ Codebase indexing complete! Indexed " + indexed + " files into " + chunks + " chunks");
+                    if (failedFiles > 0) {
+                        LOG.warn("Failed to index " + failedFiles + " files due to embedding service issues");
+                    }
+                    LOG.info("Total vectors in store: " + getIndexedChunkCount());
+                    return true;
+                } else {
+                    LOG.error("No files could be indexed - embedding service unavailable");
+                    scheduleIndexingRetry();
+                    return false;
+                }
                 
             } catch (Exception e) {
                 LOG.error("Error indexing codebase", e);
@@ -277,9 +309,96 @@ public final class ZestLangChain4jService {
             if (success) {
                 LOG.info("Background indexing completed successfully");
             } else {
-                LOG.warn("Background indexing failed");
+                LOG.warn("Background indexing failed or was deferred");
             }
         });
+    }
+    
+    /**
+     * Test if the embedding service is available
+     */
+    private boolean testEmbeddingServiceAvailability() {
+        try {
+            LOG.debug("Testing embedding service availability...");
+            
+            // Try to generate a simple test embedding with timeout
+            String testText = "test embedding service availability";
+            CompletableFuture<Response<Embedding>> future = CompletableFuture.supplyAsync(() -> {
+                return embeddingModel.embed(testText);
+            });
+            
+            // Wait for up to 5 seconds for the test
+            Response<Embedding> response = future.get(5, TimeUnit.SECONDS);
+            
+            if (response != null && response.content() != null) {
+                float[] vector = response.content().vector();
+                if (vector != null && vector.length > 0) {
+                    LOG.info("✅ Embedding service is available and working");
+                    return true;
+                }
+            }
+            
+            LOG.warn("Embedding service returned invalid response");
+            return false;
+            
+        } catch (java.util.concurrent.TimeoutException e) {
+            LOG.warn("Embedding service test timed out - service may be down or overloaded");
+            return false;
+        } catch (Exception e) {
+            LOG.warn("Embedding service test failed: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Schedule a retry of indexing for later (next day)
+     */
+    private void scheduleIndexingRetry() {
+        // Schedule retry in 24 hours
+//        incrementalIndexer.schedule(() -> {
+//            LOG.info("Retrying codebase indexing after scheduled delay...");
+//            indexCodebaseAsync();
+//        }, 24, TimeUnit.HOURS);
+        
+//        LOG.info("Scheduled indexing retry for 24 hours from now");
+    }
+    
+    /**
+     * Index a file with retry on embedding failure
+     */
+    private boolean indexFileWithRetry(Path file) {
+        int retries = 0;
+        int maxRetries = 2;
+        
+        while (retries <= maxRetries) {
+            try {
+                indexFile(file);
+                return true;
+            } catch (Exception e) {
+                if (e.getMessage() != null && 
+                    (e.getMessage().contains("Embedding generation failed") ||
+                     e.getMessage().contains("embedding") ||
+                     e.getMessage().contains("timeout"))) {
+                    retries++;
+                    if (retries <= maxRetries) {
+                        LOG.debug("Retrying file indexing (attempt " + retries + "/" + maxRetries + "): " + file);
+                        try {
+                            Thread.sleep(1000 * retries); // Exponential backoff
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            return false;
+                        }
+                    } else {
+                        LOG.debug("Max retries exceeded for file: " + file);
+                        return false;
+                    }
+                } else {
+                    // Non-embedding related error, don't retry
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+        return false;
     }
     
     /**

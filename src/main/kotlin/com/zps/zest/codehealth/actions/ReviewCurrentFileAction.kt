@@ -31,11 +31,7 @@ import java.util.concurrent.TimeUnit
 /**
  * Action to immediately review the current file for code health issues
  */
-class ReviewCurrentFileAction : AnAction(
-    "Review This File Now",
-    "Immediately analyze current file for code health issues",
-    AllIcons.Actions.ProfileCPU
-) {
+class ReviewCurrentFileAction : AnAction() {
     companion object {
         private val logger = Logger.getInstance(ReviewCurrentFileAction::class.java)
         private val SUPPORTED_EXTENSIONS = setOf("java", "kt", "js", "ts", "jsx", "tsx")
@@ -95,7 +91,7 @@ class ReviewCurrentFileAction : AnAction(
                         indicator.text = msg
                     }
                     
-                    val results = future.get(30, TimeUnit.SECONDS)
+                    val results = future.get(3000, TimeUnit.SECONDS)
                     
                     // 4. Store results and open Code Health Editor
                     ApplicationManager.getApplication().invokeLater {

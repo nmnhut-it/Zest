@@ -241,7 +241,7 @@ class BackgroundHealthReviewer(private val project: Project) {
                 
                 // Save to persistent storage
                 saveReviewedMethods()
-                
+
                 progressCallback?.invoke("Review complete: ${results.size} methods analyzed")
                 future.complete(results)
                 

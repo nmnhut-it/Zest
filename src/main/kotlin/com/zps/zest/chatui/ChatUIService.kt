@@ -12,8 +12,12 @@ import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.memory.chat.MessageWindowChatMemory
 import dev.langchain4j.model.chat.request.ChatRequest
 import dev.langchain4j.model.chat.response.ChatResponse
+import dev.langchain4j.agentic.AgenticServices
+import com.zps.zest.testgen.tools.ReadFileTool
+import com.zps.zest.explanation.tools.RipgrepCodeTool
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
+import com.zps.zest.ConfigurationManager
 import java.net.HttpURLConnection
 import java.net.URL
 import java.io.BufferedReader
@@ -52,47 +56,50 @@ class ChatUIService(private val project: Project) {
     private var chatModel: ZestChatLanguageModel = createChatModel(currentUsage)
     private val chatMemory: MessageWindowChatMemory = MessageWindowChatMemory.withMaxMessages(50)
     
+    // Tools for file operations
+    private val readFiles = mutableMapOf<String, String>()
+    private val searchResults = mutableListOf<String>()
+    private val readFileTool = ReadFileTool(project, readFiles)
+    private val searchTool = RipgrepCodeTool(project, mutableSetOf(), searchResults)
+    private var toolEnabledAssistant: ChatAssistant? = null
+    
     // Dialog management
-    private var currentDialog: SimpleChatDialog? = null
+    private var currentDialog: JCEFChatDialog? = null
     
     /**
-     * Send a message to the AI and get a response
+     * Send a message to the AI and get a response with tool support
      */
     fun sendMessage(userMessage: String): String {
         LOG.info("Sending message to AI: ${userMessage.take(100)}...")
         
         try {
-            // Create user message
-            val userMsg = UserMessage.from(userMessage)
-            chatMemory.add(userMsg)
+            // Initialize tool-enabled assistant if not already done
+            if (toolEnabledAssistant == null) {
+                toolEnabledAssistant = createToolEnabledAssistant()
+            }
             
-            // Build chat request with conversation history
-            val messages = chatMemory.messages()
-            val chatRequest = ChatRequest.builder()
-                .messages(messages)
-                .build()
+            // Use the tool-enabled assistant
+            val response = toolEnabledAssistant!!.chat(userMessage)
             
-            // Send to AI
-            val response: ChatResponse = chatModel.chat(chatRequest)
-            val aiResponse = response.aiMessage()
-            
-            // Add AI response to memory
-            chatMemory.add(aiResponse)
-            
-            val responseText = aiResponse.text() ?: "No response received"
-            LOG.info("Received AI response: ${responseText.take(100)}...")
-            
-            return responseText
+            LOG.info("Received AI response: ${response.take(100)}...")
+            return response
             
         } catch (e: Exception) {
             LOG.error("Failed to send message to AI", e)
             val errorMessage = "Sorry, I encountered an error: ${e.message}"
-            
-            // Add error as AI message to maintain conversation flow
-            chatMemory.add(AiMessage.from(errorMessage))
-            
             return errorMessage
         }
+    }
+    
+    /**
+     * Create a tool-enabled assistant with file reading and search capabilities
+     */
+    private fun createToolEnabledAssistant(): ChatAssistant {
+        return AgenticServices.agentBuilder(ChatAssistant::class.java)
+            .chatModel(chatModel)
+            .chatMemory(chatMemory)
+            .tools(readFileTool, searchTool)
+            .build()
     }
     
     /**
@@ -118,9 +125,9 @@ class ChatUIService(private val project: Project) {
     /**
      * Open the chat dialog
      */
-    fun openChat(): SimpleChatDialog {
+    fun openChat(): JCEFChatDialog {
         if (currentDialog == null || !currentDialog!!.isVisible) {
-            currentDialog = SimpleChatDialog(project)
+            currentDialog = JCEFChatDialog(project)
             currentDialog!!.show()
         } else {
             // Bring existing dialog to front
@@ -247,7 +254,7 @@ class ChatUIService(private val project: Project) {
      * Create a chat model with the specified usage context and ZingPlay priority
      */
     private fun createChatModel(usage: ChatboxUtilities.EnumUsage): ZestChatLanguageModel {
-        return ZestChatLanguageModel(createPrioritizedLLMService(), usage)
+        return ZestChatLanguageModel(createPrioritizedLLMService(), usage, selectedModel)
     }
     
     /**
@@ -436,7 +443,7 @@ class ChatUIService(private val project: Project) {
             val apiKey = System.getProperty("openwebui.api.key") 
                 ?: System.getenv("OPENWEBUI_API_KEY")
                 ?: System.getenv("ZINGPLAY_API_KEY")  // ZingPlay specific
-            
+                ?: ConfigurationManager.getInstance(project).authToken;
             if (apiKey.isNullOrBlank()) {
                 LOG.debug("No OpenWebUI API key found - requests will be made without authentication")
                 null
@@ -504,4 +511,12 @@ class ChatUIService(private val project: Project) {
         val aiMessages: Int,
         val hasActiveConversation: Boolean
     )
+}
+
+/**
+ * LangChain4j agent class for tool-enabled chat
+ */
+interface ChatAssistant {
+    @dev.langchain4j.agentic.Agent
+    fun chat(userMessage: String): String
 }

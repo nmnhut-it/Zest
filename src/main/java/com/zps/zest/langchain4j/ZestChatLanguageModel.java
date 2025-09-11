@@ -110,6 +110,12 @@ public class ZestChatLanguageModel implements ChatModel {
     }
 
     public ZestChatLanguageModel(LLMService llmService, ChatboxUtilities.EnumUsage usage) {
+        this(llmService, usage, null);
+    }
+    
+    public ZestChatLanguageModel(LLMService llmService, ChatboxUtilities.EnumUsage usage, String selectedModel) {
+        if (selectedModel == null)
+            selectedModel = "local-model";
         this.llmService = llmService;
         this.usage = usage;
         this.config = ConfigurationManager.getInstance(llmService.getProject());
@@ -120,7 +126,7 @@ public class ZestChatLanguageModel implements ChatModel {
         
         LOG.info("Rate limiting configured - Min delay: " + minDelayMs + "ms, Request delay: " + requestDelayMs + "ms");
         
-        this.delegateModel = createOpenAiModel(llmService.getProject());
+        this.delegateModel = createOpenAiModel(llmService.getProject(), selectedModel);
         
         // Trigger username fetch
         LLMService.fetchAndStoreUsername(llmService.getProject());
@@ -148,10 +154,10 @@ public class ZestChatLanguageModel implements ChatModel {
     private OpenAiChatModel createOpenAiModel(LLMService llmService) {
         // Get configuration from the LLMService's project
         Project project = llmService.getProject();
-        return createOpenAiModel(project);
+        return createOpenAiModel(project, null);
     }
 
-    private OpenAiChatModel createOpenAiModel(@NotNull Project project) {
+    private OpenAiChatModel createOpenAiModel(@NotNull Project project, String selectedModel) {
         ConfigurationManager config = ConfigurationManager.getInstance(project);
 
         // Load environment variables from .env file
@@ -170,8 +176,10 @@ public class ZestChatLanguageModel implements ChatModel {
             // Use OpenAI configuration from .env
             apiUrl = envBaseUrl;
             apiKey = envApiKey;
-            modelName = envModel;
-            LOG.info("Using OpenAI configuration from .env file - Model: " + modelName);
+            // Prioritize selectedModel from UI, fallback to env model
+            modelName = (selectedModel != null && !selectedModel.isEmpty()) ? selectedModel : envModel;
+            LOG.info("Using OpenAI configuration from .env file - Model: " + modelName + 
+                    (selectedModel != null ? " (selected from UI)" : " (from env)"));
         } else {
             // Fallback to existing configuration
             apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
@@ -182,7 +190,10 @@ public class ZestChatLanguageModel implements ChatModel {
             if (apiUrl.contains("openwebui.zingplay"))
                 apiUrl = "https://openwebui.zingplay.com/api";
             apiKey = config.getAuthTokenNoPrompt(); // Use auth token as API key
-            modelName = "local-model"; // Use local model as fallback
+            // Prioritize selectedModel from UI, fallback to local-model
+            modelName = (selectedModel != null && !selectedModel.isEmpty()) ? selectedModel : "local-model";
+            LOG.info("Using fallback configuration - Model: " + modelName + 
+                    (selectedModel != null ? " (selected from UI)" : " (fallback)"));
         }
 
 //        // Default values if not configured

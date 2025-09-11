@@ -4,7 +4,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -16,42 +15,29 @@ import javax.swing.*
 import javax.swing.border.EmptyBorder
 
 /**
- * Simple chat dialog for code review and general AI assistance.
- * Based on ChatMemoryDialog patterns with input capabilities.
+ * JCEF-based chat dialog for better HTML rendering and interactive features
  */
-class SimpleChatDialog(
+class JCEFChatDialog(
     private val project: Project
 ) : DialogWrapper(project, false) {
 
     private val chatService = project.getService(ChatUIService::class.java)
-    private val conversationArea: JEditorPane = MarkdownRenderer.createMarkdownPane("", Int.MAX_VALUE)
-    private val chatScrollPane: JBScrollPane
+    private val chatPanel = JCEFChatPanel(project)
     private val inputArea = JBTextArea()
     private val sendButton = JButton("Send")
     private val clearButton = JButton("Clear")
-    private val timeFormatter = SimpleDateFormat("HH:mm:ss")
     private var isProcessing = false
-    private var conversationMarkdown = StringBuilder()
-    private var messageCounter = 0
-    private var lastMessageAnchor: String? = null
 
     init {
         title = "💬 Zest Chat"
         setSize(1000, 700)
         isModal = false
         
-        // Initialize Swing markdown conversation area
-        conversationArea.isEditable = false
-        conversationArea.background = UIUtil.getPanelBackground()
-        
-        chatScrollPane = JBScrollPane(conversationArea).apply {
-            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
-            border = null
-        }
-        
         // Initialize with welcome message
-        appendToConversation("💬 **Welcome to Zest Chat!**", "Start a conversation by typing your question below...")
+        chatPanel.addMessage(
+            "💬 **Welcome to Zest Chat!**", 
+            "Start a conversation by typing your question below..."
+        )
         
         init()
     }
@@ -64,13 +50,13 @@ class SimpleChatDialog(
         val headerPanel = createHeaderPanel()
         mainPanel.add(headerPanel, BorderLayout.NORTH)
 
-        // Main split pane: messages (top) and input (bottom)
+        // Main split pane: chat (top) and input (bottom)
         val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT)
-        splitPane.resizeWeight = 0.7 // 70% for messages, 30% for input
+        splitPane.resizeWeight = 0.7 // 70% for chat, 30% for input
 
-        // Single conversation area (much simpler than bubbles)
-        chatScrollPane.minimumSize = JBUI.size(400, 200)
-        splitPane.topComponent = chatScrollPane
+        // Chat panel
+        splitPane.topComponent = chatPanel
+        chatPanel.minimumSize = JBUI.size(400, 200)
 
         // Input panel
         val inputPanel = createInputPanel()
@@ -99,7 +85,6 @@ class SimpleChatDialog(
         val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0))
         
         // Model selector dropdown with refresh button
-        val chatService = project.getService(ChatUIService::class.java)
         val modelSelector = com.intellij.openapi.ui.ComboBox(chatService.getAvailableModels().toTypedArray())
         modelSelector.selectedItem = chatService.getSelectedModel()
         modelSelector.addActionListener {
@@ -137,20 +122,19 @@ class SimpleChatDialog(
         rightPanel.add(modelSelector)
         rightPanel.add(refreshModelsButton)
         
-        // Message limit indicator (simple counter)
+        // Message limit indicator
         val messageCount = chatService.getMessages().size
         val statsLabel = JBLabel("$messageCount/50")
         statsLabel.foreground = when {
-            messageCount > 40 -> if (isDarkMode()) Color(255, 200, 100) else Color(200, 100, 0) // Warning
-            messageCount > 45 -> if (isDarkMode()) Color(255, 150, 150) else Color(200, 50, 50) // Alert
-            else -> UIUtil.getInactiveTextColor() // Normal
+            messageCount > 40 -> if (isDarkMode()) Color(255, 200, 100) else Color(200, 100, 0)
+            messageCount > 45 -> if (isDarkMode()) Color(255, 150, 150) else Color(200, 50, 50)
+            else -> UIUtil.getInactiveTextColor()
         }
         statsLabel.toolTipText = "Chat memory: $messageCount of 50 messages used"
         statsLabel.border = EmptyBorder(0, 8, 0, 0)
         rightPanel.add(statsLabel)
 
         panel.add(rightPanel, BorderLayout.EAST)
-
         return panel
     }
 
@@ -164,7 +148,7 @@ class SimpleChatDialog(
         inputArea.font = Font(Font.SANS_SERIF, Font.PLAIN, 14)
         inputArea.emptyText.text = "Ask about your code, request reviews, or get help with development..."
 
-        // Handle Enter key for sending (Ctrl+Enter for new line)
+        // Handle Enter key for sending
         inputArea.addKeyListener(object : java.awt.event.KeyAdapter() {
             override fun keyPressed(e: java.awt.event.KeyEvent) {
                 if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER) {
@@ -181,7 +165,7 @@ class SimpleChatDialog(
             }
         })
 
-        val inputScrollPane = JBScrollPane(inputArea)
+        val inputScrollPane = com.intellij.ui.components.JBScrollPane(inputArea)
         inputScrollPane.preferredSize = JBUI.size(400, 100)
         panel.add(inputScrollPane, BorderLayout.CENTER)
 
@@ -231,8 +215,8 @@ class SimpleChatDialog(
         sendButton.text = "Sending..."
         sendButton.isEnabled = false
 
-        // Add user message to markdown conversation
-        appendToConversation("👤 **You**", userMessage)
+        // Add user message to chat
+        chatPanel.addMessage("👤 **You**", userMessage)
 
         // Send to AI asynchronously
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -240,8 +224,8 @@ class SimpleChatDialog(
                 val response = chatService.sendMessage(userMessage)
                 
                 ApplicationManager.getApplication().invokeLater {
-                    // Add AI response to markdown conversation
-                    appendToConversation("🤖 **AI**", response)
+                    // Add AI response to chat
+                    chatPanel.addMessage("🤖 **AI**", response)
                     
                     // Reset UI state
                     isProcessing = false
@@ -254,7 +238,7 @@ class SimpleChatDialog(
             } catch (e: Exception) {
                 ApplicationManager.getApplication().invokeLater {
                     // Show error message
-                    appendToConversation("❌ **Error**", "Failed to get AI response: ${e.message}")
+                    chatPanel.addMessage("❌ **Error**", "Failed to get AI response: ${e.message}")
                     
                     // Reset UI state
                     isProcessing = false
@@ -265,65 +249,6 @@ class SimpleChatDialog(
         }
     }
 
-    /**
-     * Append a new message to the conversation markdown with HTML anchor for scrolling
-     */
-    private fun appendToConversation(header: String, content: String) {
-        val timestamp = timeFormatter.format(java.util.Date())
-        messageCounter++
-        
-        // Create unique anchor for this message
-        val messageAnchor = "msg-$messageCounter"
-        lastMessageAnchor = messageAnchor
-        
-        if (conversationMarkdown.isNotEmpty()) {
-            conversationMarkdown.append("\n\n---\n\n")
-        }
-        
-        // Add message with HTML anchor (Swing compatible)
-        conversationMarkdown.append("<a name=\"$messageAnchor\"></a>\n")
-        conversationMarkdown.append("## $header `($timestamp)`\n\n")
-        conversationMarkdown.append(content)
-        
-        // Update the markdown display
-        updateConversationDisplay()
-        
-        // Scroll to the beginning of this new message using anchor
-        scrollToMessageAnchor(messageAnchor)
-    }
-    
-    /**
-     * Update the conversation display with current markdown
-     */
-    private fun updateConversationDisplay() {
-        SwingUtilities.invokeLater {
-            val html = MarkdownRenderer.markdownToHtml(conversationMarkdown.toString(), Int.MAX_VALUE)
-            conversationArea.text = html
-            conversationArea.revalidate()
-            conversationArea.repaint()
-        }
-    }
-    
-    /**
-     * Scroll to specific message anchor using Swing
-     */
-    private fun scrollToMessageAnchor(anchor: String) {
-        SwingUtilities.invokeLater {
-            try {
-                // Use JEditorPane's built-in anchor scrolling
-                conversationArea.scrollToReference(anchor)
-            } catch (e: Exception) {
-                // Fallback: scroll to bottom
-                val vertical = chatScrollPane.verticalScrollBar  
-                vertical.value = vertical.maximum
-            }
-        }
-    }
-    
-    // All complex bubble methods removed - using simple single markdown area
-    
-    private fun isDarkMode(): Boolean = UIUtil.isUnderDarcula()
-
     private fun clearInput() {
         inputArea.text = ""
         inputArea.requestFocus()
@@ -331,27 +256,31 @@ class SimpleChatDialog(
 
     private fun startNewChat() {
         chatService.clearConversation()
-        conversationMarkdown.clear()
-        messageCounter = 0
-        lastMessageAnchor = null
-        appendToConversation("💬 **Welcome to Zest Chat!**", "Start a conversation by typing your question below...")
+        chatPanel.clearMessages()
+        chatPanel.addMessage(
+            "💬 **Welcome to Zest Chat!**", 
+            "Start a conversation by typing your question below..."
+        )
         inputArea.requestFocus()
     }
 
     private fun loadMessages() {
-        conversationMarkdown.clear()
+        chatPanel.clearMessages()
         val messages = chatService.getMessages()
 
         if (messages.isEmpty()) {
-            appendToConversation("💬 **Welcome to Zest Chat!**", "Start a conversation by typing your question below...")
+            chatPanel.addMessage(
+                "💬 **Welcome to Zest Chat!**", 
+                "Start a conversation by typing your question below..."
+            )
         } else {
-            // Rebuild markdown from all messages
+            // Rebuild chat from all messages
             messages.forEach { message ->
                 when (message) {
-                    is UserMessage -> appendToConversation("👤 **You**", message.singleText())
-                    is AiMessage -> appendToConversation("🤖 **AI**", message.text())
-                    is dev.langchain4j.data.message.SystemMessage -> appendToConversation("⚙️ **System**", message.text())
-                    else -> appendToConversation("💬 **Message**", message.toString())
+                    is UserMessage -> chatPanel.addMessage("👤 **You**", message.singleText())
+                    is AiMessage -> chatPanel.addMessage("🤖 **AI**", message.text() ?: "")
+                    is dev.langchain4j.data.message.SystemMessage -> chatPanel.addMessage("⚙️ **System**", message.text())
+                    else -> chatPanel.addMessage("💬 **Message**", message.toString())
                 }
             }
         }
@@ -426,12 +355,5 @@ class SimpleChatDialog(
         }
     }
 
-    private data class SimpleMessageData(
-        val type: String,
-        val content: String,
-        val time: String
-    )
-
-    // Tree renderer removed - using modern chat bubbles instead
-
+    private fun isDarkMode(): Boolean = UIUtil.isUnderDarcula()
 }

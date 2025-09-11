@@ -86,7 +86,9 @@ public class SendCodeReviewToChatBox extends BaseChatAction {
                "**" + fileName + "**\n" +
                "```" + fileType + "\n" + codeContent + "\n```\n\n" +
                "Analyze: quality, bugs, performance, security, best practices, and test-ability\n" +
-               "Style: Be concise, specific, actionable. Use bullet points.\n" +
+               "If the code is hard to be unit-tested or integration-tested, please point out and suggest improvements\n" +
+               "Style: Be concise, specific, actionable. Use bullet points and proper line breaks\n" +
+               "No more than 20 words on each line.\n" +
                "Format: Summary → Critical Issues (with line numbers) → Suggestions";
     }
 

@@ -115,6 +115,9 @@ public abstract class BaseChatAction extends AnAction {
             ApplicationManager.getApplication().invokeLater(() -> {
                 com.zps.zest.chatui.ChatUIService chatService = project.getService(com.zps.zest.chatui.ChatUIService.class);
                 
+                // Clear previous conversation to start fresh
+                chatService.clearConversation();
+                
                 // Call the appropriate preparation method
                 String prepMethod = getChatPreparationMethod();
                 if ("prepareForCodeReview".equals(prepMethod)) {

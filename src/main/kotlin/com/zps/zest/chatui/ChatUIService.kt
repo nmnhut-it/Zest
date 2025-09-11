@@ -293,19 +293,192 @@ class ChatUIService(private val project: Project) {
     }
     
     /**
-     * Get available models from current endpoint
+     * Get available models from OpenWebUI API with caching
      */
     fun getAvailableModels(): List<String> {
-        // Return common models - could be enhanced to query the actual endpoint
+        // Check if cached models are still valid
+        if (cachedModels != null && lastModelsRefresh != null) {
+            val minutesSinceRefresh = ChronoUnit.MINUTES.between(lastModelsRefresh, LocalDateTime.now())
+            if (minutesSinceRefresh < modelsRefreshIntervalMinutes) {
+                return cachedModels!!
+            }
+        }
+        
+        // Refresh models from API
+        return refreshModelsFromAPI()
+    }
+    
+    /**
+     * Force refresh models from OpenWebUI API
+     */
+    fun refreshModelsFromAPI(): List<String> {
+        try {
+            val configManager = com.zps.zest.ConfigurationManager.getInstance(project)
+            val baseUrl = getOpenWebUIBaseUrl(configManager.apiUrl)
+            
+            if (baseUrl != null) {
+                val models = fetchModelsFromOpenWebUI(baseUrl)
+                if (models.isNotEmpty()) {
+                    cachedModels = models
+                    lastModelsRefresh = LocalDateTime.now()
+                    LOG.info("Successfully fetched ${models.size} models from OpenWebUI API")
+                    return models
+                }
+            }
+        } catch (e: Exception) {
+            LOG.warn("Failed to fetch models from OpenWebUI API: ${e.message}", e)
+        }
+        
+        // Fallback to default models
+        val defaultModels = getDefaultModels()
+        cachedModels = defaultModels
+        lastModelsRefresh = LocalDateTime.now()
+        return defaultModels
+    }
+    
+    /**
+     * Get OpenWebUI base URL from API endpoint
+     */
+    private fun getOpenWebUIBaseUrl(apiUrl: String): String? {
+        return when {
+            apiUrl.contains("chat.zingplay.com") -> "https://chat.zingplay.com"
+            apiUrl.contains("talk.zingplay.com") -> "https://talk.zingplay.com"
+            apiUrl.contains("openwebui") -> {
+                // Extract base URL from full endpoint
+                try {
+                    val url = URL(apiUrl)
+                    "${url.protocol}://${url.host}${if (url.port != -1) ":${url.port}" else ""}"
+                } catch (e: Exception) {
+                    LOG.warn("Failed to parse OpenWebUI URL: $apiUrl", e)
+                    null
+                }
+            }
+            else -> null
+        }
+    }
+    
+    /**
+     * Fetch models from OpenWebUI /api/models endpoint
+     */
+    private fun fetchModelsFromOpenWebUI(baseUrl: String): List<String> {
+        try {
+            val url = URL("$baseUrl/api/models")
+            val connection = url.openConnection() as HttpURLConnection
+            
+            // Add authentication if available
+            val apiKey = getOpenWebUIApiKey()
+            if (apiKey != null) {
+                connection.setRequestProperty("Authorization", "Bearer $apiKey")
+            }
+            
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+            
+            val responseCode = connection.responseCode
+            if (responseCode == 200) {
+                val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                val response = reader.readText()
+                reader.close()
+                
+                return parseModelsResponse(response)
+            } else {
+                LOG.warn("OpenWebUI API returned status code: $responseCode")
+                if (responseCode == 401) {
+                    LOG.warn("Authentication failed - check OpenWebUI API key")
+                }
+            }
+        } catch (e: Exception) {
+            LOG.warn("Error fetching models from OpenWebUI: ${e.message}", e)
+        }
+        
+        return emptyList()
+    }
+    
+    /**
+     * Parse OpenWebUI models API response
+     */
+    private fun parseModelsResponse(jsonResponse: String): List<String> {
+        try {
+            val gson = Gson()
+            val response = gson.fromJson(jsonResponse, OpenWebUIModelsResponse::class.java)
+            
+            return response.data?.map { model ->
+                // Extract model name/id, preferring id over name
+                model.id ?: model.name ?: "unknown"
+            }?.filter { it != "unknown" } ?: emptyList()
+            
+        } catch (e: JsonSyntaxException) {
+            LOG.warn("Failed to parse OpenWebUI models response: ${e.message}", e)
+            
+            // Try to extract models from alternative format
+            try {
+                val gson = Gson()
+                val models = gson.fromJson(jsonResponse, Array<OpenWebUIModel>::class.java)
+                return models.map { it.id ?: it.name ?: "unknown" }.filter { it != "unknown" }
+            } catch (e2: Exception) {
+                LOG.warn("Failed to parse models with alternative format: ${e2.message}")
+            }
+        } catch (e: Exception) {
+            LOG.warn("Unexpected error parsing models response: ${e.message}", e)
+        }
+        
+        return emptyList()
+    }
+    
+    /**
+     * Get OpenWebUI API key from configuration
+     */
+    private fun getOpenWebUIApiKey(): String? {
+        return try {
+            // Check for OpenWebUI-specific API key in various sources
+            val apiKey = System.getProperty("openwebui.api.key") 
+                ?: System.getenv("OPENWEBUI_API_KEY")
+                ?: System.getenv("ZINGPLAY_API_KEY")  // ZingPlay specific
+            
+            if (apiKey.isNullOrBlank()) {
+                LOG.debug("No OpenWebUI API key found - requests will be made without authentication")
+                null
+            } else {
+                LOG.debug("Found OpenWebUI API key for authentication")
+                apiKey
+            }
+        } catch (e: Exception) {
+            LOG.warn("Error getting OpenWebUI API key: ${e.message}")
+            null
+        }
+    }
+    
+    /**
+     * Get default models as fallback
+     */
+    private fun getDefaultModels(): List<String> {
         return listOf(
             "gpt-4o",
             "gpt-4o-mini", 
             "claude-3-5-sonnet-20241022",
             "claude-3-5-haiku-20241022",
             "gemini-1.5-pro-002",
-            "gemini-1.5-flash-002"
+            "gemini-1.5-flash-002",
+            "llama3.1",
+            "qwen2.5:7b",
+            "mistral-nemo:12b"
         )
     }
+    
+    // Data classes for OpenWebUI API responses
+    private data class OpenWebUIModelsResponse(
+        val data: List<OpenWebUIModel>?
+    )
+    
+    private data class OpenWebUIModel(
+        val id: String?,
+        val name: String?,
+        val `object`: String? = null,  // Use backticks for reserved keywords
+        val owned_by: String? = null,
+        val permission: List<Any>? = null
+    )
     
     /**
      * Set the selected model

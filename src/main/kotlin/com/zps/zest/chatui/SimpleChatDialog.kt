@@ -27,30 +27,33 @@ class SimpleChatDialog(
 ) : DialogWrapper(project, false) {
 
     private val chatService = project.getService(ChatUIService::class.java)
-    private val chatPanel = JPanel()
+    private val conversationArea: JEditorPane = MarkdownRenderer.createMarkdownPane("", Int.MAX_VALUE)
     private val chatScrollPane: JBScrollPane
     private val inputArea = JBTextArea()
     private val sendButton = JButton("Send")
     private val clearButton = JButton("Clear")
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
     private var isProcessing = false
+    private var conversationMarkdown = StringBuilder()
 
     init {
         title = "💬 Zest Chat"
         setSize(1000, 700)
         isModal = false
         
-        // Initialize chat panel with vertical layout
-        chatPanel.layout = BoxLayout(chatPanel, BoxLayout.Y_AXIS)
-        chatPanel.background = UIUtil.getPanelBackground()
-        chatPanel.border = EmptyBorder(10, 10, 10, 10)
+        // Initialize single markdown conversation area
+        conversationArea.isEditable = false
+        conversationArea.background = UIUtil.getPanelBackground()
         
-        // Initialize scroll pane
-        chatScrollPane = JBScrollPane(chatPanel).apply {
+        // Initialize scroll pane for the single conversation area
+        chatScrollPane = JBScrollPane(conversationArea).apply {
             verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
             border = null
         }
+        
+        // Initialize with welcome message
+        appendToConversation("💬 **Welcome to Zest Chat!**", "Start a conversation by typing your question below...")
         
         init()
     }
@@ -67,7 +70,7 @@ class SimpleChatDialog(
         val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT)
         splitPane.resizeWeight = 0.7 // 70% for messages, 30% for input
 
-        // Chat area with modern bubbles
+        // Single conversation area (much simpler than bubbles)
         chatScrollPane.minimumSize = JBUI.size(400, 200)
         splitPane.topComponent = chatScrollPane
 
@@ -86,13 +89,6 @@ class SimpleChatDialog(
         return mainPanel
     }
 
-    private fun setupChatPanel() {
-        // Clear existing messages
-        chatPanel.removeAll()
-        chatPanel.revalidate()
-        chatPanel.repaint()
-    }
-
     private fun createHeaderPanel(): JComponent {
         val panel = JPanel(BorderLayout())
         panel.border = EmptyBorder(10, 10, 10, 10)
@@ -104,7 +100,7 @@ class SimpleChatDialog(
         // Right side panel with model selector and stats
         val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0))
         
-        // Model selector dropdown
+        // Model selector dropdown with refresh button
         val chatService = project.getService(ChatUIService::class.java)
         val modelSelector = com.intellij.openapi.ui.ComboBox(chatService.getAvailableModels().toTypedArray())
         modelSelector.selectedItem = chatService.getSelectedModel()
@@ -114,13 +110,45 @@ class SimpleChatDialog(
         }
         modelSelector.toolTipText = "Select AI model for chat"
         
+        // Refresh button for models
+        val refreshModelsButton = JButton("🔄")
+        refreshModelsButton.toolTipText = "Refresh models from OpenWebUI API"
+        refreshModelsButton.preferredSize = JBUI.size(24, 24)
+        refreshModelsButton.addActionListener {
+            // Refresh models in background
+            SwingUtilities.invokeLater {
+                refreshModelsButton.isEnabled = false
+                refreshModelsButton.text = "⏳"
+                
+                Thread {
+                    val newModels = chatService.refreshModelsFromAPI()
+                    SwingUtilities.invokeLater {
+                        // Update the combo box
+                        modelSelector.removeAllItems()
+                        newModels.forEach { modelSelector.addItem(it) }
+                        modelSelector.selectedItem = chatService.getSelectedModel()
+                        
+                        refreshModelsButton.isEnabled = true
+                        refreshModelsButton.text = "🔄"
+                    }
+                }.start()
+            }
+        }
+        
         rightPanel.add(JBLabel("Model: "))
         rightPanel.add(modelSelector)
+        rightPanel.add(refreshModelsButton)
         
-        // Stats label
-        val statsLabel = JBLabel(getChatStats())
-        statsLabel.foreground = UIUtil.getInactiveTextColor()
-        statsLabel.border = EmptyBorder(0, 15, 0, 0)
+        // Message limit indicator (simple counter)
+        val messageCount = chatService.getMessages().size
+        val statsLabel = JBLabel("$messageCount/50")
+        statsLabel.foreground = when {
+            messageCount > 40 -> if (isDarkMode()) Color(255, 200, 100) else Color(200, 100, 0) // Warning
+            messageCount > 45 -> if (isDarkMode()) Color(255, 150, 150) else Color(200, 50, 50) // Alert
+            else -> UIUtil.getInactiveTextColor() // Normal
+        }
+        statsLabel.toolTipText = "Chat memory: $messageCount of 50 messages used"
+        statsLabel.border = EmptyBorder(0, 8, 0, 0)
         rightPanel.add(statsLabel)
 
         panel.add(rightPanel, BorderLayout.EAST)
@@ -205,8 +233,8 @@ class SimpleChatDialog(
         sendButton.text = "Sending..."
         sendButton.isEnabled = false
 
-        // Add user message to conversation
-        addChatBubble(MessageType.USER, userMessage, false)
+        // Add user message to markdown conversation
+        appendToConversation("👤 **You**", userMessage)
 
         // Send to AI asynchronously
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -214,8 +242,8 @@ class SimpleChatDialog(
                 val response = chatService.sendMessage(userMessage)
                 
                 ApplicationManager.getApplication().invokeLater {
-                    // Add AI response to conversation
-                    addChatBubble(MessageType.AI, response, true)
+                    // Add AI response to markdown conversation
+                    appendToConversation("🤖 **AI**", response)
                     
                     // Reset UI state
                     isProcessing = false
@@ -228,7 +256,7 @@ class SimpleChatDialog(
             } catch (e: Exception) {
                 ApplicationManager.getApplication().invokeLater {
                     // Show error message
-                    addChatBubble(MessageType.ERROR, "Failed to get AI response: ${e.message}", false)
+                    appendToConversation("❌ **Error**", "Failed to get AI response: ${e.message}")
                     
                     // Reset UI state
                     isProcessing = false
@@ -239,14 +267,21 @@ class SimpleChatDialog(
         }
     }
 
-    private fun addChatBubble(type: MessageType, content: String, isMarkdown: Boolean = true) {
-        val messagePanel = createChatBubblePanel(type, content, isMarkdown)
+    /**
+     * Append a new message to the conversation markdown
+     */
+    private fun appendToConversation(header: String, content: String) {
+        val timestamp = timeFormatter.format(java.util.Date())
         
-        chatPanel.add(messagePanel)
-        chatPanel.add(Box.createVerticalStrut(8)) // Space between messages
+        if (conversationMarkdown.isNotEmpty()) {
+            conversationMarkdown.append("\n\n---\n\n")
+        }
         
-        chatPanel.revalidate()
-        chatPanel.repaint()
+        conversationMarkdown.append("## $header `($timestamp)`\n\n")
+        conversationMarkdown.append(content)
+        
+        // Update the markdown display
+        updateConversationDisplay()
         
         // Auto-scroll to bottom
         SwingUtilities.invokeLater {
@@ -255,94 +290,19 @@ class SimpleChatDialog(
         }
     }
     
-    private fun createChatBubblePanel(type: MessageType, content: String, isMarkdown: Boolean): JPanel {
-        val bubblePanel = JPanel(BorderLayout())
-        val timestamp = timeFormatter.format(Date())
-        
-        // Create the message content panel
-        val contentPanel = if (isMarkdown) {
-            MarkdownRenderer.createMarkdownPane(content)
-        } else {
-            JBTextArea(content).apply {
-                isEditable = false
-                isOpaque = false
-                lineWrap = true
-                wrapStyleWord = true
-                font = Font(Font.SANS_SERIF, Font.PLAIN, 13)
-            }
-        }
-        
-        // Create bubble container with appropriate styling
-        val bubble = JPanel(BorderLayout())
-        bubble.border = EmptyBorder(12, 16, 12, 16)
-        bubble.add(contentPanel, BorderLayout.CENTER)
-        
-        // Style the bubble based on message type
-        when (type) {
-            MessageType.USER -> {
-                bubble.background = if (isDarkMode()) Color(70, 130, 200) else Color(0, 122, 255)
-                if (!isMarkdown) contentPanel.foreground = Color.WHITE
-                bubblePanel.border = EmptyBorder(8, 50, 8, 8)
-                bubble.setBorder(createRoundedBorder(bubble.background, 18))
-            }
-            MessageType.AI -> {
-                bubble.background = if (isDarkMode()) Color(60, 63, 65) else Color(245, 245, 245)
-                if (!isMarkdown) contentPanel.foreground = if (isDarkMode()) Color.WHITE else Color.BLACK
-                bubblePanel.border = EmptyBorder(8, 8, 8, 50)
-                bubble.setBorder(createRoundedBorder(bubble.background, 18))
-            }
-            MessageType.SYSTEM -> {
-                bubble.background = if (isDarkMode()) Color(80, 80, 80) else Color(230, 230, 230)
-                if (!isMarkdown) contentPanel.foreground = if (isDarkMode()) Color(200, 200, 200) else Color(100, 100, 100)
-                bubblePanel.border = EmptyBorder(8, 20, 8, 20)
-                bubble.setBorder(createRoundedBorder(bubble.background, 12))
-            }
-            MessageType.ERROR -> {
-                bubble.background = if (isDarkMode()) Color(150, 60, 60) else Color(255, 200, 200)
-                if (!isMarkdown) contentPanel.foreground = if (isDarkMode()) Color.WHITE else Color(150, 50, 50)
-                bubblePanel.border = EmptyBorder(8, 20, 8, 20)
-                bubble.setBorder(createRoundedBorder(bubble.background, 12))
-            }
-        }
-        
-        // Add timestamp and copy button on hover
-        val headerPanel = JPanel(FlowLayout(if (type == MessageType.USER) FlowLayout.RIGHT else FlowLayout.LEFT, 0, 0))
-        val timestampLabel = JBLabel(timestamp)
-        timestampLabel.foreground = if (isDarkMode()) Color(150, 150, 150) else Color(120, 120, 120)
-        timestampLabel.font = timestampLabel.font.deriveFont(10f)
-        headerPanel.add(timestampLabel)
-        headerPanel.isOpaque = false
-        
-        val wrapperPanel = JPanel(BorderLayout())
-        wrapperPanel.add(headerPanel, BorderLayout.NORTH)
-        wrapperPanel.add(bubble, BorderLayout.CENTER)
-        wrapperPanel.isOpaque = false
-        
-        bubblePanel.add(wrapperPanel, if (type == MessageType.USER) BorderLayout.EAST else BorderLayout.WEST)
-        bubblePanel.isOpaque = false
-        
-        return bubblePanel
-    }
-    
-    private fun createRoundedBorder(backgroundColor: Color, radius: Int): javax.swing.border.Border {
-        return object : javax.swing.border.AbstractBorder() {
-            override fun paintBorder(c: Component, g: Graphics, x: Int, y: Int, width: Int, height: Int) {
-                val g2 = g.create() as Graphics2D
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                g2.color = backgroundColor
-                g2.fillRoundRect(x, y, width - 1, height - 1, radius, radius)
-                g2.dispose()
-            }
-            
-            override fun getBorderInsets(c: Component): Insets {
-                return Insets(radius/2, radius/2, radius/2, radius/2)
-            }
+    /**
+     * Update the conversation display with current markdown
+     */
+    private fun updateConversationDisplay() {
+        SwingUtilities.invokeLater {
+            val html = MarkdownRenderer.markdownToHtml(conversationMarkdown.toString(), Int.MAX_VALUE)
+            conversationArea.text = html
+            conversationArea.revalidate()
+            conversationArea.repaint()
         }
     }
     
-    enum class MessageType {
-        USER, AI, SYSTEM, ERROR
-    }
+    // All complex bubble methods removed - using simple single markdown area
     
     private fun isDarkMode(): Boolean = UIUtil.isUnderDarcula()
 
@@ -353,34 +313,31 @@ class SimpleChatDialog(
 
     private fun startNewChat() {
         chatService.clearConversation()
-        loadMessages()
+        conversationMarkdown.clear()
+        appendToConversation("💬 **Welcome to Zest Chat!**", "Start a conversation by typing your question below...")
         inputArea.requestFocus()
     }
 
     private fun loadMessages() {
-        // Clear existing chat bubbles
-        chatPanel.removeAll()
-
+        conversationMarkdown.clear()
         val messages = chatService.getMessages()
 
         if (messages.isEmpty()) {
-            // Add welcome message
-            addChatBubble(MessageType.SYSTEM, "👋 Welcome to Zest Chat! Start a conversation by typing your question below.", false)
+            appendToConversation("💬 **Welcome to Zest Chat!**", "Start a conversation by typing your question below...")
         } else {
-            // Load all existing messages as chat bubbles
+            // Rebuild markdown from all messages
             messages.forEach { message ->
                 when (message) {
-                    is UserMessage -> addChatBubble(MessageType.USER, message.singleText(), false)
-                    is AiMessage -> addChatBubble(MessageType.AI, message.text(), true)
-                    is dev.langchain4j.data.message.SystemMessage -> addChatBubble(MessageType.SYSTEM, message.text(), false)
-                    else -> addChatBubble(MessageType.SYSTEM, message.toString(), false)
+                    is UserMessage -> appendToConversation("👤 **You**", message.singleText())
+                    is AiMessage -> appendToConversation("🤖 **AI**", message.text())
+                    is dev.langchain4j.data.message.SystemMessage -> appendToConversation("⚙️ **System**", message.text())
+                    else -> appendToConversation("💬 **Message**", message.toString())
                 }
             }
         }
-
-        chatPanel.revalidate()
-        chatPanel.repaint()
     }
+    
+    // Complex bubble system removed - using simple single markdown area
 
     // Context menu removed - modern chat interface doesn't need tree-based context menu
 
@@ -413,10 +370,7 @@ class SimpleChatDialog(
         clipboard.setContents(StringSelection(content), null)
     }
 
-    private fun getChatStats(): String {
-        val messageCount = chatService.getMessages().size
-        return "Messages: $messageCount"
-    }
+    // getChatStats removed - using new message limit indicator in header
 
     private fun exportConversation() {
         val content = buildString {

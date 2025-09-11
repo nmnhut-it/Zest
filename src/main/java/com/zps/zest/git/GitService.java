@@ -383,7 +383,7 @@ public String handleGitPush() {
             context.setSelectedFiles(selectedFiles);
             
             // Continue the git commit pipeline directly
-            GitCommitMessageGeneratorAction.continueWithSelectedFiles(context, shouldPush);
+//            GitCommitMessageGeneratorAction.continueWithSelectedFiles(context, shouldPush);
             
             // Clean up context
             removeActiveContextStatic(project.getName());

@@ -35,7 +35,8 @@ class SimpleChatDialog(
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
     private var isProcessing = false
     private var conversationMarkdown = StringBuilder()
-    private var lastMessageStartPosition = 0
+    private var messageCounter = 0
+    private var lastMessageAnchor: String? = null
 
     init {
         title = "💬 Zest Chat"
@@ -269,27 +270,30 @@ class SimpleChatDialog(
     }
 
     /**
-     * Append a new message to the conversation markdown and scroll to message start
+     * Append a new message to the conversation markdown with HTML anchor for scrolling
      */
     private fun appendToConversation(header: String, content: String) {
         val timestamp = timeFormatter.format(java.util.Date())
+        messageCounter++
         
-        // Track where this new message starts
-        lastMessageStartPosition = conversationMarkdown.length
+        // Create unique anchor for this message
+        val messageAnchor = "msg-$messageCounter"
+        lastMessageAnchor = messageAnchor
         
         if (conversationMarkdown.isNotEmpty()) {
             conversationMarkdown.append("\n\n---\n\n")
-            lastMessageStartPosition = conversationMarkdown.length // Update position after separator
         }
         
+        // Add message with HTML anchor (this will be preserved in the HTML output)
+        conversationMarkdown.append("<a name=\"$messageAnchor\"></a>\n")
         conversationMarkdown.append("## $header `($timestamp)`\n\n")
         conversationMarkdown.append(content)
         
         // Update the markdown display
         updateConversationDisplay()
         
-        // Scroll to the beginning of this new message (not the end)
-        scrollToMessageStart()
+        // Scroll to the beginning of this new message using anchor
+        scrollToMessageAnchor(messageAnchor)
     }
     
     /**
@@ -305,40 +309,29 @@ class SimpleChatDialog(
     }
     
     /**
-     * Scroll to the beginning of the last message instead of the end
+     * Scroll to specific message anchor using JEditorPane's scrollToReference method
      */
-    private fun scrollToMessageStart() {
+    private fun scrollToMessageAnchor(anchor: String) {
         SwingUtilities.invokeLater {
             try {
-                // Convert markdown position to HTML/rendered position (approximate)
-                val markdownText = conversationMarkdown.toString()
-                val messageStartInMarkdown = lastMessageStartPosition
-                
-                // For HTML content, we need to estimate the position
-                // Simple approach: find the last ## header in the content
-                val lastHeaderIndex = markdownText.lastIndexOf("## ")
-                if (lastHeaderIndex >= 0) {
-                    // Set caret to the start of the last message header
-                    val htmlText = conversationArea.text
-                    val headerPattern = "<h2>"
-                    val lastHtmlHeaderIndex = htmlText.lastIndexOf(headerPattern)
-                    
-                    if (lastHtmlHeaderIndex >= 0) {
-                        conversationArea.caretPosition = lastHtmlHeaderIndex
-                        conversationArea.scrollRectToVisible(conversationArea.modelToView(lastHtmlHeaderIndex))
-                    } else {
-                        // Fallback: scroll to a reasonable position (80% down instead of 100%)
-                        val doc = conversationArea.document
-                        val docLength = doc.length
-                        val scrollPosition = maxOf(0, docLength - (docLength * 0.2).toInt())
-                        conversationArea.caretPosition = scrollPosition
-                        conversationArea.scrollRectToVisible(conversationArea.modelToView(scrollPosition))
-                    }
-                }
+                // Use JEditorPane's built-in anchor scrolling (most reliable)
+                conversationArea.scrollToReference(anchor)
             } catch (e: Exception) {
-                // Fallback to simple bottom scroll if positioning fails
-                val vertical = chatScrollPane.verticalScrollBar
-                vertical.value = vertical.maximum
+                // Fallback: try to find anchor manually and scroll
+                try {
+                    val htmlText = conversationArea.text
+                    val anchorPattern = "name=\"$anchor\""
+                    val anchorIndex = htmlText.indexOf(anchorPattern)
+                    
+                    if (anchorIndex >= 0) {
+                        conversationArea.caretPosition = anchorIndex
+                        conversationArea.scrollRectToVisible(conversationArea.modelToView(anchorIndex))
+                    }
+                } catch (e2: Exception) {
+                    // Final fallback: scroll to bottom
+                    val vertical = chatScrollPane.verticalScrollBar  
+                    vertical.value = vertical.maximum
+                }
             }
         }
     }
@@ -355,6 +348,8 @@ class SimpleChatDialog(
     private fun startNewChat() {
         chatService.clearConversation()
         conversationMarkdown.clear()
+        messageCounter = 0
+        lastMessageAnchor = null
         appendToConversation("💬 **Welcome to Zest Chat!**", "Start a conversation by typing your question below...")
         inputArea.requestFocus()
     }

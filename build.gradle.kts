@@ -88,6 +88,11 @@ dependencies {
     
     // JSON processing for ripgrep output parsing
     implementation("com.google.code.gson:gson:2.10.1") // Already available
+    
+    // Markdown parsing and rendering for chat messages
+    implementation("org.commonmark:commonmark:0.23.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.23.0")
+    implementation("org.commonmark:commonmark-ext-heading-anchor:0.23.0")
 }
 
 intellijPlatform {

@@ -100,6 +100,9 @@
         <!-- Test Generation Service -->
         <projectService serviceImplementation="com.zps.zest.testgen.StateMachineTestGenerationService"/>
         
+        <!-- Chat UI Service -->
+        <projectService serviceImplementation="com.zps.zest.chatui.ChatUIService"/>
+        
         <!-- Inline Completion Services -->
         <projectService serviceImplementation="com.zps.zest.completion.ZestInlineCompletionService"/>
     </extensions>
@@ -166,12 +169,20 @@
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>
         
+        <!-- Simple Chat Dialog Action -->
+        <action id="Zest.OpenSimpleChat"
+                class="com.zps.zest.chatui.OpenChatDialogAction"
+                text="💬 Open Simple Chat"
+                description="Open simple chat dialog for AI assistance">
+            <add-to-group group-id="ZestGroup" anchor="first"/>
+        </action>
+        
         <!-- Open Chat in Editor Action -->
         <action id="Zest.OpenChatInEditor"
                 class="com.zps.zest.browser.actions.OpenChatInEditorAction"
                 text="💬 Open Chat in Editor"
                 description="Open ZPS Chat in full-screen editor tab">
-            <add-to-group group-id="ZestGroup" anchor="first"/>
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.OpenSimpleChat"/>
         </action>
 
 

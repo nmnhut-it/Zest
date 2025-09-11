@@ -1,0 +1,334 @@
+package com.zps.zest.chatui
+
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.project.Project
+import com.zps.zest.browser.utils.ChatboxUtilities
+import com.zps.zest.langchain4j.ZestChatLanguageModel
+import com.zps.zest.langchain4j.util.LLMService
+import dev.langchain4j.data.message.AiMessage
+import dev.langchain4j.data.message.ChatMessage
+import dev.langchain4j.data.message.UserMessage
+import dev.langchain4j.memory.chat.MessageWindowChatMemory
+import dev.langchain4j.model.chat.request.ChatRequest
+import dev.langchain4j.model.chat.response.ChatResponse
+import com.google.gson.Gson
+import com.google.gson.JsonSyntaxException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.time.LocalDateTime
+import java.time.temporal.ChronoUnit
+
+/**
+ * Service for managing simple chat UI interactions.
+ * Uses ZestChatLanguageModel and MessageWindowChatMemory for proper LangChain4j integration.
+ */
+@Service(Service.Level.PROJECT)
+class ChatUIService(private val project: Project) {
+    
+    companion object {
+        private val LOG = Logger.getInstance(ChatUIService::class.java)
+        
+        // ZingPlay endpoints in priority order
+        private val ZINGPLAY_ENDPOINTS = listOf(
+            "https://chat.zingplay.com/api/chat/completions",
+            "https://talk.zingplay.com/api/chat/completions"
+        )
+    }
+    
+    // Context tracking
+    private var currentUsage: ChatboxUtilities.EnumUsage = ChatboxUtilities.EnumUsage.CHAT_CODE_REVIEW
+    private var selectedModel: String = "gpt-4o-mini"
+    
+    // Models caching
+    private var cachedModels: List<String>? = null
+    private var lastModelsRefresh: LocalDateTime? = null
+    private val modelsRefreshIntervalMinutes = 30L
+    
+    // LangChain4j components
+    private val llmService: LLMService by lazy { project.getService(LLMService::class.java) }
+    private var chatModel: ZestChatLanguageModel = createChatModel(currentUsage)
+    private val chatMemory: MessageWindowChatMemory = MessageWindowChatMemory.withMaxMessages(50)
+    
+    // Dialog management
+    private var currentDialog: SimpleChatDialog? = null
+    
+    /**
+     * Send a message to the AI and get a response
+     */
+    fun sendMessage(userMessage: String): String {
+        LOG.info("Sending message to AI: ${userMessage.take(100)}...")
+        
+        try {
+            // Create user message
+            val userMsg = UserMessage.from(userMessage)
+            chatMemory.add(userMsg)
+            
+            // Build chat request with conversation history
+            val messages = chatMemory.messages()
+            val chatRequest = ChatRequest.builder()
+                .messages(messages)
+                .build()
+            
+            // Send to AI
+            val response: ChatResponse = chatModel.chat(chatRequest)
+            val aiResponse = response.aiMessage()
+            
+            // Add AI response to memory
+            chatMemory.add(aiResponse)
+            
+            val responseText = aiResponse.text() ?: "No response received"
+            LOG.info("Received AI response: ${responseText.take(100)}...")
+            
+            return responseText
+            
+        } catch (e: Exception) {
+            LOG.error("Failed to send message to AI", e)
+            val errorMessage = "Sorry, I encountered an error: ${e.message}"
+            
+            // Add error as AI message to maintain conversation flow
+            chatMemory.add(AiMessage.from(errorMessage))
+            
+            return errorMessage
+        }
+    }
+    
+    /**
+     * Get all messages in the current conversation
+     */
+    fun getMessages(): List<ChatMessage> {
+        return try {
+            chatMemory.messages()
+        } catch (e: Exception) {
+            LOG.warn("Failed to get messages from chat memory", e)
+            emptyList()
+        }
+    }
+    
+    /**
+     * Clear the current conversation
+     */
+    fun clearConversation() {
+        LOG.info("Clearing chat conversation")
+        chatMemory.clear()
+    }
+    
+    /**
+     * Open the chat dialog
+     */
+    fun openChat(): SimpleChatDialog {
+        if (currentDialog == null || !currentDialog!!.isVisible) {
+            currentDialog = SimpleChatDialog(project)
+            currentDialog!!.show()
+        } else {
+            // Bring existing dialog to front
+            currentDialog!!.toFront()
+        }
+        return currentDialog!!
+    }
+    
+    /**
+     * Open chat dialog with a pre-filled message
+     */
+    fun openChatWithMessage(message: String, autoSend: Boolean = true) {
+        val dialog = openChat()
+        dialog.openWithMessage(message, autoSend)
+    }
+    
+    /**
+     * Close the current chat dialog
+     */
+    fun closeChat() {
+        currentDialog?.close(0)
+        currentDialog = null
+    }
+    
+    /**
+     * Check if chat dialog is currently open
+     */
+    fun isChatOpen(): Boolean {
+        return currentDialog?.isVisible == true
+    }
+    
+    /**
+     * Get chat statistics
+     */
+    fun getChatStats(): ChatStats {
+        val messages = getMessages()
+        val userMessages = messages.count { it is UserMessage }
+        val aiMessages = messages.count { it is AiMessage }
+        
+        return ChatStats(
+            totalMessages = messages.size,
+            userMessages = userMessages,
+            aiMessages = aiMessages,
+            hasActiveConversation = messages.isNotEmpty()
+        )
+    }
+    
+    /**
+     * Add a system message to the conversation (for context/instructions)
+     */
+    fun addSystemMessage(message: String) {
+        LOG.info("Adding system message: ${message.take(100)}...")
+        chatMemory.add(dev.langchain4j.data.message.SystemMessage.from(message))
+    }
+    
+    /**
+     * Prepare the chat with context for code review
+     */
+    fun prepareForCodeReview() {
+        // Set context for code review
+        setContext(ChatboxUtilities.EnumUsage.CHAT_CODE_REVIEW)
+        
+        if (getMessages().isEmpty()) {
+            addSystemMessage("""
+                You are an expert code reviewer and software development assistant. Your role is to:
+                
+                1. **Code Review**: Analyze code for bugs, performance issues, security vulnerabilities, and best practices
+                2. **Code Quality**: Suggest improvements for readability, maintainability, and architecture
+                3. **Best Practices**: Recommend industry-standard patterns and conventions
+                4. **Security**: Identify potential security issues and suggest fixes
+                5. **Performance**: Point out performance bottlenecks and optimization opportunities
+                
+                Please provide:
+                - **Summary**: Brief overall assessment
+                - **Issues**: Specific problems with line numbers when possible
+                - **Recommendations**: Concrete suggestions with code examples
+                - **Priority**: Which issues to address first
+                
+                Be thorough but concise. Focus on actionable feedback.
+            """.trimIndent())
+        }
+    }
+    
+    /**
+     * Prepare the chat with context for commit message generation
+     */
+    fun prepareForCommitMessage() {
+        // Set context for commit message generation
+        setContext(ChatboxUtilities.EnumUsage.CHAT_GIT_COMMIT_MESSAGE)
+        
+        if (getMessages().isEmpty()) {
+            addSystemMessage("""
+                You are a Git commit message specialist. Your role is to create clear, conventional commit messages.
+                
+                Follow these guidelines:
+                1. **Format**: Use conventional commits (feat:, fix:, docs:, style:, refactor:, test:, chore:)
+                2. **Summary**: Keep first line under 50 characters
+                3. **Description**: Explain what and why, not how
+                4. **Body**: Add details if needed, wrapped at 72 characters
+                5. **Breaking**: Note breaking changes with BREAKING CHANGE:
+                
+                Examples:
+                - feat: add user authentication system
+                - fix: resolve null pointer exception in UserService
+                - refactor: extract common validation logic
+                
+                Be concise but descriptive.
+            """.trimIndent())
+        }
+    }
+    
+    /**
+     * Set the context/usage for this chat session
+     */
+    fun setContext(usage: ChatboxUtilities.EnumUsage) {
+        if (currentUsage != usage) {
+            LOG.info("Switching chat context from $currentUsage to $usage")
+            currentUsage = usage
+            chatModel = createChatModel(usage)
+        }
+    }
+    
+    /**
+     * Create a chat model with the specified usage context and ZingPlay priority
+     */
+    private fun createChatModel(usage: ChatboxUtilities.EnumUsage): ZestChatLanguageModel {
+        return ZestChatLanguageModel(createPrioritizedLLMService(), usage)
+    }
+    
+    /**
+     * Create an LLMService that prioritizes ZingPlay endpoints over LiteLLM
+     */
+    private fun createPrioritizedLLMService(): LLMService {
+        val configManager = com.zps.zest.ConfigurationManager.getInstance(project)
+        val originalApiUrl = configManager.apiUrl
+        
+        // Check if we can prioritize ZingPlay endpoints
+        val preferredApiUrl = getPreferredZingPlayEndpoint(originalApiUrl)
+        
+        if (preferredApiUrl != originalApiUrl) {
+            LOG.info("Prioritizing ZingPlay endpoint: $preferredApiUrl over original: $originalApiUrl")
+            // Temporarily override the API URL for chat dialog
+            configManager.apiUrl = preferredApiUrl
+        }
+        
+        return llmService
+    }
+    
+    /**
+     * Get the preferred ZingPlay endpoint, falling back to LiteLLM if necessary
+     */
+    private fun getPreferredZingPlayEndpoint(currentUrl: String): String {
+        // If already using a ZingPlay endpoint, keep it
+        if (ZINGPLAY_ENDPOINTS.any { currentUrl.startsWith(it.substringBefore("/api")) }) {
+            return currentUrl
+        }
+        
+        // Check if current URL is LiteLLM - if so, try to use ZingPlay instead
+        if (currentUrl.contains("litellm")) {
+            LOG.info("Current URL is LiteLLM, attempting to prioritize ZingPlay for chat dialog")
+            
+            // For chat dialog, prefer chat.zingplay.com first
+            val preferredEndpoint = ZINGPLAY_ENDPOINTS.first()
+            LOG.info("Using preferred ZingPlay endpoint for chat: $preferredEndpoint")
+            return preferredEndpoint
+        }
+        
+        // Keep the original URL if it's not LiteLLM
+        return currentUrl
+    }
+    
+    /**
+     * Get available models from current endpoint
+     */
+    fun getAvailableModels(): List<String> {
+        // Return common models - could be enhanced to query the actual endpoint
+        return listOf(
+            "gpt-4o",
+            "gpt-4o-mini", 
+            "claude-3-5-sonnet-20241022",
+            "claude-3-5-haiku-20241022",
+            "gemini-1.5-pro-002",
+            "gemini-1.5-flash-002"
+        )
+    }
+    
+    /**
+     * Set the selected model
+     */
+    fun setSelectedModel(model: String) {
+        if (selectedModel != model) {
+            LOG.info("Switching model from $selectedModel to $model")
+            selectedModel = model
+            // Recreate chat model with new settings
+            chatModel = createChatModel(currentUsage)
+        }
+    }
+    
+    /**
+     * Get current selected model
+     */
+    fun getSelectedModel(): String = selectedModel
+    
+    // Data class for chat statistics
+    data class ChatStats(
+        val totalMessages: Int,
+        val userMessages: Int, 
+        val aiMessages: Int,
+        val hasActiveConversation: Boolean
+    )
+}

@@ -1,11 +1,11 @@
 package com.zps.zest.completion.parser
 
 /**
- * Parses AI responses for method rewrite operations
- * Extracts clean, ready-to-use rewritten methods from AI responses
+ * Parses AI responses for method rewrite operations.
+ * Extracts clean, ready-to-use rewritten methods from AI responses.
  */
 class ZestMethodResponseParser {
-    
+
     data class MethodRewriteResult(
         val rewrittenMethod: String,
         val isValid: Boolean,
@@ -14,10 +14,12 @@ class ZestMethodResponseParser {
         val improvements: List<String> = emptyList(),
         val hasSignificantChanges: Boolean = false
     )
-    
-    /**
-     * Parse the AI response and extract rewritten method
-     */
+
+    private data class ValidationResult(
+        val isValid: Boolean,
+        val issues: List<String>
+    )
+
     fun parseMethodRewriteResponse(
         response: String,
         originalMethod: String,
@@ -27,131 +29,101 @@ class ZestMethodResponseParser {
         if (response.isBlank()) {
             return MethodRewriteResult("", false, 0.0f, listOf("Empty response"))
         }
-        
-        // Clean and extract the method code
-        var cleanedMethod = extractMethodFromResponse(response, language)
-        
+
+        val cleanedMethod = extractMethodFromResponse(response, language).trim()
         if (cleanedMethod.isBlank()) {
             return MethodRewriteResult("", false, 0.0f, listOf("No method found in response"))
         }
-        
-        // Skip overlap detection to preserve method signatures
-        
-        // Validate the rewritten method
-        val validationResult = validateRewrittenMethod(cleanedMethod, originalMethod, methodName, language)
-        
-        // Detect improvements made
+
+        val validation = validateRewrittenMethod(cleanedMethod, originalMethod, methodName, language)
         val improvements = detectImprovements(cleanedMethod, originalMethod, language)
-        
-        // Calculate confidence based on various factors
-        val confidence = calculateConfidence(cleanedMethod, originalMethod, validationResult, improvements)
-        
-        // Check for significant changes
-        val hasSignificantChanges = detectSignificantChanges(cleanedMethod, originalMethod)
-        
+        val confidence = calculateConfidence(cleanedMethod, originalMethod, validation, improvements)
+        val significant = detectSignificantChanges(cleanedMethod, originalMethod)
+
         return MethodRewriteResult(
             rewrittenMethod = cleanedMethod,
-            isValid = validationResult.isValid,
+            isValid = validation.isValid,
             confidence = confidence,
-            issues = validationResult.issues,
+            issues = validation.issues,
             improvements = improvements,
-            hasSignificantChanges = hasSignificantChanges
+            hasSignificantChanges = significant
         )
     }
-    
-    /**
-     * Extract clean method code from the AI response
-     */
+
+    // Extraction
+
     private fun extractMethodFromResponse(response: String, language: String): String {
         var cleaned = response.trim()
-        
-        // Remove common AI response prefixes
-        val prefixPatterns = listOf(
+        cleaned = removeCommonPrefixes(cleaned)
+        cleaned = stripMarkdownCodeBlocks(cleaned)
+        cleaned = stripXmlLikeTags(cleaned)
+        cleaned = removeTrailingExplanations(cleaned, language)
+        return cleaned.trim()
+    }
+
+    private fun removeCommonPrefixes(text: String): String {
+        val patterns = listOf(
             Regex("^.*?improved method.*?:?\\s*", RegexOption.IGNORE_CASE),
             Regex("^.*?here.*?is.*?:?\\s*", RegexOption.IGNORE_CASE),
             Regex("^.*?rewritten.*?:?\\s*", RegexOption.IGNORE_CASE),
             Regex("^.*?updated.*?:?\\s*", RegexOption.IGNORE_CASE)
         )
-        
-        for (pattern in prefixPatterns) {
-            cleaned = pattern.replace(cleaned, "")
-        }
-        
-        // Remove markdown code blocks
-        cleaned = cleaned
+        var result = text
+        patterns.forEach { result = it.replace(result, "") }
+        return result
+    }
+
+    private fun stripMarkdownCodeBlocks(text: String): String {
+        return text
             .replace(Regex("^```[a-zA-Z]*\\s*", RegexOption.MULTILINE), "")
             .replace(Regex("```\\s*$", RegexOption.MULTILINE), "")
-        
-        // Remove XML/HTML-like tags
-        val xmlTags = listOf(
-            "<method>", "</method>",
-            "<code>", "</code>",
-            "<improved>", "</improved>"
-        )
-        
-        xmlTags.forEach { tag ->
-            cleaned = cleaned.replace(tag, "", ignoreCase = true)
-        }
-        
-        // Remove trailing explanations
-        cleaned = removeTrailingExplanations(cleaned, language)
-        
-        return cleaned.trim()
     }
-    
-    /**
-     * Remove explanations that aren't part of the method code
-     */
+
+    private fun stripXmlLikeTags(text: String): String {
+        val tags = listOf("<method>", "</method>", "<code>", "</code>", "<improved>", "</improved>")
+        var result = text
+        tags.forEach { result = result.replace(it, "", ignoreCase = true) }
+        return result
+    }
+
     private fun removeTrailingExplanations(text: String, language: String): String {
         val lines = text.lines().toMutableList()
-        
-        // Remove lines that look like explanations
-        val explanationPatterns = listOf(
+        val explanations = getExplanationPatterns()
+        while (lines.isNotEmpty()) {
+            val last = lines.last().trim()
+            if (last.isEmpty()) {
+                lines.removeAt(lines.lastIndex); continue
+            }
+            if (explanations.any { it.matches(last) }) {
+                lines.removeAt(lines.lastIndex); continue
+            }
+            if (looksLikeMethodCode(last, language)) break
+            lines.removeAt(lines.lastIndex)
+        }
+        return lines.joinToString("\n")
+    }
+
+    private fun getExplanationPatterns(): List<Regex> {
+        return listOf(
             Regex("^(this|the|note|explanation|improvement).*", RegexOption.IGNORE_CASE),
             Regex("^(changes made|key improvements|benefits).*", RegexOption.IGNORE_CASE),
             Regex("^(the method above|this implementation).*", RegexOption.IGNORE_CASE)
         )
-        
-        // Work backwards from the end to find where method ends
-        while (lines.isNotEmpty()) {
-            val lastLine = lines.last().trim()
-            
-            if (lastLine.isEmpty()) {
-                lines.removeAt(lines.size - 1)
-                continue
-            }
-            
-            // Check if it's an explanation
-            if (explanationPatterns.any { it.matches(lastLine) }) {
-                lines.removeAt(lines.size - 1)
-                continue
-            }
-            
-            // Check if it looks like method code
-            if (looksLikeMethodCode(lastLine, language)) {
-                break
-            } else {
-                lines.removeAt(lines.size - 1)
-            }
-        }
-        
-        return lines.joinToString("\n")
     }
-    
-    /**
-     * Check if a line looks like method code rather than explanation
-     */
+
     private fun looksLikeMethodCode(line: String, language: String): Boolean {
-        val trimmed = line.trim()
-        
-        // Empty lines are neutral
-        if (trimmed.isEmpty()) return true
-        
-        // Closing braces definitely indicate method end
-        if (trimmed == "}" || trimmed == "};") return true
-        
-        // Method signature patterns
-        val methodSignaturePatterns = when (language.lowercase()) {
+        val t = line.trim()
+        if (t.isEmpty() || t == "}" || t == "};") return true
+        val patterns = getMethodSignaturePatterns(language)
+        if (patterns.any { it.containsMatchIn(t) }) return true
+        if (t.contains(Regex("[{}();=\\[\\]]"))) return true
+        if (t.matches(Regex(".*\\w+\\s*\\(.*\\).*"))) return true
+        if (isExplanatoryStarter(t)) return false
+        return true
+    }
+
+    private fun getMethodSignaturePatterns(language: String): List<Regex> {
+        return when (language.lowercase()) {
             "java", "kotlin" -> listOf(
                 Regex("(public|private|protected|static|final|override|fun).*\\(.*\\)"),
                 Regex("\\w+\\s*\\(.*\\)\\s*\\{?"),
@@ -170,7 +142,7 @@ class ZestMethodResponseParser {
             "python" -> listOf(
                 Regex("def\\s+\\w+\\s*\\("),
                 Regex("return\\s+.*"),
-                Regex("\\s{4,}.*")  // Indented lines
+                Regex("\\s{4,}.*")
             )
             else -> listOf(
                 Regex(".*\\{$"),
@@ -178,28 +150,18 @@ class ZestMethodResponseParser {
                 Regex("return\\s+.*;?")
             )
         }
-        
-        if (methodSignaturePatterns.any { it.containsMatchIn(trimmed) }) return true
-        
-        // Code-like patterns
-        if (trimmed.contains(Regex("[{}();=\\[\\]]"))) return true
-        if (trimmed.matches(Regex(".*\\w+\\s*\\(.*\\).*"))) return true
-        
-        // Lines that start with explanatory words are likely not code
-        val explanatoryStarters = listOf(
+    }
+
+    private fun isExplanatoryStarter(line: String): Boolean {
+        val starters = listOf(
             "this", "the", "note", "explanation", "improvement", "benefit",
             "change", "update", "enhancement", "optimization"
         )
-        
-        if (explanatoryStarters.any { trimmed.lowercase().startsWith(it.lowercase()) }) return false
-        
-        // Default to considering it code if uncertain
-        return true
+        return starters.any { line.lowercase().startsWith(it) }
     }
-    
-    /**
-     * Validate the rewritten method
-     */
+
+    // Validation
+
     private fun validateRewrittenMethod(
         rewrittenMethod: String,
         originalMethod: String,
@@ -207,262 +169,208 @@ class ZestMethodResponseParser {
         language: String
     ): ValidationResult {
         val issues = mutableListOf<String>()
-        
-        // Basic validation
-        if (rewrittenMethod.length < 10) {
-            issues.add("Rewritten method is too short")
-        }
-        
-        // Check for method signature preservation
-        if (!containsMethodSignature(rewrittenMethod, methodName, language)) {
-            issues.add("Method signature may have been altered")
-        }
-        
-        // Language-specific validation
-        when (language.lowercase()) {
-            "java", "kotlin", "scala" -> validateJvmMethod(rewrittenMethod, issues)
-            "javascript", "typescript" -> validateJavaScriptMethod(rewrittenMethod, issues)
-            "python" -> validatePythonMethod(rewrittenMethod, issues)
-        }
-        
-        // Check for balanced braces (for languages that use them)
-        if (!language.lowercase().equals("python")) {
-            validateBraceBalance(rewrittenMethod, issues)
-        }
-        
+        addBasicValidation(issues, rewrittenMethod)
+        addSignatureValidation(issues, rewrittenMethod, methodName, language)
+        addLanguageSpecificValidation(issues, rewrittenMethod, language)
+        addBraceBalanceIfNeeded(issues, rewrittenMethod, language)
         val isValid = issues.isEmpty() || issues.all { it.contains("may") || it.contains("might") }
-        
         return ValidationResult(isValid, issues)
     }
-    
-    /**
-     * Check if method signature is preserved
-     */
+
+    private fun addBasicValidation(issues: MutableList<String>, rewritten: String) {
+        if (rewritten.length < 10) issues.add("Rewritten method is too short")
+    }
+
+    private fun addSignatureValidation(
+        issues: MutableList<String>,
+        methodCode: String,
+        methodName: String,
+        language: String
+    ) {
+        if (!containsMethodSignature(methodCode, methodName, language)) {
+            issues.add("Method signature may have been altered")
+        }
+    }
+
+    private fun addLanguageSpecificValidation(
+        issues: MutableList<String>,
+        methodCode: String,
+        language: String
+    ) {
+        when (language.lowercase()) {
+            "java", "kotlin", "scala" -> validateJvmMethod(methodCode, issues)
+            "javascript", "typescript" -> validateJavaScriptMethod(methodCode, issues)
+            "python" -> validatePythonMethod(methodCode, issues)
+        }
+    }
+
+    private fun addBraceBalanceIfNeeded(
+        issues: MutableList<String>,
+        methodCode: String,
+        language: String
+    ) {
+        if (!language.equals("python", ignoreCase = true)) validateBraceBalance(methodCode, issues)
+    }
+
     private fun containsMethodSignature(methodCode: String, methodName: String, language: String): Boolean {
         return when (language.lowercase()) {
-            "java", "kotlin" -> {
-                methodCode.contains(Regex("\\b$methodName\\s*\\(")) ||
-                methodCode.contains(Regex("fun\\s+$methodName\\s*\\("))
-            }
-            "javascript", "typescript" -> {
-                methodCode.contains(Regex("function\\s+$methodName\\s*\\(")) ||
-                methodCode.contains(Regex("\\b$methodName\\s*:\\s*function")) ||
-                methodCode.contains(Regex("\\b$methodName\\s*=.*function"))
-            }
-            "python" -> {
-                methodCode.contains(Regex("def\\s+$methodName\\s*\\("))
-            }
+            "java", "kotlin" -> methodCode.contains(Regex("\\b$methodName\\s*\\(")) ||
+                    methodCode.contains(Regex("fun\\s+$methodName\\s*\\("))
+            "javascript", "typescript" -> methodCode.contains(Regex("function\\s+$methodName\\s*\\(")) ||
+                    methodCode.contains(Regex("\\b$methodName\\s*:\\s*function")) ||
+                    methodCode.contains(Regex("\\b$methodName\\s*=.*function"))
+            "python" -> methodCode.contains(Regex("def\\s+$methodName\\s*\\("))
             else -> methodCode.contains(methodName)
         }
     }
-    
-    /**
-     * Validate JVM language methods
-     */
+
     private fun validateJvmMethod(methodCode: String, issues: MutableList<String>) {
         if (!methodCode.contains("(") || !methodCode.contains(")")) {
             issues.add("Method signature may be malformed")
         }
     }
-    
-    /**
-     * Validate JavaScript methods
-     */
+
     private fun validateJavaScriptMethod(methodCode: String, issues: MutableList<String>) {
         if (!methodCode.contains("(") || !methodCode.contains(")")) {
             issues.add("Function signature may be malformed")
         }
     }
-    
-    /**
-     * Validate Python methods
-     */
+
     private fun validatePythonMethod(methodCode: String, issues: MutableList<String>) {
-        if (!methodCode.contains("def ")) {
-            issues.add("Python method definition may be missing")
-        }
-        if (!methodCode.contains(":")) {
-            issues.add("Python method may be missing colon")
-        }
+        if (!methodCode.contains("def ")) issues.add("Python method definition may be missing")
+        if (!methodCode.contains(":")) issues.add("Python method may be missing colon")
     }
-    
-    /**
-     * Validate brace balance
-     */
+
     private fun validateBraceBalance(methodCode: String, issues: MutableList<String>) {
-        val openBraces = methodCode.count { it == '{' }
-        val closeBraces = methodCode.count { it == '}' }
-        
-        if (kotlin.math.abs(openBraces - closeBraces) > 1) {
-            issues.add("Brace mismatch detected: $openBraces opening, $closeBraces closing")
+        val opens = methodCode.count { it == '{' }
+        val closes = methodCode.count { it == '}' }
+        if (kotlin.math.abs(opens - closes) > 1) {
+            issues.add("Brace mismatch detected: $opens opening, $closes closing")
         }
     }
-    
-    /**
-     * Detect improvements made to the method
-     */
-    private fun detectImprovements(rewrittenMethod: String, originalMethod: String, language: String): List<String> {
-        val improvements = mutableListOf<String>()
-        
-        // Error handling improvements
-        if (hasMoreErrorHandling(rewrittenMethod, originalMethod)) {
-            improvements.add("Added error handling")
-        }
-        
-        // Null safety improvements
-        if (hasMoreNullChecks(rewrittenMethod, originalMethod)) {
-            improvements.add("Added null safety checks")
-        }
-        
-        // Documentation improvements
-        if (hasMoreComments(rewrittenMethod, originalMethod)) {
-            improvements.add("Added documentation")
-        }
-        
-        // Performance improvements
-        if (hasPerformanceImprovements(rewrittenMethod, originalMethod, language)) {
-            improvements.add("Performance optimizations")
-        }
-        
-        // Readability improvements
-        if (hasReadabilityImprovements(rewrittenMethod, originalMethod)) {
-            improvements.add("Improved readability")
-        }
-        
-        return improvements
+
+    // Improvements
+
+    private fun detectImprovements(rewritten: String, original: String, language: String): List<String> {
+        val res = mutableListOf<String>()
+        res.addIf(hasMoreErrorHandling(rewritten, original), "Added error handling")
+        res.addIf(hasMoreNullChecks(rewritten, original), "Added null safety checks")
+        res.addIf(hasMoreComments(rewritten, original), "Added documentation")
+        res.addIf(hasPerformanceImprovements(rewritten, original, language), "Performance optimizations")
+        res.addIf(hasReadabilityImprovements(rewritten, original), "Improved readability")
+        return res
     }
-    
-    /**
-     * Check if error handling was added
-     */
+
+    private fun MutableList<String>.addIf(condition: Boolean, label: String) {
+        if (condition) add(label)
+    }
+
     private fun hasMoreErrorHandling(rewritten: String, original: String): Boolean {
-        val errorHandlingKeywords = listOf("try", "catch", "throw", "exception", "error")
-        val rewrittenCount = errorHandlingKeywords.sumOf { rewritten.lowercase().split(it).size - 1 }
-        val originalCount = errorHandlingKeywords.sumOf { original.lowercase().split(it).size - 1 }
-        return rewrittenCount > originalCount
+        val keys = listOf("try", "catch", "throw", "exception", "error")
+        return countKeywordOccurrences(rewritten, keys) > countKeywordOccurrences(original, keys)
     }
-    
-    /**
-     * Check if null checks were added
-     */
+
     private fun hasMoreNullChecks(rewritten: String, original: String): Boolean {
-        val nullKeywords = listOf("null", "nil", "none", "undefined", "?.", "!!", "isNull", "isEmpty")
-        val rewrittenCount = nullKeywords.sumOf { rewritten.lowercase().split(it).size - 1 }
-        val originalCount = nullKeywords.sumOf { original.lowercase().split(it).size - 1 }
-        return rewrittenCount > originalCount
+        val keys = listOf("null", "nil", "none", "undefined", "?.", "!!", "isNull", "isEmpty")
+        return countKeywordOccurrences(rewritten, keys) > countKeywordOccurrences(original, keys)
     }
-    
-    /**
-     * Check if comments were added
-     */
+
     private fun hasMoreComments(rewritten: String, original: String): Boolean {
-        val rewrittenComments = rewritten.count { it == '/' } + rewritten.count { it == '#' }
-        val originalComments = original.count { it == '/' } + original.count { it == '#' }
-        return rewrittenComments > originalComments
+        val rw = rewritten.count { it == '/' } + rewritten.count { it == '#' }
+        val ow = original.count { it == '/' } + original.count { it == '#' }
+        return rw > ow
     }
-    
-    /**
-     * Check for performance improvements
-     */
+
     private fun hasPerformanceImprovements(rewritten: String, original: String, language: String): Boolean {
-        // Look for modern language features that improve performance
-        val performanceKeywords = when (language.lowercase()) {
+        val keys = getPerformanceKeywords(language)
+        return countKeywordOccurrences(rewritten, keys) > countKeywordOccurrences(original, keys)
+    }
+
+    private fun getPerformanceKeywords(language: String): List<String> {
+        return when (language.lowercase()) {
             "java" -> listOf("stream", "optional", "var ", "final")
             "kotlin" -> listOf("lazy", "sequence", "inline", "suspend")
             "javascript" -> listOf("const ", "let ", "=>", "async", "await")
             "python" -> listOf("comprehension", "generator", "async", "await")
             else -> listOf("const", "final", "cache")
         }
-        
-        val rewrittenCount = performanceKeywords.sumOf { rewritten.lowercase().split(it).size - 1 }
-        val originalCount = performanceKeywords.sumOf { original.lowercase().split(it).size - 1 }
-        return rewrittenCount > originalCount
     }
-    
-    /**
-     * Check for readability improvements
-     */
+
+    private fun countKeywordOccurrences(text: String, keywords: List<String>): Int {
+        val lower = text.lowercase()
+        return keywords.sumOf { key -> lower.split(key).size - 1 }
+    }
+
     private fun hasReadabilityImprovements(rewritten: String, original: String): Boolean {
         val rewrittenLines = rewritten.lines().count { it.trim().isNotEmpty() }
         val originalLines = original.lines().count { it.trim().isNotEmpty() }
-        
-        // Better structure might mean more lines (extracted methods, better formatting)
-        return rewrittenLines > originalLines * 1.2 || 
-               hasLongerVariableNames(rewritten, original)
+        return rewrittenLines > originalLines * 1.2 || hasLongerVariableNames(rewritten, original)
     }
-    
-    /**
-     * Check if variable names are more descriptive
-     */
+
     private fun hasLongerVariableNames(rewritten: String, original: String): Boolean {
-        val rewrittenWords = rewritten.split(Regex("\\W+")).filter { it.length > 3 }
-        val originalWords = original.split(Regex("\\W+")).filter { it.length > 3 }
-        return rewrittenWords.size > originalWords.size
+        val rw = rewritten.split(Regex("\\W+")).filter { it.length > 3 }
+        val ow = original.split(Regex("\\W+")).filter { it.length > 3 }
+        return rw.size > ow.size
     }
-    
-    /**
-     * Calculate confidence based on various factors
-     */
+
+    // Confidence
+
     private fun calculateConfidence(
         rewrittenMethod: String,
         originalMethod: String,
         validationResult: ValidationResult,
         improvements: List<String>
     ): Float {
-        var confidence = 0.7f // Start with reasonable base confidence
-        
-        // Validation affects confidence
-        if (validationResult.isValid) {
-            confidence += 0.2f
-        } else {
-            confidence -= validationResult.issues.size * 0.1f
-        }
-        
-        // Improvements increase confidence
-        confidence += improvements.size * 0.05f
-        
-        // Reasonable size changes
-        val lengthRatio = rewrittenMethod.length.toFloat() / originalMethod.length
-        when {
-            lengthRatio in 0.5f..3.0f -> confidence += 0.1f
-            lengthRatio in 0.3f..5.0f -> confidence += 0.05f
-            else -> confidence -= 0.1f
-        }
-        
-        return confidence.coerceIn(0.1f, 1.0f)
+        var c = 0.7f
+        c = adjustForValidation(c, validationResult)
+        c = adjustForImprovements(c, improvements)
+        c = adjustForLength(c, rewrittenMethod, originalMethod)
+        return c.coerceIn(0.1f, 1.0f)
     }
-    
-    /**
-     * Detect significant changes between original and rewritten method
-     */
+
+    private fun adjustForValidation(c: Float, validation: ValidationResult): Float {
+        return if (validation.isValid) c + 0.2f else c - validation.issues.size * 0.1f
+    }
+
+    private fun adjustForImprovements(c: Float, improvements: List<String>): Float {
+        return c + improvements.size * 0.05f
+    }
+
+    private fun adjustForLength(c: Float, rewritten: String, original: String): Float {
+        val ratio = rewritten.length.toFloat() / maxOf(original.length, 1)
+        return when {
+            ratio in 0.5f..3.0f -> c + 0.1f
+            ratio in 0.3f..5.0f -> c + 0.05f
+            else -> c - 0.1f
+        }
+    }
+
+    // Significant changes
+
     private fun detectSignificantChanges(rewrittenMethod: String, originalMethod: String): Boolean {
-        val lengthChange = kotlin.math.abs(rewrittenMethod.length - originalMethod.length)
-        val lengthChangeRatio = lengthChange.toFloat() / maxOf(originalMethod.length, 1)
-        
-        // Significant if length changed by more than 20%
-        if (lengthChangeRatio > 0.2f) return true
-        
-        // Check for structural changes
-        val originalLines = originalMethod.lines().filter { it.trim().isNotEmpty() }
-        val rewrittenLines = rewrittenMethod.lines().filter { it.trim().isNotEmpty() }
-        
-        // Significant if line count changed substantially
-        if (kotlin.math.abs(originalLines.size - rewrittenLines.size) > 2) return true
-        
-        // Check for significant word changes
-        val originalWords = originalMethod.split(Regex("\\W+")).filter { it.isNotEmpty() }.toSet()
-        val rewrittenWords = rewrittenMethod.split(Regex("\\W+")).filter { it.isNotEmpty() }.toSet()
-        
-        val commonWords = originalWords.intersect(rewrittenWords)
-        val totalUniqueWords = originalWords.union(rewrittenWords).size
-        val similarityRatio = commonWords.size.toFloat() / maxOf(totalUniqueWords, 1)
-        
-        // Significant if less than 60% of words are common
-        return similarityRatio < 0.6f
+        if (hasSignificantLengthChange(rewrittenMethod, originalMethod)) return true
+        if (hasSignificantLineCountChange(rewrittenMethod, originalMethod)) return true
+        return hasLowWordSimilarity(rewrittenMethod, originalMethod)
     }
-    
-    private data class ValidationResult(
-        val isValid: Boolean,
-        val issues: List<String>
-    )
+
+    private fun hasSignificantLengthChange(rewritten: String, original: String): Boolean {
+        val change = kotlin.math.abs(rewritten.length - original.length)
+        val ratio = change.toFloat() / maxOf(original.length, 1)
+        return ratio > 0.2f
+    }
+
+    private fun hasSignificantLineCountChange(rewritten: String, original: String): Boolean {
+        val o = original.lines().count { it.trim().isNotEmpty() }
+        val r = rewritten.lines().count { it.trim().isNotEmpty() }
+        return kotlin.math.abs(o - r) > 2
+    }
+
+    private fun hasLowWordSimilarity(rewritten: String, original: String): Boolean {
+        val o = original.split(Regex("\\W+")).filter { it.isNotEmpty() }.toSet()
+        val r = rewritten.split(Regex("\\W+")).filter { it.isNotEmpty() }.toSet()
+        val common = o.intersect(r).size
+        val total = o.union(r).size
+        val similarity = common.toFloat() / maxOf(total, 1)
+        return similarity < 0.6f
+    }
 }

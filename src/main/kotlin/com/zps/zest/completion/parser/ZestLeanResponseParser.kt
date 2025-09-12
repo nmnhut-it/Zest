@@ -7,6 +7,14 @@ class ZestLeanResponseParser {
     
     private val overlapDetector = ZestCompletionOverlapDetector()
     
+    private companion object {
+        private const val BASE_CONFIDENCE = 0.7f
+        private const val MAX_TRIMMED_LINE_LENGTH = 50
+        private const val FALLBACK_INPUT_LENGTH = 10
+        private const val MIN_LENGTH_FOR_PENALTY = 3
+        private const val SHORT_COMPLETION_PENALTY = 0.2f
+    }
+    
     data class LeanReasoningResult(
         val completionText: String,
         val reasoning: String,
@@ -22,231 +30,194 @@ class ZestLeanResponseParser {
         documentText: String,
         offset: Int
     ): LeanReasoningResult {
-        
         if (response.isBlank()) {
-            return LeanReasoningResult("", "", 0.0f, false)
+            return createEmptyResult()
         }
         
-        // Extract completion from the response
-        var completion = extractCompletionTag(response)
-        
-        // If extraction failed, try to get raw content
-        if (completion.isEmpty()) {
-            // Fallback: treat the entire response as completion if no tags found
-            completion = cleanRawResponse(response)
-        } else {
-            // Clean the extracted completion
-            completion = cleanExtractedCompletion(completion)
-        }
-        
-        // Apply overlap detection to avoid duplicating what user already typed
-        val adjustedCompletion = if (completion.isNotEmpty()) {
-            val recentUserInput = extractRecentUserInputSafe(documentText, offset)
-            val overlapResult = overlapDetector.adjustCompletionForOverlap(
-                userTypedText = recentUserInput,
-                completionText = completion,
-                cursorOffset = offset,
-                documentText = documentText
-            )
-            
-            // Debug logging for overlap detection
-            if (overlapResult.prefixOverlapLength > 0 || overlapResult.suffixOverlapLength > 0) {
-//                System.out.println("=== LEAN OVERLAP DETECTION ===")
-//                System.out.println("User input: '$recentUserInput'")
-//                System.out.println("Original completion: '$completion'")
-//                System.out.println("Adjusted completion: '${overlapResult.adjustedCompletion}'")
-            }
-            
-            overlapResult.adjustedCompletion
-        } else {
-            completion
-        }
-        
-        // Calculate confidence based on completion quality
+        val completion = extractAndCleanCompletion(response)
+        val adjustedCompletion = adjustCompletionForOverlap(completion, documentText, offset)
         val confidence = calculateSimplifiedConfidence(adjustedCompletion)
         
-        // Return result without reasoning since we're not extracting it anymore
         return LeanReasoningResult(
             completionText = adjustedCompletion,
-            reasoning = "", // No reasoning in simplified format
+            reasoning = "",
             confidence = confidence,
-            hasValidReasoning = false // No reasoning validation needed
+            hasValidReasoning = false
         )
     }
     
-    /**
-     * Extract completion from <completion> tags
-     */
     private fun extractCompletionTag(response: String): String {
-        // Pattern to match <doe>...</doe> tags
         val completionPattern = Regex("<code>(.+?)</code>", RegexOption.DOT_MATCHES_ALL)
-        val match = completionPattern.find(response)
-        
-        return if (match != null) {
-            match.groupValues[1]
-        } else {
-            ""
-        }
+        return completionPattern.find(response)?.groupValues?.get(1) ?: ""
     }
     
-    /**
-     * Clean extracted completion from tags
-     */
     private fun cleanExtractedCompletion(completion: String): String {
-        var cleaned = completion
-        
-        // Remove markdown code blocks if present
-        cleaned = removeMarkdownCodeBlocks(cleaned)
-        
-        // Trim leading and trailing whitespace
-        cleaned = cleaned.trim()
-        
-        return cleaned
+        return completion
+            .let { removeMarkdownCodeBlocks(it) }
+            .trim()
     }
     
-    /**
-     * Clean raw response when no completion tags found
-     */
     private fun cleanRawResponse(response: String): String {
-        var cleaned = response
-        
-        // Remove any XML-like tags that might be present
-        cleaned = cleaned.replace(Regex("<[^>]+>"), "")
-        
-        // Remove markdown code blocks
-        cleaned = removeMarkdownCodeBlocks(cleaned)
-        
-        // Remove any leading explanation text (common patterns)
-        val explanationPatterns = listOf(
-            Regex("^(Here's|Here is|The completion|Completion:).*?\\n", RegexOption.IGNORE_CASE),
-            Regex("^(Based on|Looking at|Given).*?\\n", RegexOption.IGNORE_CASE),
-            Regex("^```\\w*\\n"), // Opening code block without content
-            Regex("\\n```$") // Closing code block
-        )
-        
-        for (pattern in explanationPatterns) {
-            cleaned = cleaned.replace(pattern, "")
-        }
-        
-        // Trim whitespace
-        cleaned = cleaned.trim()
-        
-        // If the response is multi-line and starts with natural language, 
-        // try to extract just the code part
-        if (cleaned.contains("\n") && cleaned.lines().first().matches(Regex("^[A-Z].*"))) {
-            val lines = cleaned.lines()
-            val codeStartIndex = lines.indexOfFirst { line ->
-                // Look for lines that start with code patterns
-                line.trimStart().matches(Regex("^(if|for|while|return|var|let|const|public|private|protected|class|function|def|import|from)\\b.*")) ||
-                line.trimStart().matches(Regex("^[a-zA-Z_$][a-zA-Z0-9_$]*\\s*[=.(].*")) ||
-                line.trimStart().matches(Regex("^}.*"))
-            }
-            
-            if (codeStartIndex > 0) {
-                cleaned = lines.drop(codeStartIndex).joinToString("\n").trim()
-            }
-        }
-        
-        return cleaned
+        return response
+            .removeXmlTags()
+            .let { removeMarkdownCodeBlocks(it) }
+            .removeExplanationText()
+            .trim()
+            .extractCodeFromNaturalLanguage()
     }
     
-    /**
-     * Remove markdown code blocks from text
-     */
     private fun removeMarkdownCodeBlocks(text: String): String {
-        var result = text
-        
-        // Remove triple backtick code blocks with optional language identifier
+        // Remove triple backtick code blocks
         val codeBlockPattern = Regex("```[a-zA-Z0-9-]*\\s*(.+?)```", RegexOption.DOT_MATCHES_ALL)
-        val match = codeBlockPattern.find(result)
-        if (match != null) {
-            result = match.groupValues[1]
-        }
+        val result = codeBlockPattern.find(text)?.groupValues?.get(1) ?: text
         
-        // Remove single backticks if the entire content is wrapped
-        if (result.startsWith("`") && result.endsWith("`") && result.count { it == '`' } == 2) {
-            result = result.substring(1, result.length - 1)
+        // Remove single backticks if entire content is wrapped
+        return if (result.startsWith("`") && result.endsWith("`") && result.count { it == '`' } == 2) {
+            result.substring(1, result.length - 1)
+        } else {
+            result
         }
-        
-        return result
     }
     
-    /**
-     * Enhanced thread-safe extraction of recent user input
-     */
     private fun extractRecentUserInputSafe(documentText: String, cursorOffset: Int): String {
         if (cursorOffset <= 0 || cursorOffset > documentText.length) return ""
         
-        // Get current line up to cursor
-        val lineStart = documentText.lastIndexOf('\n', cursorOffset - 1) + 1
-        val currentLine = documentText.substring(lineStart, cursorOffset)
-        
-        // Try whole line trimmed first (most comprehensive match)
+        val currentLine = getCurrentLineUpToCursor(documentText, cursorOffset)
         val trimmedLine = currentLine.trim()
-        if (trimmedLine.isNotEmpty() && trimmedLine.length <= 50) {
-            return trimmedLine
-        }
         
-        // Extract meaningful recent input
-        return when {
-            // Get incomplete identifier/word
-            currentLine.matches(Regex(".*\\w+$")) -> {
-                val match = Regex("(\\w+)$").find(currentLine)
-                match?.value ?: ""
-            }
-            // Get single character that might be start of identifier
-            currentLine.matches(Regex(".*\\w$")) -> {
-                val match = Regex("(\\w)$").find(currentLine)
-                match?.value ?: ""
-            }
-            // Get operator/symbol sequence
-            currentLine.matches(Regex(".*[^\\s\\w]+$")) -> {
-                val match = Regex("([^\\s\\w]+)$").find(currentLine)
-                match?.value ?: ""
-            }
-            // Get whitespace if user is indenting
-            currentLine.matches(Regex(".*\\s+$")) -> {
-                val match = Regex("(\\s+)$").find(currentLine)
-                match?.value ?: ""
-            }
-            // Get last few characters as fallback
-            else -> currentLine.takeLast(10).trim()
+        return if (trimmedLine.isNotEmpty() && trimmedLine.length <= MAX_TRIMMED_LINE_LENGTH) {
+            trimmedLine
+        } else {
+            extractMeaningfulInput(currentLine)
         }
     }
     
-    /**
-     * Calculate confidence based on completion quality
-     */
     private fun calculateSimplifiedConfidence(completion: String): Float {
-        var confidence = 0.7f // Base confidence for simplified approach
+        if (completion.isBlank()) return 0.0f
         
-        // Increase confidence for substantial completion
-        when {
-            completion.length > 20 -> confidence += 0.15f
-            completion.length > 10 -> confidence += 0.1f
-            completion.length > 5 -> confidence += 0.05f
-        }
-        
-        // Increase confidence for structured code patterns
-        if (completion.contains("{") || completion.contains("(") || completion.contains("[")) {
-            confidence += 0.05f
-        }
-        
-        // Increase confidence if it looks like a complete statement
-        if (completion.contains("}") || completion.contains(")") || completion.contains(";")) {
-            confidence += 0.05f
-        }
-        
-        // Decrease confidence for very short completions
-        if (completion.length < 3) {
-            confidence -= 0.2f
-        }
-        
-        // Decrease confidence if it's just whitespace
-        if (completion.isBlank()) {
-            confidence = 0.0f
-        }
+        var confidence = BASE_CONFIDENCE
+        confidence += getLengthBonus(completion.length)
+        confidence += getStructureBonus(completion)
+        confidence += getCompletenessBonus(completion)
+        confidence -= getShortCompletionPenalty(completion.length)
         
         return confidence.coerceIn(0.0f, 1.0f)
+    }
+
+    private fun createEmptyResult(): LeanReasoningResult {
+        return LeanReasoningResult("", "", 0.0f, false)
+    }
+
+    private fun extractAndCleanCompletion(response: String): String {
+        val completion = extractCompletionTag(response)
+        return if (completion.isEmpty()) {
+            cleanRawResponse(response)
+        } else {
+            cleanExtractedCompletion(completion)
+        }
+    }
+
+    private fun adjustCompletionForOverlap(completion: String, documentText: String, offset: Int): String {
+        if (completion.isEmpty()) return completion
+        
+        val recentUserInput = extractRecentUserInputSafe(documentText, offset)
+        val overlapResult = overlapDetector.adjustCompletionForOverlap(
+            userTypedText = recentUserInput,
+            completionText = completion,
+            cursorOffset = offset,
+            documentText = documentText
+        )
+        
+        return overlapResult.adjustedCompletion
+    }
+
+    private fun String.removeXmlTags(): String {
+        return this.replace(Regex("<[^>]+>"), "")
+    }
+
+    private fun String.removeExplanationText(): String {
+        val explanationPatterns = listOf(
+            Regex("^(Here's|Here is|The completion|Completion:).*?\\n", RegexOption.IGNORE_CASE),
+            Regex("^(Based on|Looking at|Given).*?\\n", RegexOption.IGNORE_CASE),
+            Regex("^```\\w*\\n"),
+            Regex("\\n```$")
+        )
+        
+        var result = this
+        for (pattern in explanationPatterns) {
+            result = result.replace(pattern, "")
+        }
+        return result
+    }
+
+    private fun String.extractCodeFromNaturalLanguage(): String {
+        if (!this.contains("\n") || !this.lines().first().matches(Regex("^[A-Z].*"))) {
+            return this
+        }
+        
+        val lines = this.lines()
+        val codeStartIndex = lines.indexOfFirst { line ->
+            line.trimStart().matchesCodePattern()
+        }
+        
+        return if (codeStartIndex > 0) {
+            lines.drop(codeStartIndex).joinToString("\n").trim()
+        } else {
+            this
+        }
+    }
+
+    private fun String.matchesCodePattern(): Boolean {
+        val codeKeywords = Regex("^(if|for|while|return|var|let|const|public|private|protected|class|function|def|import|from)\\b.*")
+        val identifierPattern = Regex("^[a-zA-Z_$][a-zA-Z0-9_$]*\\s*[=.(].*")
+        val bracePattern = Regex("^}.*")
+        
+        return this.matches(codeKeywords) || this.matches(identifierPattern) || this.matches(bracePattern)
+    }
+
+    private fun getCurrentLineUpToCursor(documentText: String, cursorOffset: Int): String {
+        val lineStart = documentText.lastIndexOf('\n', cursorOffset - 1) + 1
+        return documentText.substring(lineStart, cursorOffset)
+    }
+
+    private fun extractMeaningfulInput(currentLine: String): String {
+        val patterns = listOf(
+            Regex("(\\w+)$") to "word completion",
+            Regex("(\\w)$") to "single character",
+            Regex("([^\\s\\w]+)$") to "operator/symbol",
+            Regex("(\\s+)$") to "whitespace/indentation"
+        )
+        
+        for ((pattern, _) in patterns) {
+            val match = pattern.find(currentLine)
+            if (match != null) {
+                return match.value
+            }
+        }
+        
+        return currentLine.takeLast(FALLBACK_INPUT_LENGTH).trim()
+    }
+
+    private fun getLengthBonus(length: Int): Float {
+        return when {
+            length > 20 -> 0.15f
+            length > 10 -> 0.1f
+            length > 5 -> 0.05f
+            else -> 0.0f
+        }
+    }
+
+    private fun getStructureBonus(completion: String): Float {
+        val structureChars = setOf('{', '(', '[')
+        return if (completion.any { it in structureChars }) 0.05f else 0.0f
+    }
+
+    private fun getCompletenessBonus(completion: String): Float {
+        val completionChars = setOf('}', ')', ';')
+        return if (completion.any { it in completionChars }) 0.05f else 0.0f
+    }
+
+    private fun getShortCompletionPenalty(length: Int): Float {
+        return if (length < MIN_LENGTH_FOR_PENALTY) SHORT_COMPLETION_PENALTY else 0.0f
     }
 }

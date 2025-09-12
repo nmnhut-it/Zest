@@ -17,6 +17,22 @@ class ZestCompletionOverlapDetector {
         val suffixOverlapLength: Int
     )
 
+    private data class CursorContext(
+        val before: String,
+        val after: String
+    )
+
+    private data class OverlapAdjustment(
+        val text: String,
+        val prefixOverlap: Int,
+        val suffixOverlap: Int
+    )
+
+    private companion object {
+        private const val CONTEXT_LIMIT = 500
+        private const val DEBUG_CHAR_LIMIT = 100
+    }
+
     /**
      * Adjusts completion text based on what already exists in the document.
      * Uses line-by-line comparison with code normalization to detect duplicates.
@@ -27,285 +43,135 @@ class ZestCompletionOverlapDetector {
         cursorOffset: Int,
         documentText: String
     ): OverlapResult {
-
         if (completionText.isBlank()) {
             return OverlapResult(completionText, 0, 0)
         }
 
-        // Get context around cursor
-        val contextBeforeCursor = getContextBeforeCursor(documentText, cursorOffset, 500)
-        val contextAfterCursor = getContextAfterCursor(documentText, cursorOffset, 500)
+        val context = extractCursorContext(documentText, cursorOffset)
+        logDebugInfo(context, completionText)
 
-        System.out.println("=== OVERLAP DETECTOR DEBUG ===")
-        // Make whitespace visible for debugging
-        val beforeDebug = contextBeforeCursor.takeLast(100)
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-            .replace(" ", "·")
-        val afterDebug = contextAfterCursor.take(100)
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-            .replace(" ", "·")
-        val completionDebug = completionText.take(100)
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-            .replace(" ", "·")
-            
-        System.out.println("Context before cursor (last 100 chars): '$beforeDebug'")
-        System.out.println("Context after cursor (first 100 chars): '$afterDebug'")
-        System.out.println("Completion (first 100 chars): '$completionDebug${if (completionText.length > 100) "..." else ""}'")
-        
-        // Check if cursor is on a blank line
-        val isOnBlankLine = contextAfterCursor.trimStart() != contextAfterCursor && 
-                           contextAfterCursor.trim().isNotEmpty()
-        if (isOnBlankLine) {
-            System.out.println("Cursor appears to be on a blank line")
-        }
+        var result = OverlapAdjustment(completionText, 0, 0)
+        result = adjustForPrefixOverlap(context.before, result)
+        result = adjustForSuffixOverlap(result.text, context.after, result.prefixOverlap, result.suffixOverlap)
+        result = adjustForLineDuplicates(result, documentText, cursorOffset)
 
-        // First, try character-level prefix/suffix overlap detection
-        var adjustedCompletion = completionText
-        var prefixOverlap = 0
-        var suffixOverlap = 0
-
-        // Detect prefix overlap
-        val prefixResult = findPrefixOverlap(contextBeforeCursor, adjustedCompletion)
-        if (prefixResult > 0) {
-            adjustedCompletion = adjustedCompletion.substring(prefixResult)
-            prefixOverlap = prefixResult
-            System.out.println("Found prefix overlap of $prefixResult chars")
-        }
-
-        // Detect suffix overlap on adjusted completion
-        val suffixResult = findSuffixOverlap(adjustedCompletion, contextAfterCursor)
-        if (suffixResult > 0) {
-            adjustedCompletion = adjustedCompletion.substring(0, adjustedCompletion.length - suffixResult)
-            suffixOverlap = suffixResult
-            System.out.println("Found suffix overlap of $suffixResult chars")
-        }
-
-        // If we still have content, check for line-level duplicates
-        if (adjustedCompletion.isNotEmpty()) {
-            val lineResult = removeLineDuplicates(adjustedCompletion, documentText, cursorOffset)
-            adjustedCompletion = lineResult.adjustedText
-            prefixOverlap += lineResult.removedPrefixChars
-            suffixOverlap += lineResult.removedSuffixChars
-
-            if (lineResult.removedLines > 0) {
-                System.out.println("Removed ${lineResult.removedLines} duplicate lines")
-            }
-        }
-
-        System.out.println("Final adjusted completion: '${adjustedCompletion.take(100).replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t").replace(" ", "·")}${if (adjustedCompletion.length > 100) "..." else ""}'")
-
-        return OverlapResult(adjustedCompletion, prefixOverlap, suffixOverlap)
+        logger.debug("Final adjusted completion: ${result.text.take(100)}")
+        return OverlapResult(result.text, result.prefixOverlap, result.suffixOverlap)
     }
 
-    /**
-     * Normalize code for comparison by standardizing whitespace and delimiters
-     */
     private fun normalizeCode(text: String): String {
         return text
-            .replace("\r\n", "\n")                 // Normalize line endings
-            .replace("\r", "\n")
-            .replace(Regex("\\n\\s*\\{"), " {")    // C style: \n{ → space{
-            .replace(Regex("\\s+"), " ")           // All whitespace to single space
-            .replace(Regex("\\s*\\(\\s*"), "(")    // Normalize parentheses
-            .replace(Regex("\\s*\\)\\s*"), ")")
-            .replace(Regex("\\s*\\[\\s*"), "[")    // Normalize square brackets
-            .replace(Regex("\\s*\\]\\s*"), "]")
-            .replace(Regex("\\s*\\{\\s*"), "{")    // Normalize curly braces
-            .replace(Regex("\\s*\\}\\s*"), "}")
+            .normalizeLineEndings()
+            .normalizeBraceStyle()
+            .normalizeWhitespace()
+            .normalizeDelimiters()
             .trim()
     }
 
-    /**
-     * Normalize a line for comparison, considering the next line for brace style handling
-     */
+    private fun String.normalizeLineEndings(): String {
+        return this.replace("\r\n", "\n").replace("\r", "\n")
+    }
+
+    private fun String.normalizeBraceStyle(): String {
+        return this.replace(Regex("\\n\\s*\\{"), " {") // C style: \n{ → space{
+    }
+
+    private fun String.normalizeWhitespace(): String {
+        return this.replace(Regex("\\s+"), " ") // All whitespace to single space
+    }
+
+    private fun String.normalizeDelimiters(): String {
+        return this
+            .replace(Regex("\\s*\\(\\s*"), "(") // Normalize parentheses
+            .replace(Regex("\\s*\\)\\s*"), ")")
+            .replace(Regex("\\s*\\[\\s*"), "[") // Normalize square brackets
+            .replace(Regex("\\s*\\]\\s*"), "]")
+            .replace(Regex("\\s*\\{\\s*"), "{") // Normalize curly braces
+            .replace(Regex("\\s*\\}\\s*"), "}")
+    }
+
     private fun normalizeLineForComparison(line: String, nextLine: String?): String {
         var normalized = normalizeCode(line)
-
-        // If next line starts with {, append it to this line for comparison
-        if (nextLine != null && nextLine.trim().startsWith("{")) {
+        if (nextLine?.trim()?.startsWith("{") == true) {
             normalized += "{"
         }
-
         return normalized
     }
 
-    /**
-     * Find prefix overlap between context and completion
-     */
     private fun findPrefixOverlap(contextBefore: String, completion: String): Int {
         if (contextBefore.isEmpty() || completion.isEmpty()) return 0
+        if (isCursorOnBlankLine(contextBefore)) return 0
 
-        // Special handling: if context before cursor ends with only whitespace after the last statement,
-        // we're on a blank line and should not check for overlaps with previous code
-        val lastNewlineIndex = contextBefore.lastIndexOf('\n')
-        if (lastNewlineIndex >= 0) {
-            val afterLastNewline = contextBefore.substring(lastNewlineIndex + 1)
-            // If everything after the last newline is whitespace, we're on a blank line
-            if (afterLastNewline.isBlank()) {
-                System.out.println("Cursor at start of blank line, no prefix overlap check needed")
-                return 0
-            }
-        }
-
-        // Try exact character match from end of context
-        val maxLength = minOf(contextBefore.length, completion.length)
-
-        for (length in maxLength downTo 1) {
-            val contextSuffix = contextBefore.takeLast(length)
-            val completionPrefix = completion.take(length)
-
-            if (contextSuffix == completionPrefix) {
-                return length
-            }
-        }
-
-        // Try normalized match for code structures
-        val normalizedContext = normalizeCode(contextBefore)
-        val normalizedCompletion = normalizeCode(completion)
-
-        for (length in minOf(normalizedContext.length, normalizedCompletion.length) downTo 1) {
-            val contextSuffix = normalizedContext.takeLast(length)
-            val completionPrefix = normalizedCompletion.take(length)
-
-            if (contextSuffix == completionPrefix) {
-                // Find actual character count in original text
-                return findActualOverlapLength(contextBefore, completion, true)
-            }
-        }
-
-        return 0
+        return findExactOverlap(contextBefore, completion, isPrefix = true) 
+            ?: findNormalizedOverlap(contextBefore, completion, isPrefix = true) 
+            ?: 0
     }
 
-    /**
-     * Find suffix overlap between completion and context
-     */
     private fun findSuffixOverlap(completion: String, contextAfter: String): Int {
         if (completion.isEmpty() || contextAfter.isEmpty()) return 0
+        if (shouldSkipSuffixOverlapCheck(completion, contextAfter)) return 0
 
-        // Special handling: if context after cursor starts with newline/whitespace,
-        // we're on a blank line and should not consider it an overlap
-        if (contextAfter.trimStart() != contextAfter) {
-            // There's leading whitespace (including newlines) after cursor
-            // Only check for overlap if the completion also ends with similar whitespace pattern
-            val contextLeadingWhitespace = contextAfter.takeWhile { it.isWhitespace() }
-            val completionTrailingWhitespace = completion.takeLastWhile { it.isWhitespace() }
-            
-            // If completion doesn't end with whitespace but context starts with it,
-            // we're trying to insert on a blank line - no overlap
-            if (completionTrailingWhitespace.isEmpty() && contextLeadingWhitespace.contains('\n')) {
-                System.out.println("Cursor on blank line, no suffix overlap check needed")
-                return 0
-            }
-        }
-
-        // Try exact character match from start of context
-        val maxLength = minOf(completion.length, contextAfter.length)
-
-        for (length in maxLength downTo 1) {
-            val completionSuffix = completion.takeLast(length)
-            val contextPrefix = contextAfter.take(length)
-
-            if (completionSuffix == contextPrefix) {
-                return length
-            }
-        }
-
-        // Try normalized match
-        val normalizedCompletion = normalizeCode(completion)
-        val normalizedContext = normalizeCode(contextAfter)
-
-        for (length in minOf(normalizedCompletion.length, normalizedContext.length) downTo 1) {
-            val completionSuffix = normalizedCompletion.takeLast(length)
-            val contextPrefix = normalizedContext.take(length)
-
-            if (completionSuffix == contextPrefix) {
-                // Find actual character count in original text
-                return findActualOverlapLength(completion, contextAfter, false)
-            }
-        }
-
-        return 0
+        return findExactOverlap(completion, contextAfter, isPrefix = false) 
+            ?: findNormalizedOverlap(completion, contextAfter, isPrefix = false) 
+            ?: 0
     }
 
-    /**
-     * Find actual overlap length when normalized strings match
-     */
     private fun findActualOverlapLength(text1: String, text2: String, isPrefix: Boolean): Int {
         val norm1 = normalizeCode(text1)
         val norm2 = normalizeCode(text2)
 
-        // Find where they actually overlap in normalized form
-        var overlapLength = 0
-        if (isPrefix) {
-            // For prefix: end of text1 matches start of text2
-            for (len in minOf(norm1.length, norm2.length) downTo 1) {
-                if (norm1.takeLast(len) == norm2.take(len)) {
-                    overlapLength = len
-                    break
-                }
-            }
-        } else {
-            // For suffix: end of text1 matches start of text2
-            for (len in minOf(norm1.length, norm2.length) downTo 1) {
-                if (norm1.takeLast(len) == norm2.take(len)) {
-                    overlapLength = len
-                    break
-                }
-            }
-        }
-
+        val overlapLength = findNormalizedOverlapLength(norm1, norm2)
         if (overlapLength == 0) return 0
 
-        // Map back to original text length
-        var originalOverlap = 0
-        var normPos = 0
-        var origPos = if (isPrefix) text1.length - 1 else 0
-
-        // This is a simplified mapping - in practice might need more sophisticated approach
-        // For now, return a conservative estimate
+        // Return conservative estimate for original text length
         return minOf(overlapLength, if (isPrefix) text1.length else text2.length)
     }
 
-    /**
-     * Remove duplicate lines from completion - only checks current line context
-     */
+    private fun findNormalizedOverlapLength(norm1: String, norm2: String): Int {
+        for (len in minOf(norm1.length, norm2.length) downTo 1) {
+            if (norm1.takeLast(len) == norm2.take(len)) {
+                return len
+            }
+        }
+        return 0
+    }
+
     private fun removeLineDuplicates(
         completionText: String,
         documentText: String,
         cursorOffset: Int
     ): LineDeduplicationResult {
-
         val completionLines = completionText.lines()
         if (completionLines.isEmpty()) {
             return LineDeduplicationResult(completionText, 0, 0, 0)
         }
 
-        // Get the current line where cursor is located
+        val currentLine = extractCurrentLine(documentText, cursorOffset)
+        if (currentLine.trim().isEmpty()) {
+            logger.debug("Cursor on blank line - skipping duplicate removal for new insertion")
+            return LineDeduplicationResult(completionText, 0, 0, 0)
+        }
+
+        return processLineDuplicates(completionLines, currentLine)
+    }
+
+    private fun extractCurrentLine(documentText: String, cursorOffset: Int): String {
         val currentLineStart = documentText.lastIndexOf('\n', cursorOffset - 1) + 1
         val currentLineEnd = documentText.indexOf('\n', cursorOffset).let { 
             if (it == -1) documentText.length else it 
         }
-        val currentLine = if (currentLineStart <= currentLineEnd) {
+        return if (currentLineStart <= currentLineEnd) {
             documentText.substring(currentLineStart, currentLineEnd)
         } else ""
+    }
 
-        // If we're on a blank line (only whitespace), skip duplicate removal entirely
-        if (currentLine.trim().isEmpty()) {
-            System.out.println("Cursor on blank line - skipping duplicate removal for new insertion")
-            return LineDeduplicationResult(completionText, 0, 0, 0)
-        }
-
-        // Only check current line for duplicates
+    private fun processLineDuplicates(
+        completionLines: List<String>, 
+        currentLine: String
+    ): LineDeduplicationResult {
         val normalizedCurrentLine = normalizeLineForComparison(currentLine, null)
-        System.out.println("Checking duplicates against current line: '$currentLine' (normalized: '$normalizedCurrentLine')")
+        logger.debug("Checking duplicates against current line: '$currentLine'")
 
-        // Check each completion line against current line only
         val linesToKeep = mutableListOf<String>()
         var removedLines = 0
         var removedPrefixChars = 0
@@ -317,60 +183,187 @@ class ZestCompletionOverlapDetector {
             val nextLine = if (i + 1 < completionLines.size) completionLines[i + 1] else null
             val normalizedLine = normalizeLineForComparison(line, nextLine)
 
-            // Keep empty lines and lines that don't duplicate the current line
             if (normalizedLine.isEmpty() || normalizedLine != normalizedCurrentLine) {
                 linesToKeep.add(line)
                 inPrefixRemoval = false
             } else {
-                // Line duplicates the current line
                 removedLines++
                 val lineLength = line.length + 1 // +1 for newline
-
                 if (inPrefixRemoval) {
                     removedPrefixChars += lineLength
                 } else {
                     removedSuffixChars += lineLength
                 }
-
-                System.out.println("Removing duplicate of current line: '$line'")
+                logger.debug("Removing duplicate of current line: '$line'")
             }
         }
 
-        val adjustedText = linesToKeep.joinToString("\n")
-
         return LineDeduplicationResult(
-            adjustedText,
+            linesToKeep.joinToString("\n"),
             removedLines,
             removedPrefixChars,
             removedSuffixChars
         )
     }
 
-    /**
-     * Get context before cursor
-     */
     private fun getContextBeforeCursor(documentText: String, cursorOffset: Int, limit: Int): String {
         if (cursorOffset <= 0) return ""
         val startOffset = maxOf(0, cursorOffset - limit)
         return documentText.substring(startOffset, cursorOffset)
     }
 
-    /**
-     * Get context after cursor
-     */
     private fun getContextAfterCursor(documentText: String, cursorOffset: Int, limit: Int): String {
         if (cursorOffset >= documentText.length) return ""
         val endOffset = minOf(documentText.length, cursorOffset + limit)
         return documentText.substring(cursorOffset, endOffset)
     }
 
-    /**
-     * Result of line deduplication
-     */
     private data class LineDeduplicationResult(
         val adjustedText: String,
         val removedLines: Int,
         val removedPrefixChars: Int,
         val removedSuffixChars: Int
     )
+
+    private fun extractCursorContext(documentText: String, cursorOffset: Int): CursorContext {
+        return CursorContext(
+            before = getContextBeforeCursor(documentText, cursorOffset, CONTEXT_LIMIT),
+            after = getContextAfterCursor(documentText, cursorOffset, CONTEXT_LIMIT)
+        )
+    }
+
+    private fun logDebugInfo(context: CursorContext, completionText: String) {
+        if (logger.isDebugEnabled) {
+            val beforeDebug = context.before.takeLast(DEBUG_CHAR_LIMIT).makeWhitespaceVisible()
+            val afterDebug = context.after.take(DEBUG_CHAR_LIMIT).makeWhitespaceVisible()
+            val completionDebug = completionText.take(DEBUG_CHAR_LIMIT).makeWhitespaceVisible()
+            
+            logger.debug("Context before cursor: '$beforeDebug'")
+            logger.debug("Context after cursor: '$afterDebug'")
+            logger.debug("Completion: '$completionDebug'")
+            
+            val isOnBlankLine = context.after.trimStart() != context.after && context.after.trim().isNotEmpty()
+            if (isOnBlankLine) {
+                logger.debug("Cursor appears to be on a blank line")
+            }
+        }
+    }
+
+    private fun String.makeWhitespaceVisible(): String {
+        return this.replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace(" ", "·")
+    }
+
+    private fun adjustForPrefixOverlap(contextBefore: String, adjustment: OverlapAdjustment): OverlapAdjustment {
+        val prefixResult = findPrefixOverlap(contextBefore, adjustment.text)
+        if (prefixResult > 0) {
+            logger.debug("Found prefix overlap of $prefixResult chars")
+            return adjustment.copy(
+                text = adjustment.text.substring(prefixResult),
+                prefixOverlap = adjustment.prefixOverlap + prefixResult
+            )
+        }
+        return adjustment
+    }
+
+    private fun adjustForSuffixOverlap(
+        completionText: String, 
+        contextAfter: String, 
+        currentPrefixOverlap: Int, 
+        currentSuffixOverlap: Int
+    ): OverlapAdjustment {
+        val suffixResult = findSuffixOverlap(completionText, contextAfter)
+        if (suffixResult > 0) {
+            logger.debug("Found suffix overlap of $suffixResult chars")
+            return OverlapAdjustment(
+                text = completionText.substring(0, completionText.length - suffixResult),
+                prefixOverlap = currentPrefixOverlap,
+                suffixOverlap = currentSuffixOverlap + suffixResult
+            )
+        }
+        return OverlapAdjustment(completionText, currentPrefixOverlap, currentSuffixOverlap)
+    }
+
+    private fun adjustForLineDuplicates(
+        adjustment: OverlapAdjustment, 
+        documentText: String, 
+        cursorOffset: Int
+    ): OverlapAdjustment {
+        if (adjustment.text.isEmpty()) return adjustment
+        
+        val lineResult = removeLineDuplicates(adjustment.text, documentText, cursorOffset)
+        if (lineResult.removedLines > 0) {
+            logger.debug("Removed ${lineResult.removedLines} duplicate lines")
+        }
+        
+        return adjustment.copy(
+            text = lineResult.adjustedText,
+            prefixOverlap = adjustment.prefixOverlap + lineResult.removedPrefixChars,
+            suffixOverlap = adjustment.suffixOverlap + lineResult.removedSuffixChars
+        )
+    }
+
+    private fun isCursorOnBlankLine(contextBefore: String): Boolean {
+        val lastNewlineIndex = contextBefore.lastIndexOf('\n')
+        if (lastNewlineIndex >= 0) {
+            val afterLastNewline = contextBefore.substring(lastNewlineIndex + 1)
+            if (afterLastNewline.isBlank()) {
+                logger.debug("Cursor at start of blank line, no prefix overlap check needed")
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun shouldSkipSuffixOverlapCheck(completion: String, contextAfter: String): Boolean {
+        if (contextAfter.trimStart() != contextAfter) {
+            val contextLeadingWhitespace = contextAfter.takeWhile { it.isWhitespace() }
+            val completionTrailingWhitespace = completion.takeLastWhile { it.isWhitespace() }
+            
+            if (completionTrailingWhitespace.isEmpty() && contextLeadingWhitespace.contains('\n')) {
+                logger.debug("Cursor on blank line, no suffix overlap check needed")
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun findExactOverlap(text1: String, text2: String, isPrefix: Boolean): Int? {
+        val maxLength = minOf(text1.length, text2.length)
+        
+        for (length in maxLength downTo 1) {
+            val (suffix, prefix) = if (isPrefix) {
+                text1.takeLast(length) to text2.take(length)
+            } else {
+                text1.takeLast(length) to text2.take(length)
+            }
+            
+            if (suffix == prefix) {
+                return length
+            }
+        }
+        return null
+    }
+
+    private fun findNormalizedOverlap(text1: String, text2: String, isPrefix: Boolean): Int? {
+        val normalized1 = normalizeCode(text1)
+        val normalized2 = normalizeCode(text2)
+        
+        val maxLength = minOf(normalized1.length, normalized2.length)
+        
+        for (length in maxLength downTo 1) {
+            val (suffix, prefix) = if (isPrefix) {
+                normalized1.takeLast(length) to normalized2.take(length)
+            } else {
+                normalized1.takeLast(length) to normalized2.take(length)
+            }
+            
+            if (suffix == prefix) {
+                return findActualOverlapLength(text1, text2, isPrefix)
+            }
+        }
+        return null
+    }
 }

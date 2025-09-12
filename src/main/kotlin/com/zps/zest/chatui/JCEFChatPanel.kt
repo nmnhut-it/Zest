@@ -562,7 +562,9 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                                     lastChunkTime: Date.now(),
                                     chunkInterval: 2000, // Start with 2 second default
                                     adaptiveSpeed: 500,   // Current display speed
-                                    lastScrollTime: 0     // Throttle scrolling
+                                    lastScrollTime: 0,    // Throttle scrolling
+                                    isFinalized: false,   // Whether response is complete
+                                    finalContent: null    // Store final content for conversion
                                 };
                             }
                             
@@ -627,6 +629,11 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                             
                             if (state.wordQueue.length === 0) {
                                 state.isProcessing = false;
+                                
+                                // If we're finalized and queue is empty, convert to markdown
+                                if (state.isFinalized && state.finalContent) {
+                                    this.convertToMarkdown(messageId, state.finalContent);
+                                }
                                 return;
                             }
                             
@@ -665,6 +672,40 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                         
                         finalizeMessage: function(messageId, finalContent) {
                             const messageElement = document.getElementById(messageId);
+                            if (!messageElement) return;
+                            
+                            const state = messageElement._streamingState;
+                            if (state) {
+                                // Mark as finalized and speed up remaining word display
+                                state.isFinalized = true;
+                                state.finalContent = finalContent;
+                                
+                                // Calculate remaining words to display
+                                const remainingWords = finalContent.split(/(\s+)/).slice(state.displayedContent.split(/(\s+)/).length);
+                                if (remainingWords.length > 0) {
+                                    // Add remaining words to queue if any
+                                    state.wordQueue.push(...remainingWords);
+                                    
+                                    // Speed up display significantly for remaining content
+                                    state.adaptiveSpeed = Math.min(50, state.adaptiveSpeed / 4); // 4x faster
+                                    console.log('Response complete, speeding up to:', state.adaptiveSpeed + 'ms per word for remaining', remainingWords.length, 'words');
+                                    
+                                    // If not currently processing, start the accelerated display
+                                    if (!state.isProcessing) {
+                                        this.processWordQueue(messageId);
+                                    }
+                                } else {
+                                    // Nothing left to display, convert to markdown immediately
+                                    this.convertToMarkdown(messageId, finalContent);
+                                }
+                            } else {
+                                // No streaming state, display immediately
+                                this.convertToMarkdown(messageId, finalContent);
+                            }
+                        },
+                        
+                        convertToMarkdown: function(messageId, content) {
+                            const messageElement = document.getElementById(messageId);
                             if (messageElement) {
                                 // Clear streaming state
                                 if (messageElement._streamingState) {
@@ -674,7 +715,7 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                                 const contentDiv = messageElement.querySelector('.message-content');
                                 if (contentDiv && typeof marked !== 'undefined') {
                                     // Now render as proper markdown
-                                    contentDiv.innerHTML = marked.parse(finalContent);
+                                    contentDiv.innerHTML = marked.parse(content);
                                     // Re-highlight code blocks
                                     if (typeof hljs !== 'undefined') {
                                         contentDiv.querySelectorAll('pre code').forEach(function(block) {

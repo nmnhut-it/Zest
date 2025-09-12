@@ -346,7 +346,6 @@ public class ZestSettingsConfigurable implements Configurable {
                // Removed unused setting comparisons
                !systemPromptArea.getText().equals(config.getSystemPrompt()) ||
                !codeSystemPromptArea.getText().equals(config.getCodeSystemPrompt()) ||
-               !commitPromptTemplateArea.getText().equals(config.getCommitPromptTemplate()) ||
                // Removed unused docs settings comparison
                isProjectConfigurationModified();
     }
@@ -439,7 +438,6 @@ public class ZestSettingsConfigurable implements Configurable {
         
         systemPromptArea.setText(config.getSystemPrompt());
         codeSystemPromptArea.setText(config.getCodeSystemPrompt());
-        commitPromptTemplateArea.setText(config.getCommitPromptTemplate());
         
         // Removed unused docs setting resets
         

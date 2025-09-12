@@ -288,6 +288,17 @@ object MarkdownRenderer {
                         border-top: 1px solid ${if (isDarkTheme) "#464647" else "#e1e4e8"};
                         margin: 24px 0;
                     }
+                    
+                    /* Message separators */
+                    .message-separator {
+                        height: 2px;
+                        background: linear-gradient(to right, 
+                            transparent, 
+                            ${if (isDarkTheme) "#464647" else "#e1e4e8"}, 
+                            transparent);
+                        margin: 32px 0;
+                        opacity: 0.6;
+                    }
                 </style>
             </head>
             <body>

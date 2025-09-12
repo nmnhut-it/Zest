@@ -44,7 +44,7 @@ class ChatUIService(private val project: Project) {
     
     // Context tracking
     private var currentUsage: ChatboxUtilities.EnumUsage = ChatboxUtilities.EnumUsage.CHAT_CODE_REVIEW
-    private var selectedModel: String = "gpt-4o-mini"
+    private var selectedModel: String = "local-model"
     
     // Models caching
     private var cachedModels: List<String>? = null

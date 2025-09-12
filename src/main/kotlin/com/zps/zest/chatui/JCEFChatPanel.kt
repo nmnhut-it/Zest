@@ -96,17 +96,24 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     /**
-     * Scroll to specific message
+     * Scroll to specific message with delay to ensure DOM is ready
      */
     private fun scrollToMessage(messageId: String) {
-        browserManager.executeJavaScript("chatFunctions.scrollToMessage('$messageId');")
+        // Add small delay to ensure DOM is fully rendered
+        browserManager.executeJavaScript("""
+            setTimeout(function() {
+                if (window.chatFunctions) {
+                    window.chatFunctions.scrollToMessage('$messageId');
+                }
+            }, 100);
+        """)
     }
     
     /**
      * Generate complete HTML for the chat
      */
     private fun generateChatHtml(): String {
-        val messagesHtml = conversationMessages.joinToString("\n") { message ->
+        val messagesHtml = conversationMessages.mapIndexed { index, message ->
             val messageMarkdown = """
                 ## ${message.header} `(${message.timestamp})`
                 
@@ -117,12 +124,15 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                 .substringAfter("<body>")
                 .substringBefore("</body>")
             
+            val separator = if (index > 0) """<div class="message-separator"></div>""" else ""
+            
             """
+            $separator
             <div id="${message.id}" class="chat-message">
                 $messageHtml
             </div>
             """
-        }
+        }.joinToString("\n")
         
         return MarkdownRenderer.markdownToJCEFHtml("").replace(
             "<body>",

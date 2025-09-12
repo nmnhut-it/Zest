@@ -9,17 +9,13 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
-import com.zps.zest.completion.context.ZestSimpleContextCollector
 import com.zps.zest.completion.context.FileContextPrePopulationService
 import com.zps.zest.completion.data.CompletionContext
 import com.zps.zest.completion.data.CompletionMetadata
 import com.zps.zest.completion.data.ZestInlineCompletionItem
 import com.zps.zest.completion.data.ZestInlineCompletionList
 import com.zps.zest.completion.parser.ZestLeanResponseParser
-import com.zps.zest.completion.parser.ZestSimpleResponseParser
 import com.zps.zest.completion.prompt.ZestLeanPromptBuilder
-import com.zps.zest.completion.prompt.ZestSimplePromptBuilder
-import com.zps.zest.completion.prompt.PromptMigrationHelper
 import com.zps.zest.completion.config.PromptCachingConfig
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
 import com.zps.zest.completion.metrics.PromptCachingMetrics
@@ -30,9 +26,8 @@ import java.util.*
 import kotlin.coroutines.resume
 
 /**
- * Completion provider with multiple strategies (A/B testing)
- * - SIMPLE: Basic prefix/suffix context (original)
- * - LEAN: Full file context with reasoning prompts (new)
+ * Completion provider with multiple strategies
+ * - LEAN: Full file context with reasoning prompts
  * - METHOD_REWRITE: Method-level rewrite with floating window preview
  */
 class ZestCompletionProvider(private val project: Project) {
@@ -86,25 +81,30 @@ class ZestCompletionProvider(private val project: Project) {
     private fun updateStatusBarText(message: String) {
         try {
             ApplicationManager.getApplication().invokeLater {
-                val statusBar = com.intellij.openapi.wm.WindowManager.getInstance().getStatusBar(project)
-                statusBar?.info = message
-                
-                // Update the widget with specific status
-                try {
-                    val widget = com.intellij.openapi.wm.WindowManager.getInstance()
-                        .getStatusBar(project)
-                        ?.getWidget("ZestCompletionStatus")
-                    
-                    if (widget is com.zps.zest.completion.ui.ZestCompletionStatusBarWidget) {
-                        widget.updateDebugStatus(message)
-                    }
-                } catch (e: Exception) {
-                    // Widget might not be available yet
-                }
+                updateStatusBar(message)
+                updateStatusBarWidget(message)
             }
         } catch (e: Exception) {
-            // Fallback to console logging
             log("Status: $message", "Widget")
+        }
+    }
+    
+    private fun updateStatusBar(message: String) {
+        val statusBar = com.intellij.openapi.wm.WindowManager.getInstance().getStatusBar(project)
+        statusBar?.info = message
+    }
+    
+    private fun updateStatusBarWidget(message: String) {
+        try {
+            val widget = com.intellij.openapi.wm.WindowManager.getInstance()
+                .getStatusBar(project)
+                ?.getWidget("ZestCompletionStatus")
+            
+            if (widget is com.zps.zest.completion.ui.ZestCompletionStatusBarWidget) {
+                widget.updateDebugStatus(message)
+            }
+        } catch (e: Exception) {
+            // Widget might not be available yet
         }
     }
 
@@ -122,10 +122,6 @@ class ZestCompletionProvider(private val project: Project) {
         currentRequestId = requestId
     }
 
-    // Strategy components
-    private val simpleContextCollector = ZestSimpleContextCollector()
-    private val simplePromptBuilder = ZestSimplePromptBuilder()
-    private val simpleResponseParser = ZestSimpleResponseParser()
 
     // Lean strategy components
     private val leanContextCollector = ZestLeanContextCollectorPSI(project)
@@ -142,7 +138,6 @@ class ZestCompletionProvider(private val project: Project) {
         private set
 
     enum class CompletionStrategy {
-        SIMPLE,         // Original FIM-based approach
         LEAN,           // Full-file with reasoning approach
         METHOD_REWRITE  // Method-level rewrite with floating window preview
     }
@@ -173,11 +168,6 @@ class ZestCompletionProvider(private val project: Project) {
         log("Set currentRequestId to $requestId", "Provider", 1)
 
         val result = when (strategy) {
-            CompletionStrategy.SIMPLE -> {
-                log("Using SIMPLE strategy", "Provider")
-                requestSimpleCompletion(context, requestId, metricsCompletionId)
-            }
-
             CompletionStrategy.LEAN -> {
                 log("Using LEAN strategy", "Provider")
                 requestLeanCompletion(context, requestId, metricsCompletionId)
@@ -193,216 +183,6 @@ class ZestCompletionProvider(private val project: Project) {
         return result
     }
 
-    /**
-     * Original simple completion strategy
-     */
-    private suspend fun requestSimpleCompletion(
-        context: CompletionContext,
-        requestId: Int,
-        completionId: String
-    ): ZestInlineCompletionList? {
-        val startTime = System.currentTimeMillis()
-        log("=== requestSimpleCompletion started ===", "Simple")
-
-        return try {
-            logger.debug("Requesting simple completion for ${context.fileName} at offset ${context.offset}")
-
-            // Get current editor and document text on EDT (non-blocking)
-            log("Getting editor and document text...", "Simple", 1)
-            val (editor, documentText) = suspendCancellableCoroutine { continuation ->
-                ApplicationManager.getApplication().invokeLater {
-                    try {
-                        val ed = FileEditorManager.getInstance(project).selectedTextEditor
-                        log("Editor found: ${ed != null}", "Simple", 1)
-                        if (ed != null) {
-                            val text = ed.document.text
-                            log("Document text length: ${text.length}", "Simple", 1)
-                            continuation.resume(Pair(ed, text))
-                        } else {
-                            continuation.resume(Pair(null, ""))
-                        }
-                    } catch (e: Exception) {
-                        log("ERROR getting editor: ${e.message}", "Simple")
-                        continuation.resume(Pair(null, ""))
-                    }
-                }
-            }
-
-            if (editor == null) {
-                log("No active editor found", "Simple")
-                logger.debug("No active editor found")
-                return null
-            }
-
-            // Collect simple context (thread-safe)
-            log("Collecting context...", "Simple")
-            val contextStartTime = System.currentTimeMillis()
-            val simpleContext = simpleContextCollector.collectContext(editor, context.offset)
-            val contextCollectionTime = System.currentTimeMillis() - contextStartTime
-            metricsService.trackContextCollectionTime(completionId, contextCollectionTime)
-            log("Context collected in ${contextCollectionTime}ms", "Simple")
-            log("  Prefix length: ${simpleContext.prefixCode.length}", "Simple", 1)
-            log("  Suffix length: ${simpleContext.suffixCode.length}", "Simple", 1)
-
-            // Build prompt (thread-safe)
-            log("Building prompt...", "Simple")
-            val promptStartTime = System.currentTimeMillis()
-            
-            val config = PromptCachingConfig.getInstance(project)
-            
-            // Use structured prompt if enabled, fallback to old method
-            val (systemPrompt, userPrompt) = if (config.enableStructuredPrompts && config.enableForSimpleStrategy) {
-                try {
-                    val structuredPrompt = simplePromptBuilder.buildStructuredPrompt(simpleContext)
-                    log("Using structured prompt - system: ${structuredPrompt.systemPrompt.length} chars, user: ${structuredPrompt.userPrompt.length} chars", "Simple")
-                    
-                    // Log comparison for analysis
-                    if (config.logPromptComparison) {
-                        val oldPrompt = simplePromptBuilder.buildCompletionPrompt(simpleContext)
-                        PromptMigrationHelper.logPromptStructure("SIMPLE", structuredPrompt.systemPrompt, structuredPrompt.userPrompt, oldPrompt)
-                    }
-                    
-                    // Track metrics
-                    cachingMetrics.recordStructuredRequest(structuredPrompt.systemPrompt, structuredPrompt.userPrompt)
-                    
-                    Pair(structuredPrompt.systemPrompt, structuredPrompt.userPrompt)
-                } catch (e: Exception) {
-                    log("Error building structured prompt: ${e.message}", "Simple")
-                    val prompt = simplePromptBuilder.buildCompletionPrompt(simpleContext)
-                    Pair("", prompt)
-                }
-            } else {
-                log("Using legacy prompt builder (structured prompts disabled)", "Simple")
-                val prompt = simplePromptBuilder.buildCompletionPrompt(simpleContext)
-                cachingMetrics.recordLegacyRequest()
-                Pair("", prompt)
-            }
-            
-            val promptBuildTime = System.currentTimeMillis() - promptStartTime
-            logger.debug("Prompt built in ${promptBuildTime}ms, user prompt length: ${userPrompt.length}")
-            log("Prompt built in ${promptBuildTime}ms, user prompt length: ${userPrompt.length}", "Simple")
-            log("User prompt preview: '${userPrompt.take(200)}...'", "Simple", 1)
-
-            // Query LLM with timeout and cancellation support
-            log("Querying LLM...", "Simple")
-            showDebugBalloon("LLM Query", "Sending request to LLM...", NotificationType.INFORMATION)
-
-            val llmStartTime = System.currentTimeMillis()
-            var llmTime = 0L
-            var actualModel = "local-model-mini" // Default model
-            val responseWithModel = try {
-                withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
-                    val queryParams = NaiveLLMService.LLMQueryParams(userPrompt)
-                            .withSystemPrompt(systemPrompt)
-                            .useLiteCodeModel()
-                            .withMaxTokens(MAX_COMPLETION_TOKENS)
-                            .withTemperature(0.1)  // Low temperature for more deterministic completions
-                            .withStopSequences(getStopSequences())  // Add stop sequences for Qwen FIM
-
-                    // Track the actual model being used
-                    actualModel = queryParams.getModel()
-                    log("Using model: $actualModel", "Simple")
-
-                    log("LLM params: maxTokens=$MAX_COMPLETION_TOKENS, temp=0.1, hasSystemPrompt=${systemPrompt.isNotEmpty()}, model=$actualModel", "Simple", 1)
-
-                    // Use cancellable request
-                    val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
-                    val result = cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
-                    log("LLM returned: ${result != null}", "Simple")
-                    result
-                }
-            } finally {
-                // Always track LLM time, even if cancelled
-                llmTime = System.currentTimeMillis() - llmStartTime
-                log("LLM query took ${llmTime}ms", "Simple")
-                if (llmTime > 0) {
-                    metricsService.trackLLMCallTime(completionId, llmTime)
-                }
-            }
-            
-            val response = responseWithModel
-
-            if (response == null) {
-                log("LLM response is NULL - timeout or cancelled", "Simple")
-                logger.debug("Completion request timed out or was cancelled")
-                showDebugBalloon("LLM Failed", "No response from LLM", NotificationType.WARNING)
-                updateStatusBarText("No completion available")
-                return null
-            }
-
-            log("LLM response received: '${response.take(100)}...' (${response.length} chars)", "Simple")
-            showDebugBalloon("LLM Response", "Got ${response.length} chars", NotificationType.INFORMATION)
-
-            // Parse response with overlap detection (thread-safe, uses captured documentText)
-            log("Parsing response...", "Simple")
-            val parseStartTime = System.currentTimeMillis()
-            val cleanedCompletion = simpleResponseParser.parseResponseWithOverlapDetection(
-                response, documentText, context.offset, strategy = CompletionStrategy.SIMPLE
-            )
-            val parseTime = System.currentTimeMillis() - parseStartTime
-            metricsService.trackResponseParsingTime(completionId, parseTime)
-
-            log("Parsed in ${parseTime}ms", "Simple")
-            log("Cleaned completion: '${cleanedCompletion}' (${cleanedCompletion.length} chars)", "Simple")
-
-            if (cleanedCompletion.isBlank()) {
-                log("WARNING: Cleaned completion is BLANK", "Simple")
-                logger.debug("No valid completion after parsing")
-                showDebugBalloon("Parse Failed", "No valid completion after parsing", NotificationType.WARNING)
-                updateStatusBarText("No completion available")
-                return null
-            }
-
-            val totalTime = System.currentTimeMillis() - startTime
-
-            // Format the completion text using IntelliJ's code style
-            val formattedCompletion = cleanedCompletion
-            log("Formatted completion: '${formattedCompletion}'", "Simple", 1)
-
-            // Create completion item with original response stored for re-processing
-            val confidence = calculateConfidence(formattedCompletion)
-            log("Calculated confidence: $confidence", "Simple", 1)
-
-            val item = ZestInlineCompletionItem(
-                insertText = formattedCompletion,
-                replaceRange = ZestInlineCompletionItem.Range(
-                    start = context.offset, end = context.offset
-                ),
-                confidence = confidence,
-                metadata = CompletionMetadata(
-                    model = actualModel,  // Use the actual model instead of hardcoded
-                    tokens = formattedCompletion.split("\\s+".toRegex()).size,
-                    latency = totalTime,
-                    requestId = UUID.randomUUID().toString(),
-                    reasoning = response  // Store original response for re-processing overlaps
-                )
-            )
-
-            val result = ZestInlineCompletionList.single(item)
-            log("Created completion list with 1 item", "Simple")
-
-            logger.info("Simple completion completed in ${totalTime}ms (llm=${llmTime}ms) for request $requestId")
-            showDebugBalloon(
-                "Completion Ready",
-                "Got: ${formattedCompletion.take(50)}...",
-                NotificationType.INFORMATION
-            )
-
-            result
-
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            log("Completion CANCELLED", "Simple")
-            metricsService.trackCompletionCancelled(completionId)
-            logger.debug("Completion request was cancelled after ${System.currentTimeMillis() - startTime}ms")
-            throw e
-        } catch (e: Exception) {
-            log("ERROR in simple completion: ${e.message}", "Simple")
-            e.printStackTrace()
-            logger.warn("Simple completion failed", e)
-            showDebugBalloon("Error", e.message ?: "Unknown error", NotificationType.ERROR)
-            null
-        }
-    }
 
     /**
      * New lean completion strategy with full file context and reasoning
@@ -413,123 +193,25 @@ class ZestCompletionProvider(private val project: Project) {
         completionId: String
     ): ZestInlineCompletionList? {
         val startTime = System.currentTimeMillis()
-
+        
         return try {
             logger.debug("Requesting lean completion for ${context.fileName} at offset ${context.offset}")
-
-            // Get current editor and full document text on EDT (non-blocking)
-            val (editor, documentText) = suspendCancellableCoroutine { continuation ->
-                ApplicationManager.getApplication().invokeLater {
-                    try {
-                        val ed = FileEditorManager.getInstance(project).selectedTextEditor
-                        if (ed != null) {
-                            continuation.resume(Pair(ed, ed.document.text))
-                        } else {
-                            continuation.resume(Pair(null, ""))
-                        }
-                    } catch (e: Exception) {
-                        continuation.resume(Pair(null, ""))
-                    }
-                }
-            }
-
+            
+            val (editor, documentText) = getEditorAndDocument()
             if (editor == null) {
                 logger.debug("No active editor found")
                 return null
             }
 
-            // Use async collection with preemptive analysis (non-blocking)
-            val leanContextStartTime = System.currentTimeMillis()
-            log("Starting lean context collection...", "Lean")
-            
-            // Clean async context collection - no callback hell, prevents UI freezes
-            val leanContext = leanContextCollector.collectWithDependencyAnalysis(editor, context.offset)
-            log("Got context with ${leanContext.relatedClassContents.size} related classes", "Lean")
-            log("  Called methods: ${leanContext.calledMethods.take(5).joinToString(", ")}", "Lean")
-            log("  Used classes: ${leanContext.usedClasses.take(5).joinToString(", ")}", "Lean")
-            // Track context collection time once after collection is complete
-            val leanContextTime = System.currentTimeMillis() - leanContextStartTime
-            metricsService.trackContextCollectionTime(completionId, leanContextTime)
-            
-            log("Lean context collected in ${leanContextTime}ms", "Lean")
-            log("  Has related classes: ${leanContext.relatedClassContents.isNotEmpty()}", "Lean")
-            log("  Called methods: ${leanContext.calledMethods.size}", "Lean")
-            log("  Used classes: ${leanContext.usedClasses.size}", "Lean")
-            log("  Preserved methods: ${leanContext.preservedMethods.size}", "Lean")
+            val (leanContext, leanContextTime) = collectLeanContext(editor, context.offset, completionId)
 
 
-            // Build reasoning prompt
-            val promptStartTime = System.currentTimeMillis()
-            
-            val config = PromptCachingConfig.getInstance(project)
-            
-            // Use structured prompt if enabled, fallback to old method
-            val (systemPrompt, userPrompt) = if (config.enableStructuredPrompts && config.enableForLeanStrategy) {
-                try {
-                    val structuredPrompt = leanPromptBuilder.buildStructuredReasoningPrompt(leanContext)
-                    logger.debug("Using structured lean prompt - system: ${structuredPrompt.systemPrompt.length} chars, user: ${structuredPrompt.userPrompt.length} chars")
-                    
-                    // Log comparison for analysis
-                    if (config.logPromptComparison) {
-//                        val oldPrompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
-//                        PromptMigrationHelper.logPromptStructure("LEAN", structuredPrompt.systemPrompt, structuredPrompt.userPrompt, oldPrompt)
-                    }
-                    
-                    // Track metrics
-                    cachingMetrics.recordStructuredRequest(structuredPrompt.systemPrompt, structuredPrompt.userPrompt)
-                    
-                    Pair(structuredPrompt.systemPrompt, structuredPrompt.userPrompt)
-                } catch (e: Exception) {
-                    logger.debug("Error building structured lean prompt: ${e.message}")
-//                    val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
-                    Pair("", "")
+            val (systemPrompt, userPrompt, promptBuildTime) = buildLeanPrompt(leanContext)
+            logEnhancedContext(leanContext)
 
-                }
-            } else {
-                logger.debug("Using legacy lean prompt builder (structured prompts disabled)")
-//                val prompt = leanPromptBuilder.buildReasoningPrompt(leanContext)
-                cachingMetrics.recordLegacyRequest()
-                Pair("", "")
-            }
-            
-            val promptBuildTime = System.currentTimeMillis() - promptStartTime
-            logger.debug("Lean prompt built in ${promptBuildTime}ms, user prompt length: ${userPrompt.length}, enhanced: ${leanContext.preservedMethods.isNotEmpty()}")
-            
-            // Log enhanced context info
-            if (leanContext.relatedClassContents.isNotEmpty()) {
-                logger.debug("Enhanced context includes ${leanContext.relatedClassContents.size} related classes")
-                logger.debug("Called methods: ${leanContext.calledMethods.take(5).joinToString(", ")}")
-                logger.debug("Used classes: ${leanContext.usedClasses.take(3).joinToString(", ")}")
-            }
-
-            // Query LLM with higher timeout for reasoning and cancellation support
-            val llmStartTime = System.currentTimeMillis()
-            var llmTime = 0L
-            var actualModel = "local-model-mini" // Default model
-            val response = try {
-                withTimeoutOrNull(LEAN_COMPLETION_TIMEOUT_MS) {
-                    val queryParams = NaiveLLMService.LLMQueryParams(userPrompt)
-                            .withSystemPrompt(systemPrompt)
-                            .useLiteCodeModel()  // Use full model for reasoning
-                            .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length
-                            .withTemperature(0.5) // Slightly higher for creative reasoning
-                            .withStopSequences(getLeanStopSequences()) // Enable stop sequences including </code>
-                    
-                    // Track the actual model being used
-                    actualModel = queryParams.getModel()
-                    log("Using model for LEAN: $actualModel", "Lean")
-
-                    // Use cancellable request
-                    val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) { currentRequestId }
-                    cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
-                }
-            } finally {
-                // Always track LLM time, even if cancelled
-                llmTime = System.currentTimeMillis() - llmStartTime
-                if (llmTime > 0) {
-                    metricsService.trackLLMCallTime(completionId, llmTime)
-                }
-            }
+            val (response, llmTime, actualModel) = queryLeanLLM(
+                systemPrompt, userPrompt, requestId, completionId
+            )
 
 
             if (response == null) {
@@ -537,91 +219,257 @@ class ZestCompletionProvider(private val project: Project) {
                 updateStatusBarText("No completion available")
                 return null
             }
-
-            // Parse response with diff-based extraction
-            val parseStartTime = System.currentTimeMillis()
-            val reasoningResult = leanResponseParser.parseReasoningResponse(
-                response, documentText, context.offset
+            
+            return processLeanResponse(
+                response, documentText, context, actualModel,
+                startTime, leanContextTime, promptBuildTime, llmTime, requestId, completionId
             )
-            val parseTime = System.currentTimeMillis() - parseStartTime
-            metricsService.trackResponseParsingTime(completionId, parseTime)
-
-
-
-
-
-
-
-            if (reasoningResult.completionText.isBlank()) {
-                logger.debug("No valid completion after lean parsing")
-                updateStatusBarText("No completion available")
-                return null
-            }
-
-            val totalTime = System.currentTimeMillis() - startTime
-
-            // Format the completion text using IntelliJ's code style
-            val formattedCompletion =
-                reasoningResult.completionText // (editor, reasoningResult.completionText, context.offset)
-
-            // Create completion item with reasoning metadata
-
-
-            val item = ZestInlineCompletionItem(
-                insertText = formattedCompletion, replaceRange = ZestInlineCompletionItem.Range(
-                    start = context.offset, end = context.offset
-                ), confidence = reasoningResult.confidence, metadata = CompletionMetadata(
-                    model = actualModel,  // Use the actual model
-                    tokens = formattedCompletion.split("\\s+".toRegex()).size,
-                    latency = totalTime,
-                    requestId = UUID.randomUUID().toString(),
-                    reasoning = reasoningResult.reasoning
-                )
-            )
-
-            logger.info("Lean completion completed in ${totalTime}ms (context=${leanContextTime}ms, prompt=${promptBuildTime}ms, llm=${llmTime}ms, parse=${parseTime}ms) with reasoning: ${reasoningResult.hasValidReasoning} for request $requestId")
-            ZestInlineCompletionList.single(item)
 
         } catch (e: kotlinx.coroutines.CancellationException) {
             metricsService.trackCompletionCancelled(completionId)
             logger.debug("Lean completion request was cancelled after ${System.currentTimeMillis() - startTime}ms")
             throw e
         } catch (e: Exception) {
-            logger.warn("Lean completion failed, falling back to simple", e)
-            // Fallback to simple strategy
-            requestSimpleCompletion(context, requestId, completionId)
+            logger.warn("Lean completion failed", e)
+            null
         }
     }
-
-    private fun calculateConfidence(completion: String): Float {
-        var confidence = 0.7f
-
-        // Increase confidence for longer completions
-        if (completion.length > 10) {
-            confidence += 0.1f
-        }
-
-        // Increase confidence for structured completions
-        if (completion.contains('\n') || completion.contains('{') || completion.contains('(')) {
-            confidence += 0.1f
-        }
-
-        // Decrease confidence for very short completions
-        if (completion.length < 3) {
-            confidence -= 0.2f
-        }
-
-        return confidence.coerceIn(0.0f, 1.0f)
-    }
-
+    
     /**
-     * Get stop sequences for Qwen 2.5 Coder FIM format (simple strategy)
+     * Get editor and document text on EDT
      */
-    private fun getStopSequences(): List<String> {
-        return listOf(
-            "<|fim_suffix|>", "<|fim_prefix|>", "<|fim_pad|>", "<|endoftext|>", "<|repo_name|>", "<|file_sep|>"
+    private suspend fun getEditorAndDocument(): Pair<Editor?, String> {
+        return suspendCancellableCoroutine { continuation ->
+            ApplicationManager.getApplication().invokeLater {
+                try {
+                    val editor = FileEditorManager.getInstance(project).selectedTextEditor
+                    val text = editor?.document?.text ?: ""
+                    continuation.resume(Pair(editor, text))
+                } catch (e: Exception) {
+                    continuation.resume(Pair(null, ""))
+                }
+            }
+        }
+    }
+    
+    /**
+     * Collect lean context with dependency analysis
+     */
+    private suspend fun collectLeanContext(
+        editor: Editor,
+        offset: Int,
+        completionId: String
+    ): Pair<ZestLeanContextCollectorPSI.LeanContext, Long> {
+        val startTime = System.currentTimeMillis()
+        log("Starting lean context collection...", "Lean")
+        
+        val leanContext = leanContextCollector.collectWithDependencyAnalysis(editor, offset)
+        
+        val contextTime = System.currentTimeMillis() - startTime
+        metricsService.trackContextCollectionTime(completionId, contextTime)
+        
+        logContextDetails(leanContext, contextTime)
+        return Pair(leanContext, contextTime)
+    }
+    
+    /**
+     * Log context collection details
+     */
+    private fun logContextDetails(
+        leanContext: ZestLeanContextCollectorPSI.LeanContext, 
+        contextTime: Long
+    ) {
+        log("Lean context collected in ${contextTime}ms", "Lean")
+        log("  Has related classes: ${leanContext.relatedClassContents.isNotEmpty()}", "Lean")
+        log("  Called methods: ${leanContext.calledMethods.size}", "Lean")
+        log("  Used classes: ${leanContext.usedClasses.size}", "Lean")
+        log("  Preserved methods: ${leanContext.preservedMethods.size}", "Lean")
+    }
+    
+    /**
+     * Build lean prompt with structured or legacy approach
+     */
+    private fun buildLeanPrompt(
+        leanContext: ZestLeanContextCollectorPSI.LeanContext
+    ): Triple<String, String, Long> {
+        val startTime = System.currentTimeMillis()
+        val config = PromptCachingConfig.getInstance(project)
+        
+        val (systemPrompt, userPrompt) = if (config.enableStructuredPrompts && config.enableForLeanStrategy) {
+            buildStructuredPrompt(leanContext, config)
+        } else {
+            buildLegacyPrompt()
+        }
+        
+        val buildTime = System.currentTimeMillis() - startTime
+        logger.debug("Lean prompt built in ${buildTime}ms, user prompt length: ${userPrompt.length}")
+        
+        return Triple(systemPrompt, userPrompt, buildTime)
+    }
+    
+    /**
+     * Build structured prompt
+     */
+    private fun buildStructuredPrompt(
+        leanContext: ZestLeanContextCollectorPSI.LeanContext,
+        config: PromptCachingConfig
+    ): Pair<String, String> {
+        return try {
+            val structuredPrompt = leanPromptBuilder.buildStructuredReasoningPrompt(leanContext)
+            logger.debug("Using structured lean prompt")
+            
+            cachingMetrics.recordStructuredRequest(
+                structuredPrompt.systemPrompt,
+                structuredPrompt.userPrompt
+            )
+            
+            Pair(structuredPrompt.systemPrompt, structuredPrompt.userPrompt)
+        } catch (e: Exception) {
+            logger.debug("Error building structured lean prompt: ${e.message}")
+            Pair("", "")
+        }
+    }
+    
+    /**
+     * Build legacy prompt
+     */
+    private fun buildLegacyPrompt(): Pair<String, String> {
+        logger.debug("Using legacy lean prompt builder")
+        cachingMetrics.recordLegacyRequest()
+        return Pair("", "")
+    }
+    
+    /**
+     * Log enhanced context information
+     */
+    private fun logEnhancedContext(leanContext: ZestLeanContextCollectorPSI.LeanContext) {
+        if (leanContext.relatedClassContents.isNotEmpty()) {
+            logger.debug("Enhanced context includes ${leanContext.relatedClassContents.size} related classes")
+            logger.debug("Called methods: ${leanContext.calledMethods.take(5).joinToString(", ")}")
+            logger.debug("Used classes: ${leanContext.usedClasses.take(3).joinToString(", ")}")
+        }
+    }
+    
+    /**
+     * Query LLM for lean completion
+     */
+    private suspend fun queryLeanLLM(
+        systemPrompt: String,
+        userPrompt: String,
+        requestId: Int,
+        completionId: String
+    ): Triple<String?, Long, String> {
+        val startTime = System.currentTimeMillis()
+        var actualModel = "local-model-mini"
+        
+        val response = try {
+            withTimeoutOrNull(LEAN_COMPLETION_TIMEOUT_MS) {
+                val queryParams = createLeanQueryParams(systemPrompt, userPrompt)
+                actualModel = queryParams.getModel()
+                log("Using model for LEAN: $actualModel", "Lean")
+                
+                val cancellableRequest = cancellableLLM.createCancellableRequest(requestId) {
+                    currentRequestId
+                }
+                cancellableRequest.query(queryParams, ChatboxUtilities.EnumUsage.INLINE_COMPLETION)
+            }
+        } finally {
+            val llmTime = System.currentTimeMillis() - startTime
+            if (llmTime > 0) {
+                metricsService.trackLLMCallTime(completionId, llmTime)
+            }
+        }
+        
+        val llmTime = System.currentTimeMillis() - startTime
+        return Triple(response, llmTime, actualModel)
+    }
+    
+    /**
+     * Create query parameters for lean completion
+     */
+    private fun createLeanQueryParams(
+        systemPrompt: String,
+        userPrompt: String
+    ): NaiveLLMService.LLMQueryParams {
+        return NaiveLLMService.LLMQueryParams(userPrompt)
+            .withSystemPrompt(systemPrompt)
+            .useLiteCodeModel()
+            .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)
+            .withTemperature(0.5)
+            .withStopSequences(getLeanStopSequences())
+    }
+    
+    /**
+     * Process lean completion response
+     */
+    private fun processLeanResponse(
+        response: String,
+        documentText: String,
+        context: CompletionContext,
+        actualModel: String,
+        startTime: Long,
+        leanContextTime: Long,
+        promptBuildTime: Long,
+        llmTime: Long,
+        requestId: Int,
+        completionId: String
+    ): ZestInlineCompletionList? {
+        val parseStartTime = System.currentTimeMillis()
+        val reasoningResult = leanResponseParser.parseReasoningResponse(
+            response, documentText, context.offset
+        )
+        val parseTime = System.currentTimeMillis() - parseStartTime
+        metricsService.trackResponseParsingTime(completionId, parseTime)
+        
+        if (reasoningResult.completionText.isBlank()) {
+            logger.debug("No valid completion after lean parsing")
+            updateStatusBarText("No completion available")
+            return null
+        }
+        
+        return createLeanCompletionItem(
+            reasoningResult, context, actualModel,
+            startTime, leanContextTime, promptBuildTime, llmTime, parseTime, requestId
         )
     }
+    
+    /**
+     * Create completion item from reasoning result
+     */
+    private fun createLeanCompletionItem(
+        reasoningResult: ZestLeanResponseParser.LeanReasoningResult,
+        context: CompletionContext,
+        actualModel: String,
+        startTime: Long,
+        leanContextTime: Long,
+        promptBuildTime: Long,
+        llmTime: Long,
+        parseTime: Long,
+        requestId: Int
+    ): ZestInlineCompletionList {
+        val totalTime = System.currentTimeMillis() - startTime
+        val formattedCompletion = reasoningResult.completionText
+        
+        val item = ZestInlineCompletionItem(
+            insertText = formattedCompletion,
+            replaceRange = ZestInlineCompletionItem.Range(
+                start = context.offset,
+                end = context.offset
+            ),
+            confidence = reasoningResult.confidence,
+            metadata = CompletionMetadata(
+                model = actualModel,
+                tokens = formattedCompletion.split("\\s+".toRegex()).size,
+                latency = totalTime,
+                requestId = UUID.randomUUID().toString(),
+                reasoning = reasoningResult.reasoning
+            )
+        )
+        
+        logger.info("Lean completion completed in ${totalTime}ms (context=${leanContextTime}ms, prompt=${promptBuildTime}ms, llm=${llmTime}ms, parse=${parseTime}ms) with reasoning: ${reasoningResult.hasValidReasoning} for request $requestId")
+        return ZestInlineCompletionList.single(item)
+    }
+
 
     /**
      * Get stop sequences for lean strategy (structured output)
@@ -642,51 +490,22 @@ class ZestCompletionProvider(private val project: Project) {
     ): ZestInlineCompletionList? {
         return try {
             logger.debug("Requesting method rewrite for ${context.fileName} at offset ${context.offset}")
-
             val startTime = System.currentTimeMillis()
-
-            // Get current editor on EDT (using invokeLater for method rewrite)
-            var selectedEditor: Editor? = null
-            ApplicationManager.getApplication().invokeAndWait {
-                try {
-                    selectedEditor = FileEditorManager.getInstance(project).selectedTextEditor
-                } catch (e: Exception) {
-                    selectedEditor = null
-                }
-            }
-
-            val editor = selectedEditor
+            
+            val editor = getSelectedEditor()
             if (editor == null) {
                 logger.debug("No active editor found for method rewrite")
                 return null
             }
-
-            // Track method rewrite as a special completion
-            val rewriteStartTime = System.currentTimeMillis()
-
-            // Trigger the method rewrite service (this will show floating window)
-            // Make sure to trigger on EDT and don't wait for result
-            ApplicationManager.getApplication().invokeLater {
-                try {
-                    quickActionService.rewriteCurrentMethod(editor, context.offset)
-
-                    // Track completion time for method rewrite
-                    val rewriteTime = System.currentTimeMillis() - rewriteStartTime
-                    metricsService.trackLLMCallTime(completionId, rewriteTime)
-                } catch (e: Exception) {
-                    logger.warn("Method rewrite failed", e)
-                    e.printStackTrace()
-                }
-            }
-
+            
+            triggerMethodRewrite(editor, context.offset, completionId)
+            
             val totalTime = System.currentTimeMillis() - startTime
             logger.info("Method rewrite triggered in ${totalTime}ms for request $requestId")
-
-            // Return empty completion list since we're showing inline diff instead
+            
             ZestInlineCompletionList.EMPTY
-
+            
         } catch (e: kotlinx.coroutines.CancellationException) {
-
             throw e
         } catch (e: Exception) {
             e.printStackTrace()
@@ -694,10 +513,42 @@ class ZestCompletionProvider(private val project: Project) {
             null
         }
     }
+    
+    /**
+     * Get selected editor synchronously
+     */
+    private fun getSelectedEditor(): Editor? {
+        var selectedEditor: Editor? = null
+        ApplicationManager.getApplication().invokeAndWait {
+            try {
+                selectedEditor = FileEditorManager.getInstance(project).selectedTextEditor
+            } catch (e: Exception) {
+                selectedEditor = null
+            }
+        }
+        return selectedEditor
+    }
+    
+    /**
+     * Trigger method rewrite service
+     */
+    private fun triggerMethodRewrite(editor: Editor, offset: Int, completionId: String) {
+        val rewriteStartTime = System.currentTimeMillis()
+        
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                quickActionService.rewriteCurrentMethod(editor, offset)
+                
+                val rewriteTime = System.currentTimeMillis() - rewriteStartTime
+                metricsService.trackLLMCallTime(completionId, rewriteTime)
+            } catch (e: Exception) {
+                logger.warn("Method rewrite failed", e)
+                e.printStackTrace()
+            }
+        }
+    }
 
     companion object {
-        private const val COMPLETION_TIMEOUT_MS = 8000L  // 8 seconds for simple
-        private const val MAX_COMPLETION_TOKENS = 16  // Small for simple completions
 
         private const val LEAN_COMPLETION_TIMEOUT_MS = 150000L  // 15 seconds for reasoning
         private const val LEAN_MAX_COMPLETION_TOKENS =

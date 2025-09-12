@@ -702,14 +702,11 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
             try {
                 val currentStrategy = completionService.getCompletionStrategy()
                 val newStrategy = when (currentStrategy) {
-                    ZestCompletionProvider.CompletionStrategy.SIMPLE ->
-                        ZestCompletionProvider.CompletionStrategy.LEAN
-
                     ZestCompletionProvider.CompletionStrategy.LEAN ->
                         ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE
 
                     ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE ->
-                        ZestCompletionProvider.CompletionStrategy.SIMPLE
+                        ZestCompletionProvider.CompletionStrategy.LEAN
                 }
 
                 completionService.setCompletionStrategy(newStrategy)

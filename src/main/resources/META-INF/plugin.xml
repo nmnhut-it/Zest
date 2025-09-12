@@ -116,6 +116,8 @@
                     class="com.zps.zest.completion.actions.ZestTrigger"
                     text="Trigger Inline Completion"
                     description="Gợi ý code thông minh tại vị trí con trỏ">
+                <keyboard-shortcut first-keystroke="ctrl alt SPACE" keymap="$default"/>
+
             </action>
 
             <action id="Zest.InlineCompletion.TabAccept"

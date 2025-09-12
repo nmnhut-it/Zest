@@ -82,8 +82,14 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     }
     
     private fun setupStateMachine() {
-        // Create state context adapter
-        stateContext = StateContextAdapter(
+        stateContext = createStateContext()
+        stateMachine = CompletionStateMachine(stateContext)
+        stateContext.setStateMachine(stateMachine)
+        addStateMachineListener()
+    }
+    
+    private fun createStateContext(): StateContextAdapter {
+        return StateContextAdapter(
             project = project,
             renderer = renderer,
             metricsService = metricsService,
@@ -93,32 +99,40 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
             updateStatusBarCallback = { message -> updateStatusBarText(message) },
             logCallback = { msg, tag, level -> log(msg, tag, level) }
         )
-        
-        // Create state machine with context
-        stateMachine = CompletionStateMachine(stateContext)
-        stateContext.setStateMachine(stateMachine)
-        
-        // Add debug listener
+    }
+    
+    private fun addStateMachineListener() {
         stateMachine.addListener(object : CompletionStateMachine.StateTransitionListener {
             override fun onStateChanged(
                 oldState: CompletionState,
                 newState: CompletionState,
                 event: CompletionEvent
             ) {
-                log("State transition: $oldState -> $newState (${event.javaClass.simpleName})", "StateMachine")
-                
-                // Publish state changes to message bus
-                when (newState) {
-                    is CompletionState.Requesting -> {
-                        project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(true)
-                    }
-                    is CompletionState.Ready, is CompletionState.Displaying, CompletionState.Idle -> {
-                        project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(false)
-                    }
-                    else -> {}
-                }
+                logStateTransition(oldState, newState, event)
+                publishStateChange(newState)
             }
         })
+    }
+    
+    private fun logStateTransition(
+        oldState: CompletionState,
+        newState: CompletionState,
+        event: CompletionEvent
+    ) {
+        log("State transition: $oldState -> $newState (${event.javaClass.simpleName})", "StateMachine")
+    }
+    
+    private fun publishStateChange(newState: CompletionState) {
+        val isLoading = newState is CompletionState.Requesting
+        val shouldPublish = when (newState) {
+            is CompletionState.Requesting -> true
+            is CompletionState.Ready, is CompletionState.Displaying, CompletionState.Idle -> true
+            else -> false
+        }
+        
+        if (shouldPublish) {
+            project.messageBus.syncPublisher(Listener.TOPIC).loadingStateChanged(isLoading)
+        }
     }
     
     private fun setupTriggerManager() {
@@ -137,38 +151,52 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
         // Configure trigger settings - reduced delays due to pre-populated context
         triggerManager.setConfiguration(
             autoTriggerEnabled = autoTriggerEnabled,
-            primaryDelayMs = 50L,  // Reduced from 300ms - context is pre-cached
-            secondaryDelayMs = 150L // Reduced from 800ms - only cursor context needed
+            primaryDelayMs = 1000L,  // Reduced from 300ms - context is pre-cached
+            secondaryDelayMs = 1500L // Reduced from 800ms - only cursor context needed
         )
     }
     
     private fun setupEventListeners() {
         val connection = project.messageBus.connect()
-        
-        // Listen for caret changes
+        subscribeToCaretChanges(connection)
+        subscribeToDocumentChanges(connection)
+        subscribeToEditorChanges(connection)
+    }
+    
+    private fun subscribeToCaretChanges(connection: com.intellij.util.messages.MessageBusConnection) {
         connection.subscribe(ZestCaretListener.TOPIC, object : ZestCaretListener {
             override fun caretPositionChanged(editor: Editor, event: CaretEvent) {
-                if (FileEditorManager.getInstance(project).selectedTextEditor == editor) {
+                if (isSelectedEditor(editor)) {
                     handleCaretChange(editor, event)
                 }
             }
         })
-        
-        // Listen for document changes
+    }
+    
+    private fun subscribeToDocumentChanges(connection: com.intellij.util.messages.MessageBusConnection) {
         connection.subscribe(ZestDocumentListener.TOPIC, object : ZestDocumentListener {
-            override fun documentChanged(document: com.intellij.openapi.editor.Document, editor: Editor, event: DocumentEvent) {
-                if (FileEditorManager.getInstance(project).selectedTextEditor == editor) {
+            override fun documentChanged(
+                document: com.intellij.openapi.editor.Document,
+                editor: Editor,
+                event: DocumentEvent
+            ) {
+                if (isSelectedEditor(editor)) {
                     handleDocumentChange(editor, event)
                 }
             }
         })
-        
-        // Listen for editor changes
+    }
+    
+    private fun subscribeToEditorChanges(connection: com.intellij.util.messages.MessageBusConnection) {
         connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
             override fun selectionChanged(event: FileEditorManagerEvent) {
                 handleEditorChange()
             }
         })
+    }
+    
+    private fun isSelectedEditor(editor: Editor): Boolean {
+        return FileEditorManager.getInstance(project).selectedTextEditor == editor
     }
     
     private fun handleCaretChange(editor: Editor, event: CaretEvent) {
@@ -201,63 +229,103 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
      * Request a completion at the specified position
      */
     fun requestCompletion(editor: Editor, offset: Int, manually: Boolean) {
-        if (!inlineCompletionEnabled && !manually) {
-            log("Inline completion disabled", "Request")
+        if (!canRequestCompletion(manually)) {
             return
         }
         
         scope.launch {
-            try {
-                // Build context
-                val context = CompletionContext.from(editor, offset, manually)
-                
-                // Start request through state machine
-                val requestId = stateMachine.generateRequestId()
-                lastRequestId = requestId
-                
-                if (!stateMachine.handleEvent(CompletionEvent.RequestCompletion(requestId, context))) {
-                    log("Cannot start completion request - invalid state", "Request")
-                    return@launch
-                }
-                
-                // Check cache first
-                val cached = checkCache(context)
-                if (cached != null) {
-                    log("Using cached completion", "Cache")
-                    handleCompletionResult(cached, requestId)
-                    return@launch
-                }
-                
-                // Request from provider
-                val result = withTimeoutOrNull(30_000L) {
-                    completionProvider.requestCompletion(context, requestId)
-                }
-                
-                if (result != null) {
-                    // Cache the result
-                    result.firstItem()?.let { completion ->
-                        scope.launch {
-                            completionCache.put(
-                                generateCacheKey(context), 
-                                context.toString().hashCode().toString(),
-                                completion
-                            )
-                        }
-                    }
-                    handleCompletionResult(result, requestId)
-                } else {
-                    log("Completion request timed out", "Request")
-                    stateMachine.handleEvent(CompletionEvent.Error("Request timed out"))
-                }
-                
-            } catch (e: CancellationException) {
-                log("Completion request cancelled", "Request")
-                stateMachine.handleEvent(CompletionEvent.Dismiss)
-            } catch (e: Exception) {
-                logger.error("Error requesting completion", e)
-                stateMachine.handleEvent(CompletionEvent.Error(e.message ?: "Unknown error"))
+            performCompletionRequest(editor, offset, manually)
+        }
+    }
+    
+    private fun canRequestCompletion(manually: Boolean): Boolean {
+        if (!inlineCompletionEnabled && !manually) {
+            log("Inline completion disabled", "Request")
+            return false
+        }
+        return true
+    }
+    
+    private suspend fun performCompletionRequest(
+        editor: Editor,
+        offset: Int,
+        manually: Boolean
+    ) {
+        try {
+            val context = CompletionContext.from(editor, offset, manually)
+            val requestId = initializeRequest(context) ?: return
+            
+            val cached = checkCache(context)
+            if (cached != null) {
+                log("Using cached completion", "Cache")
+                handleCompletionResult(cached, requestId)
+                return
+            }
+            
+            fetchAndHandleCompletion(context, requestId)
+            
+        } catch (e: CancellationException) {
+            handleRequestCancellation()
+        } catch (e: Exception) {
+            handleRequestError(e)
+        }
+    }
+    
+    private fun initializeRequest(context: CompletionContext): Int? {
+        val requestId = stateMachine.generateRequestId()
+        lastRequestId = requestId
+        
+        if (!stateMachine.handleEvent(CompletionEvent.RequestCompletion(requestId, context))) {
+            log("Cannot start completion request - invalid state", "Request")
+            return null
+        }
+        return requestId
+    }
+    
+    private suspend fun fetchAndHandleCompletion(
+        context: CompletionContext,
+        requestId: Int
+    ) {
+        val result = withTimeoutOrNull(30_000L) {
+            completionProvider.requestCompletion(context, requestId)
+        }
+        
+        if (result != null) {
+            cacheCompletionResult(result, context)
+            handleCompletionResult(result, requestId)
+        } else {
+            handleRequestTimeout()
+        }
+    }
+    
+    private fun cacheCompletionResult(
+        result: ZestInlineCompletionList,
+        context: CompletionContext
+    ) {
+        result.firstItem()?.let { completion ->
+            scope.launch {
+                completionCache.put(
+                    generateCacheKey(context),
+                    context.toString().hashCode().toString(),
+                    completion
+                )
             }
         }
+    }
+    
+    private fun handleRequestCancellation() {
+        log("Completion request cancelled", "Request")
+        stateMachine.handleEvent(CompletionEvent.Dismiss)
+    }
+    
+    private fun handleRequestError(e: Exception) {
+        logger.error("Error requesting completion", e)
+        stateMachine.handleEvent(CompletionEvent.Error(e.message ?: "Unknown error"))
+    }
+    
+    private fun handleRequestTimeout() {
+        log("Completion request timed out", "Request")
+        stateMachine.handleEvent(CompletionEvent.Error("Request timed out"))
     }
     
     private fun handleCompletionResult(result: ZestInlineCompletionList, requestId: Int) {
@@ -328,12 +396,19 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     
     fun updateConfiguration() {
         loadConfiguration()
+        updateTriggerConfiguration()
+        dismissIfDisabled()
+    }
+    
+    private fun updateTriggerConfiguration() {
         triggerManager.setConfiguration(
             autoTriggerEnabled = autoTriggerEnabled,
-            primaryDelayMs = 50L,  // Reduced from 300ms - context is pre-cached
-            secondaryDelayMs = 150L // Reduced from 800ms - only cursor context needed
+            primaryDelayMs = 50L,
+            secondaryDelayMs = 150L
         )
-        
+    }
+    
+    private fun dismissIfDisabled() {
         if (!inlineCompletionEnabled) {
             dismiss()
         }
@@ -354,22 +429,31 @@ class ZestInlineCompletionService(private val project: Project) : Disposable {
     fun isEnabled(): Boolean = inlineCompletionEnabled
     
     fun getDetailedState(): Map<String, Any> {
-        val state = stateMachine.currentState
-        val context = stateMachine.currentContext
-        
         return mapOf(
-            "currentRequestState" to when (state) {
-                is CompletionState.Idle -> "IDLE"
-                is CompletionState.Requesting -> "REQUESTING"
-                is CompletionState.Ready -> "READY"
-                is CompletionState.Displaying -> "DISPLAYING"
-                is CompletionState.Accepting -> "ACCEPTING"
-            },
-            "hasCompletion" to (stateMachine.currentCompletion != null),
-            "requestsInLastMinute" to 0, // TODO: implement if needed
-            "timeSinceLastRequest" to 0L, // TODO: implement if needed
-            "completionOffset" to (context?.offset ?: -1)
+            "currentRequestState" to getStateString(),
+            "hasCompletion" to hasCurrentCompletion(),
+            "requestsInLastMinute" to 0,
+            "timeSinceLastRequest" to 0L,
+            "completionOffset" to getCompletionOffset()
         )
+    }
+    
+    private fun getStateString(): String {
+        return when (val state = stateMachine.currentState) {
+            is CompletionState.Idle -> "IDLE"
+            is CompletionState.Requesting -> "REQUESTING"
+            is CompletionState.Ready -> "READY"
+            is CompletionState.Displaying -> "DISPLAYING"
+            is CompletionState.Accepting -> "ACCEPTING"
+        }
+    }
+    
+    private fun hasCurrentCompletion(): Boolean {
+        return stateMachine.currentCompletion != null
+    }
+    
+    private fun getCompletionOffset(): Int {
+        return stateMachine.currentContext?.offset ?: -1
     }
     
     fun getCacheStats(): Map<String, Any> {

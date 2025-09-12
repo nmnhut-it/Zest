@@ -4,7 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.util.NaiveLLMService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
@@ -27,7 +27,7 @@ class ZestQuickActionMetricsService(private val project: Project) : Disposable {
     
     // Service components
     private var processingJob: Job? = null
-    private val llmService by lazy { LLMService(project) }
+    private val naiveLlmService by lazy { NaiveLLMService(project) }
     
     init {
         logger.info("Initializing ZestQuickActionMetricsService")
@@ -243,14 +243,14 @@ class ZestQuickActionMetricsService(private val project: Project) : Disposable {
      * Process a single metric event
      */
     private suspend fun processEvent(event: MetricEvent) {
-        if (!llmService.isConfigured()) {
+        if (!naiveLlmService.isConfigured()) {
             logger.debug("LLM service not configured, skipping metric: ${event.eventType}")
             return
         }
         
         try {
             // Send metric using QUICK_ACTION_LOGGING enum
-            llmService.sendMetricEvent(event, "QUICK_ACTION_LOGGING")
+            naiveLlmService.sendMetricEvent(event, "QUICK_ACTION_LOGGING")
             logger.debug("Sent quick action metric: ${event.eventType} for ${event.completionId}")
         } catch (e: Exception) {
             logger.warn("Failed to send quick action metric: ${event.eventType}", e)

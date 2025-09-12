@@ -7,7 +7,7 @@ import com.zps.zest.testgen.statemachine.AbstractStateHandler;
 import com.zps.zest.testgen.statemachine.TestGenerationState;
 import com.zps.zest.testgen.statemachine.TestGenerationStateMachine;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.util.NaiveLLMService;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.concurrent.CompletableFuture;
@@ -53,9 +53,9 @@ public class TestPlanningHandler extends AbstractStateHandler {
             // Create coordinator agent with contextTools reference
             // Note: We create a new CoordinatorAgent here because the one created at session start doesn't have contextTools
             ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
-            LLMService llmService = getProject(stateMachine).getService(LLMService.class);
+            NaiveLLMService naiveLlmService = getProject(stateMachine).getService(NaiveLLMService.class);
             
-            CoordinatorAgent coordinatorAgent = new CoordinatorAgent(getProject(stateMachine), langChainService, llmService, contextTools);
+            CoordinatorAgent coordinatorAgent = new CoordinatorAgent(getProject(stateMachine), langChainService, naiveLlmService, contextTools);
             setSessionData(stateMachine, "coordinatorAgent", coordinatorAgent); // Update session data with new instance
             
             logToolActivity(stateMachine, "CoordinatorAgent", "Analyzing testing requirements");

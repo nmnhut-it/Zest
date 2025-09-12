@@ -19,7 +19,7 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.MethodReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
 import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
-import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.util.NaiveLLMService
 import com.zps.zest.langchain4j.ZestLangChain4jService
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -49,7 +49,7 @@ class CodeHealthAnalyzer(private val project: Project) {
     }
 
     private val contextCollector = ZestLeanContextCollectorPSI(project)
-    private val llmService: LLMService = project.service()
+    private val naiveLlmService: NaiveLLMService = project.service()
     private val langChainService: ZestLangChain4jService = project.service()
     private val analysisQueue = SimpleAnalysisQueue(delayMs = 50L)
     private val results = ConcurrentHashMap<String, MethodHealthResult>()
@@ -514,7 +514,7 @@ class CodeHealthAnalyzer(private val project: Project) {
      * Unified LLM call with retry logic
      */
     private fun callLLMWithRetry(
-        params: LLMService.LLMQueryParams,
+        params: NaiveLLMService.LLMQueryParams,
         usage: com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage,
         description: String
     ): String? {
@@ -531,7 +531,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                 
                 // Create a future with timeout
                 val future = CompletableFuture.supplyAsync({
-                    llmService.queryWithParams(params, usage)
+                    naiveLlmService.queryWithParams(params, usage)
                 })
                 
                 val response = try {
@@ -582,7 +582,7 @@ class CodeHealthAnalyzer(private val project: Project) {
     ): MethodHealthResult {
         val detectionPrompt = buildDetectionPrompt(method.fqn, context, callers, callerSnippets)
         
-        val params = LLMService.LLMQueryParams(detectionPrompt)
+        val params = NaiveLLMService.LLMQueryParams(detectionPrompt)
             .useLiteCodeModel()
             .withMaxTokens(4096)
             .withTemperature(0.3)
@@ -781,7 +781,7 @@ class CodeHealthAnalyzer(private val project: Project) {
         
         val verificationPrompt = buildVerificationPrompt(result)
         
-        val params = LLMService.LLMQueryParams(verificationPrompt)
+        val params = NaiveLLMService.LLMQueryParams(verificationPrompt)
             .useLiteCodeModel()
             .withMaxTokens(2048)
             .withTemperature(0.1)
@@ -1463,7 +1463,7 @@ class CodeHealthAnalyzer(private val project: Project) {
         context: ReviewOptimizer.ReviewContext,
         prompt: String
     ): List<MethodHealthResult> {
-        val params = LLMService.LLMQueryParams(prompt)
+        val params = NaiveLLMService.LLMQueryParams(prompt)
             .useLiteCodeModel()
             .withMaxTokens(4096)
         
@@ -1647,7 +1647,7 @@ class CodeHealthAnalyzer(private val project: Project) {
         context: ReviewOptimizer.ReviewContext,
         prompt: String
     ): List<MethodHealthResult> {
-        val params = LLMService.LLMQueryParams(prompt)
+        val params = NaiveLLMService.LLMQueryParams(prompt)
             .useLiteCodeModel()
             .withMaxTokens(4096)
         

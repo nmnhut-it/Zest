@@ -52,7 +52,7 @@ public final class StreamingLLMService {
         LOG.info("Initialized StreamingLLMService for project: " + project.getName());
         
         // Fetch username on service initialization
-        LLMService.fetchAndStoreUsername(project);
+        NaiveLLMService.fetchAndStoreUsername(project);
         
         // Ensure log directory exists
         ensureLogDirectoryExists();

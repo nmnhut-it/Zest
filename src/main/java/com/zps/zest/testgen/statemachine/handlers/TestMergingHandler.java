@@ -6,7 +6,7 @@ import com.zps.zest.testgen.statemachine.AbstractStateHandler;
 import com.zps.zest.testgen.statemachine.TestGenerationState;
 import com.zps.zest.testgen.statemachine.TestGenerationStateMachine;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.util.NaiveLLMService;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.concurrent.CompletableFuture;
@@ -60,8 +60,8 @@ public class TestMergingHandler extends AbstractStateHandler {
             logToolActivity(stateMachine, "AITestMerger", "Starting AI-based test merging");
             
             ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
-            LLMService llmService = getProject(stateMachine).getService(LLMService.class);
-            AITestMergerAgent aiMerger = new AITestMergerAgent(getProject(stateMachine), langChainService, llmService);
+            NaiveLLMService naiveLlmService = getProject(stateMachine).getService(NaiveLLMService.class);
+            AITestMergerAgent aiMerger = new AITestMergerAgent(getProject(stateMachine), langChainService, naiveLlmService);
             
             // Store AITestMergerAgent in session data for chat memory access
             setSessionData(stateMachine, "aiMergerAgent", aiMerger);

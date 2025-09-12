@@ -2,7 +2,7 @@ package com.zps.zest.testgen.agents;
 
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.util.NaiveLLMService;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.util.ExistingTestAnalyzer;
 import dev.langchain4j.agent.tool.Tool;
@@ -25,8 +25,8 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     
     public AITestMergerAgent(@NotNull Project project,
                             @NotNull ZestLangChain4jService langChainService,
-                            @NotNull LLMService llmService) {
-        super(project, langChainService, llmService, "AITestMergerAgent");
+                            @NotNull NaiveLLMService naiveLlmService) {
+        super(project, langChainService, naiveLlmService, "AITestMergerAgent");
         this.existingTestAnalyzer = new ExistingTestAnalyzer(project);
         
         // Build the agent with streaming support

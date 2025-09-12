@@ -3,10 +3,9 @@ package com.zps.zest.langchain4j;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.util.NaiveLLMService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.util.EnvLoader;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -14,7 +13,6 @@ import dev.langchain4j.model.chat.response. StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
-import dev.langchain4j.service.AiServices;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Duration;
@@ -31,7 +29,7 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
     
     private static final Logger LOG = Logger.getInstance(ZestStreamingChatLanguageModel.class);
     private final OpenAiStreamingChatModel delegateModel;
-    private final LLMService llmService; // Keep for backward compatibility if needed
+    private final NaiveLLMService naiveLlmService; // Keep for backward compatibility if needed
     private final ChatboxUtilities.EnumUsage usage;
     private final ConfigurationManager config;
     
@@ -87,16 +85,16 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         action.run();
     }
 
-    public ZestStreamingChatLanguageModel(LLMService llmService, ChatboxUtilities.EnumUsage usage) {
-        this(llmService, usage, null);
+    public ZestStreamingChatLanguageModel(NaiveLLMService naiveLlmService, ChatboxUtilities.EnumUsage usage) {
+        this(naiveLlmService, usage, null);
     }
     
-    public ZestStreamingChatLanguageModel(LLMService llmService, ChatboxUtilities.EnumUsage usage, String selectedModel) {
+    public ZestStreamingChatLanguageModel(NaiveLLMService naiveLlmService, ChatboxUtilities.EnumUsage usage, String selectedModel) {
         if (selectedModel == null)
             selectedModel = "local-model";
-        this.llmService = llmService;
+        this.naiveLlmService = naiveLlmService;
         this.usage = usage;
-        this.config = ConfigurationManager.getInstance(llmService.getProject());
+        this.config = ConfigurationManager.getInstance(naiveLlmService.getProject());
         
         // Load configurable delays from environment variables (lower than sync model)
         this.minDelayMs = loadDelayFromEnv("OPENAI_STREAMING_MIN_DELAY_MS", DEFAULT_MIN_DELAY_MS);
@@ -104,10 +102,10 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         
         LOG.info("Streaming rate limiting configured - Min delay: " + minDelayMs + "ms, Request delay: " + requestDelayMs + "ms");
         
-        this.delegateModel = createOpenAiStreamingModel(llmService.getProject(), selectedModel);
+        this.delegateModel = createOpenAiStreamingModel(naiveLlmService.getProject(), selectedModel);
         
         // Trigger username fetch
-        LLMService.fetchAndStoreUsername(llmService.getProject());
+        NaiveLLMService.fetchAndStoreUsername(naiveLlmService.getProject());
     }
     
     /**

@@ -4,7 +4,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.util.NaiveLLMService;
 import org.jetbrains.annotations.NotNull;
 
 public abstract class BaseAgent {
@@ -12,16 +12,16 @@ public abstract class BaseAgent {
     
     protected final Project project;
     protected final ZestLangChain4jService langChainService;
-    protected final LLMService llmService;
+    protected final NaiveLLMService naiveLlmService;
     protected final String agentName;
     
     protected BaseAgent(@NotNull Project project,
                        @NotNull ZestLangChain4jService langChainService,
-                       @NotNull LLMService llmService,
+                       @NotNull NaiveLLMService naiveLlmService,
                        @NotNull String agentName) {
         this.project = project;
         this.langChainService = langChainService;
-        this.llmService = llmService;
+        this.naiveLlmService = naiveLlmService;
         this.agentName = agentName;
     }
 
@@ -30,12 +30,12 @@ public abstract class BaseAgent {
      */
     @NotNull
     protected String queryLLM(@NotNull String prompt, int maxTokens) {
-        LLMService.LLMQueryParams params = new LLMService.LLMQueryParams(prompt)
+        NaiveLLMService.LLMQueryParams params = new NaiveLLMService.LLMQueryParams(prompt)
             .withModel("local-model")
             .withMaxTokens(maxTokens)
             .withTimeout(45000);
         
-        String response = llmService.queryWithParams(params, ChatboxUtilities.EnumUsage.AGENT_TEST_WRITING);
+        String response = naiveLlmService.queryWithParams(params, ChatboxUtilities.EnumUsage.AGENT_TEST_WRITING);
         return response != null ? response.trim() : "";
     }
 

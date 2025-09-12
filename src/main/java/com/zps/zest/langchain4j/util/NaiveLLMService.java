@@ -21,7 +21,6 @@ import java.net.HttpURLConnection;
 import java.time.LocalTime;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalTime;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -36,9 +35,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * Connection keep-alive is handled automatically by the HttpClient.
  */
 @Service(Service.Level.PROJECT)
-public final class LLMService implements Disposable {
+public final class NaiveLLMService implements Disposable {
 
-    private static final Logger LOG = Logger.getInstance(LLMService.class);
+    private static final Logger LOG = Logger.getInstance(NaiveLLMService.class);
     public static final Gson GSON = new Gson();
 
     private final Project project;
@@ -75,7 +74,7 @@ public final class LLMService implements Disposable {
     private ZestRulesLoader rulesLoader;
     private boolean applyCustomRulesToAllPrompts = true;
 
-    public LLMService(@NotNull Project project) {
+    public NaiveLLMService(@NotNull Project project) {
         this.project = project;
         this.config = ConfigurationManager.getInstance(project);
         

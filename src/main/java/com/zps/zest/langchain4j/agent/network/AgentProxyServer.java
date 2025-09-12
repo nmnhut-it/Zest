@@ -11,11 +11,9 @@ import com.intellij.openapi.project.Project;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-import com.zps.zest.browser.utils.ChatboxUtilities;
 // Agent classes have been removed
 import com.zps.zest.langchain4j.tools.CodeExplorationTool;
 import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
-import com.zps.zest.langchain4j.util.LLMService;
 
 import java.io.IOException;
 import java.io.InputStream;

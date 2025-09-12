@@ -9,7 +9,7 @@ import com.zps.zest.testgen.tools.ListFilesTool;
 import com.zps.zest.testgen.tools.TakeNoteTool;
 import com.zps.zest.langchain4j.tools.impl.ReadFileTool;
 import com.zps.zest.explanation.tools.RipgrepCodeTool;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.util.NaiveLLMService;
 import com.zps.zest.testgen.model.TestGenerationRequest;
 import com.zps.zest.testgen.model.TestPlan;
 import com.zps.zest.testgen.ui.model.ContextDisplayData;
@@ -37,8 +37,8 @@ public class ContextAgent extends StreamingBaseAgent {
 
     public ContextAgent(@NotNull Project project,
                         @NotNull ZestLangChain4jService langChainService,
-                        @NotNull LLMService llmService) {
-        super(project, langChainService, llmService, "ContextAgent");
+                        @NotNull NaiveLLMService naiveLlmService) {
+        super(project, langChainService, naiveLlmService, "ContextAgent");
         this.toolRegistry = project.getService(CodeExplorationToolRegistry.class);
         this.contextTools = new ContextGatheringTools(project, toolRegistry, this::sendToUI, this);
 

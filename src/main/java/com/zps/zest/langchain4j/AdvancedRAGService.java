@@ -4,7 +4,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.util.NaiveLLMService;
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
@@ -34,7 +34,7 @@ public class AdvancedRAGService {
     private static final Logger LOG = Logger.getInstance(AdvancedRAGService.class);
     
     private final Project project;
-    private final LLMService llmService;
+    private final NaiveLLMService naiveLlmService;
     private final EmbeddingModel embeddingModel;
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final CompressingQueryTransformer compressingTransformer;
@@ -63,11 +63,11 @@ public class AdvancedRAGService {
     private static final long CACHE_TTL_MS = 300000; // 5 minutes TTL
     private final Map<String, Long> cacheTimestamps = new HashMap<>();
     
-    public AdvancedRAGService(Project project, LLMService llmService, EmbeddingModel embeddingModel, 
-                             EmbeddingStore<TextSegment> embeddingStore, 
-                             CompressingQueryTransformer compressingTransformer) {
+    public AdvancedRAGService(Project project, NaiveLLMService naiveLlmService, EmbeddingModel embeddingModel,
+                              EmbeddingStore<TextSegment> embeddingStore,
+                              CompressingQueryTransformer compressingTransformer) {
         this.project = project;
-        this.llmService = llmService;
+        this.naiveLlmService = naiveLlmService;
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.compressingTransformer = compressingTransformer;

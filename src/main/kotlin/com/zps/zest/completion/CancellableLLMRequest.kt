@@ -3,7 +3,7 @@ package com.zps.zest.completion
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.zps.zest.browser.utils.ChatboxUtilities
-import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.util.NaiveLLMService
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class CancellableLLMRequest(private val project: Project) {
     private val logger = Logger.getInstance(CancellableLLMRequest::class.java)
-    private val llmService by lazy { LLMService(project) }
+    private val naiveLlmService by lazy { NaiveLLMService(project) }
     
     /**
      * Execute an LLM query with cancellation support
@@ -22,7 +22,7 @@ class CancellableLLMRequest(private val project: Project) {
      * @return The LLM response or null if cancelled/failed
      */
     suspend fun queryWithCancellation(
-        params: LLMService.LLMQueryParams,
+        params: NaiveLLMService.LLMQueryParams,
         usage: ChatboxUtilities.EnumUsage,
         cancellationToken: () -> Boolean = { false }
     ): String? = withContext(Dispatchers.IO) {
@@ -39,7 +39,7 @@ class CancellableLLMRequest(private val project: Project) {
                 }
                 
                 // Execute the query
-                val result = llmService.queryWithParams(params, usage)
+                val result = naiveLlmService.queryWithParams(params, usage)
                 
                 // Check cancellation after completion
                 if (cancellationToken() || isCancelled.get()) {
@@ -100,7 +100,7 @@ class CancellableLLMRequest(private val project: Project) {
         private val activeRequestIdProvider: () -> Int?
     ) {
         suspend fun query(
-            params: LLMService.LLMQueryParams,
+            params: NaiveLLMService.LLMQueryParams,
             usage: ChatboxUtilities.EnumUsage
         ): String? {
             return queryWithCancellation(params, usage) {

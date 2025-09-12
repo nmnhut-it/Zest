@@ -26,7 +26,7 @@ import com.zps.zest.completion.ZestQuickActionService
 import com.zps.zest.completion.MethodContext
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
 import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
-import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.util.NaiveLLMService
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.ZestNotifications
 import com.zps.zest.testgen.actions.GenerateTestAction
@@ -211,7 +211,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         // Context-aware options
         private val builtInOptions = generateContextOptions()
         private var customPrompts = loadCustomPrompts()
-        private val llmService = LLMService(project)
+        private val naiveLlmService = NaiveLLMService(project)
         private val builtInLabels = mutableListOf<JLabel>()
         private val customLabels = mutableListOf<JLabel>()
 
@@ -803,13 +803,13 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                     Title:
                 """.trimIndent()
                 
-                val queryParams = LLMService.LLMQueryParams(titlePrompt)
+                val queryParams = NaiveLLMService.LLMQueryParams(titlePrompt)
                     .useLiteCodeModel()
                     .withMaxTokens(20)
                     .withTemperature(0.3)
                     .withTimeout(5000) // 5 second timeout for fast title generation
                 
-                val result = llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.QUICK_ACTION_LOGGING)
+                val result = naiveLlmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.QUICK_ACTION_LOGGING)
                 
                 if (result != null && result.trim().isNotEmpty()) {
                     // Clean and format the result
@@ -1494,9 +1494,9 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
                     val langChainService = project.getService(com.zps.zest.langchain4j.ZestLangChain4jService::class.java)
-                    val llmService = project.getService(com.zps.zest.langchain4j.util.LLMService::class.java)
+                    val naiveLlmService = project.getService(NaiveLLMService::class.java)
                     
-                    if (langChainService == null || llmService == null) {
+                    if (langChainService == null || naiveLlmService == null) {
                         ApplicationManager.getApplication().invokeLater {
                             Messages.showErrorDialog(
                                 project,
@@ -1515,7 +1515,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                         ApplicationManager.getApplication().executeOnPooledThread {
                             try {
                                 // Create the explanation agent
-                                val explanationAgent = com.zps.zest.explanation.agents.CodeExplanationAgent(project, langChainService, llmService)
+                                val explanationAgent = com.zps.zest.explanation.agents.CodeExplanationAgent(project, langChainService, naiveLlmService)
 
                                 // Start the explanation process
                                 val resultFuture = explanationAgent.explainCode(filePath, codeContent, language, null)

@@ -6,7 +6,7 @@ import com.zps.zest.testgen.statemachine.AbstractStateHandler;
 import com.zps.zest.testgen.statemachine.TestGenerationState;
 import com.zps.zest.testgen.statemachine.TestGenerationStateMachine;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.util.NaiveLLMService;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -55,8 +55,8 @@ public class TestGenerationHandler extends AbstractStateHandler {
             
             // Initialize test writer agent
             ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
-            LLMService llmService = getProject(stateMachine).getService(LLMService.class);
-            TestWriterAgent testWriterAgent = new TestWriterAgent(getProject(stateMachine), langChainService, llmService);
+            NaiveLLMService naiveLlmService = getProject(stateMachine).getService(NaiveLLMService.class);
+            TestWriterAgent testWriterAgent = new TestWriterAgent(getProject(stateMachine), langChainService, naiveLlmService);
             
             // Store the TestWriterAgent in session data for UI access
             stateMachine.setSessionData("testWriterAgent", testWriterAgent);

@@ -1,0 +1,362 @@
+package com.zps.zest.langchain4j;
+
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.Project;
+import com.zps.zest.ConfigurationManager;
+import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.browser.utils.ChatboxUtilities;
+import com.zps.zest.util.EnvLoader;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.ModelProvider;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.response. StreamingChatResponseHandler;
+import dev.langchain4j.model.chat.listener.ChatModelListener;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import org.jetbrains.annotations.NotNull;
+
+import java.time.Duration;
+import java.time.LocalTime;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * Streaming wrapper that uses LangChain4j's OpenAI streaming model for real-time chat responses.
+ * This provides streaming chat capabilities with tool support through LangChain4j's agentic framework.
+ */
+public class ZestStreamingChatLanguageModel implements StreamingChatModel {
+    
+    private static final Logger LOG = Logger.getInstance(ZestStreamingChatLanguageModel.class);
+    private final OpenAiStreamingChatModel delegateModel;
+    private final LLMService llmService; // Keep for backward compatibility if needed
+    private final ChatboxUtilities.EnumUsage usage;
+    private final ConfigurationManager config;
+    
+    // Rate limiting configuration - now configurable via environment variables
+    private static final long DEFAULT_MIN_DELAY_MS = 2000; // Default 2 seconds for streaming (less than sync)
+    private static final long DEFAULT_REQUEST_DELAY_MS = 3000; // Default 3 second delay for streaming
+    
+    // Configurable delays
+    private final long minDelayMs;
+    private final long requestDelayMs;
+    
+    // Track last request time for rate limiting
+    private final AtomicLong lastRequestTime = new AtomicLong(0);
+    
+    /**
+     * Apply rate limiting with configurable delays to prevent hitting API limits
+     */
+    private void applyRateLimit() {
+        long currentTime = System.currentTimeMillis();
+        long lastTime = lastRequestTime.get();
+        
+        // Apply the configured request delay for conservative rate limiting
+        if (lastTime > 0) {
+            long timeSinceLastRequest = currentTime - lastTime;
+            long requiredDelay = Math.max(minDelayMs, requestDelayMs);
+            
+            if (timeSinceLastRequest < requiredDelay) {
+                long delayMs = requiredDelay - timeSinceLastRequest;
+                LOG.info("Rate limiting streaming: Delaying request by " + delayMs + "ms (total delay: " + requiredDelay + "ms)");
+                try {
+                    TimeUnit.MILLISECONDS.sleep(delayMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    LOG.warn("Rate limiting delay was interrupted", e);
+                }
+            }
+        }
+        
+        lastRequestTime.set(System.currentTimeMillis());
+    }
+    
+    /**
+     * Execute code with plugin classloader to avoid Jackson conflicts
+     */
+    private <T> T executeWithPluginClassLoader(java.util.function.Supplier<T> action) {
+        return action.get();
+    }
+    
+    /**
+     * Execute void operations with plugin classloader
+     */
+    private void executeWithPluginClassLoader(Runnable action) {
+        action.run();
+    }
+
+    public ZestStreamingChatLanguageModel(LLMService llmService, ChatboxUtilities.EnumUsage usage) {
+        this(llmService, usage, null);
+    }
+    
+    public ZestStreamingChatLanguageModel(LLMService llmService, ChatboxUtilities.EnumUsage usage, String selectedModel) {
+        if (selectedModel == null)
+            selectedModel = "local-model";
+        this.llmService = llmService;
+        this.usage = usage;
+        this.config = ConfigurationManager.getInstance(llmService.getProject());
+        
+        // Load configurable delays from environment variables (lower than sync model)
+        this.minDelayMs = loadDelayFromEnv("OPENAI_STREAMING_MIN_DELAY_MS", DEFAULT_MIN_DELAY_MS);
+        this.requestDelayMs = loadDelayFromEnv("OPENAI_STREAMING_REQUEST_DELAY_MS", DEFAULT_REQUEST_DELAY_MS);
+        
+        LOG.info("Streaming rate limiting configured - Min delay: " + minDelayMs + "ms, Request delay: " + requestDelayMs + "ms");
+        
+        this.delegateModel = createOpenAiStreamingModel(llmService.getProject(), selectedModel);
+        
+        // Trigger username fetch
+        LLMService.fetchAndStoreUsername(llmService.getProject());
+    }
+    
+    /**
+     * Load delay configuration from environment variables with fallback to defaults
+     */
+    private long loadDelayFromEnv(String envVarName, long defaultValue) {
+        try {
+            String envValue = EnvLoader.getEnv(envVarName);
+            if (envValue != null && !envValue.isEmpty()) {
+                long delay = Long.parseLong(envValue);
+                if (delay >= 0) {
+                    LOG.info("Using " + envVarName + " = " + delay + "ms");
+                    return delay;
+                }
+            }
+        } catch (NumberFormatException e) {
+            LOG.warn("Invalid " + envVarName + " value, using default: " + defaultValue + "ms");
+        }
+        return defaultValue;
+    }
+
+    private OpenAiStreamingChatModel createOpenAiStreamingModel(@NotNull Project project, String selectedModel) {
+        ConfigurationManager config = ConfigurationManager.getInstance(project);
+
+        // Load environment variables from .env file
+        if (project.getBasePath() != null) {
+            EnvLoader.loadEnv(project.getBasePath());
+        }
+
+        // Check for OpenAI configuration in .env file first
+        String envApiKey = EnvLoader.getEnv("OPENAI_API_KEY");
+        String envModel = EnvLoader.getEnv("OPENAI_MODEL", "gpt-4o-mini");
+        String envBaseUrl = EnvLoader.getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1");
+
+        String apiUrl, apiKey, modelName;
+        
+        if (envApiKey != null && !envApiKey.isEmpty()) {
+            // Use OpenAI configuration from .env
+            apiUrl = envBaseUrl;
+            apiKey = envApiKey;
+            // Prioritize selectedModel from UI, fallback to env model
+            modelName = (selectedModel != null && !selectedModel.isEmpty()) ? selectedModel : envModel;
+            LOG.info("Using OpenAI streaming configuration from .env file - Model: " + modelName + 
+                    (selectedModel != null ? " (selected from UI)" : " (from env)"));
+        } else {
+            // Fallback to existing configuration
+            apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
+            if (apiUrl.contains("chat.zingplay"))
+                apiUrl = "https://chat.zingplay.com/api";
+            if (apiUrl.contains("talk.zingplay"))
+                apiUrl = "https://talk.zingplay.com/api";
+            if (apiUrl.contains("openwebui.zingplay"))
+                apiUrl = "https://openwebui.zingplay.com/api";
+            apiKey = config.getAuthTokenNoPrompt(); // Use auth token as API key
+            // Prioritize selectedModel from UI, fallback to local-model
+            modelName = (selectedModel != null && !selectedModel.isEmpty()) ? selectedModel : "local-model";
+            LOG.info("Using fallback streaming configuration - Model: " + modelName + 
+                    (selectedModel != null ? " (selected from UI)" : " (fallback)"));
+        }
+
+        // Apply office hour policy for redirects
+        if (isWithinOfficeHours()) {
+            LOG.info("Office hours: redirecting to litellm for ZestStreamingChatLanguageModel");
+            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                apiUrl = "https://litellm.zingplay.com/v1";
+                apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+            }
+            if (apiUrl.contains("talk.zingplay")) {
+                apiUrl = "https://litellm-internal.zingplay.com/v1";
+                apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+            }
+        } else {
+            LOG.info("Outside office hours: using original configured URL for ZestStreamingChatLanguageModel");
+            // Keep original apiUrl and apiKey from configuration
+        }
+
+        // Ensure the URL ends with /v1 for OpenAI compatibility
+        if (!apiUrl.endsWith("/v1") && !apiUrl.contains("/v1/")) {
+            if (!apiUrl.endsWith("/")) {
+                apiUrl += "/";
+            }
+            apiUrl += "v1";
+        }
+        LOG.info("Creating OpenAI streaming model with URL: " + apiUrl + ", Model: " + modelName);
+
+        final String finalApiUrl = apiUrl;
+        final String finalApiKey = apiKey;
+        final String finalModelName = modelName;
+
+        // Get username for tracking
+        String username = config.getUsername();
+        
+        // Create metadata map with both user and usage
+        java.util.Map<String, String> metadata = new java.util.HashMap<>();
+        if (username != null && !username.isEmpty()) {
+            metadata.put("user", username);
+        }
+        metadata.put("usage", usage.name());
+        metadata.put("tool", "Zest");
+        metadata.put("service", "ZestStreamingChatLanguageModel");
+
+        // Use plugin classloader to avoid Jackson ServiceLoader conflicts
+        return executeWithPluginClassLoader(() -> {
+            OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder = OpenAiStreamingChatModel.builder()
+                .baseUrl(finalApiUrl)
+                .apiKey(finalApiKey)
+                .modelName(finalModelName)
+                .user(username != null && !username.isEmpty() ? username : null)
+                .logRequests(true)
+                .logResponses(true)
+                .timeout(Duration.ofSeconds(1200));
+                
+            // Only add metadata for models that support it without store
+            // GPT-4.1 and GPT-4o-mini require 'store' to be enabled for metadata
+            if (!finalModelName.equals("gpt-4.1") && !finalModelName.equals("gpt-4o-mini")) {
+                builder.metadata(metadata);
+            }
+            
+            return builder.build();
+        });
+    }
+
+    @Override
+    public void chat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
+        applyRateLimit();
+        
+        try {
+            executeWithPluginClassLoader(() -> delegateModel.chat(chatRequest, handler));
+        } catch (Exception e) {
+            // Check if this is a rate limit error and apply exponential backoff
+            if (isRateLimitError(e)) {
+                handleRateLimitError(e);
+                // Retry once after exponential backoff
+                applyRateLimit(); // Apply additional delay
+                executeWithPluginClassLoader(() -> delegateModel.chat(chatRequest, handler));
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    @Override
+    public void chat(List<ChatMessage> messages, StreamingChatResponseHandler handler) {
+        applyRateLimit();
+        
+        try {
+            executeWithPluginClassLoader(() -> delegateModel.chat(messages, handler));
+        } catch (Exception e) {
+            // Check if this is a rate limit error and apply exponential backoff
+            if (isRateLimitError(e)) {
+                handleRateLimitError(e);
+                // Retry once after exponential backoff
+                applyRateLimit(); // Apply additional delay
+                executeWithPluginClassLoader(() -> delegateModel.chat(messages, handler));
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    @Override
+    public List<ChatModelListener> listeners() {
+        return executeWithPluginClassLoader(() -> delegateModel.listeners());
+    }
+
+    @Override
+    public ModelProvider provider() {
+        return executeWithPluginClassLoader(() -> delegateModel.provider());
+    }
+
+    /**
+     * Check if current time is within office hours (8:30 - 17:30)
+     * Copied from LLMService for consistency
+     */
+    private boolean isWithinOfficeHours() {
+        LocalTime now = LocalTime.now();
+        LocalTime startTime = LocalTime.of(8, 30); // 8:30 AM
+        LocalTime endTime = LocalTime.of(17, 30);  // 5:30 PM
+        
+        boolean withinHours = !now.isBefore(startTime) && !now.isAfter(endTime);
+        LOG.debug("Current time: " + now + ", Office hours: " + startTime + " - " + endTime + ", Within hours: " + withinHours);
+        
+        return withinHours;
+    }
+    
+    /**
+     * Check if the exception indicates a rate limit error
+     */
+    private boolean isRateLimitError(Exception e) {
+        if (e.getMessage() == null) {
+            return false;
+        }
+        
+        String message = e.getMessage().toLowerCase();
+        return message.contains("rate limit") || 
+               message.contains("too many requests") ||
+               message.contains("quota exceeded") ||
+               message.contains("429") ||
+               message.contains("tpm");
+    }
+    
+    /**
+     * Handle rate limit errors with exponential backoff
+     */
+    private void handleRateLimitError(Exception e) {
+        // Extract suggested wait time from error message if available
+        long suggestedDelay = extractSuggestedDelay(e.getMessage());
+        
+        // Use exponential backoff: either suggested delay or double the request delay
+        long backoffDelay = suggestedDelay > 0 ? suggestedDelay : requestDelayMs * 2;
+        
+        LOG.warn("Rate limit detected in streaming, applying exponential backoff: " + backoffDelay + "ms");
+        LOG.warn("Rate limit error: " + e.getMessage());
+        
+        try {
+            TimeUnit.MILLISECONDS.sleep(backoffDelay);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            LOG.warn("Rate limit backoff was interrupted", ie);
+        }
+    }
+    
+    /**
+     * Extract suggested delay from rate limit error message
+     * Example: "Please try again in 32.747s" -> returns 33000ms
+     */
+    private long extractSuggestedDelay(String errorMessage) {
+        if (errorMessage == null) {
+            return 0;
+        }
+        
+        try {
+            // Look for "try again in X seconds" or "try again in X.Xs"
+            if (errorMessage.contains("try again in")) {
+                String[] parts = errorMessage.split("try again in");
+                if (parts.length > 1) {
+                    String delayPart = parts[1].trim();
+                    // Extract number before 's' (seconds)
+                    int sIndex = delayPart.indexOf('s');
+                    if (sIndex > 0) {
+                        String numberStr = delayPart.substring(0, sIndex).replaceAll("[^0-9.]", "");
+                        double seconds = Double.parseDouble(numberStr);
+                        return (long) Math.ceil(seconds * 1000); // Convert to ms and round up
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not parse suggested delay from error message", e);
+        }
+        
+        return 0;
+    }
+}

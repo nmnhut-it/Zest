@@ -58,8 +58,9 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     
     /**
      * Add a new message to the chat
+     * @return the ID of the created message
      */
-    fun addMessage(header: String, content: String) {
+    fun addMessage(header: String, content: String): String {
         val timestamp = timeFormatter.format(Date())
         messageCounter++
         
@@ -73,6 +74,19 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
         conversationMessages.add(messageData)
         updateChatDisplay()
         scrollToMessage(messageData.id)
+        return messageData.id
+    }
+    
+    /**
+     * Update an existing message's content
+     */
+    fun updateMessage(messageId: String, newContent: String) {
+        val messageIndex = conversationMessages.indexOfFirst { it.id == messageId }
+        if (messageIndex >= 0) {
+            val updatedMessage = conversationMessages[messageIndex].copy(content = newContent)
+            conversationMessages[messageIndex] = updatedMessage
+            updateChatDisplay()
+        }
     }
     
     /**

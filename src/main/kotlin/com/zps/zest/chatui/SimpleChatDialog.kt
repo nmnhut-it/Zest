@@ -228,20 +228,31 @@ class SimpleChatDialog(
         
         // Update UI state
         isProcessing = true
-        sendButton.text = "Sending..."
+        sendButton.text = "Streaming..."
         sendButton.isEnabled = false
 
         // Add user message to markdown conversation
         appendToConversation("👤 **You**", userMessage)
 
-        // Send to AI asynchronously
-        ApplicationManager.getApplication().executeOnPooledThread {
-            try {
-                val response = chatService.sendMessage(userMessage)
-                
+        // Add AI message placeholder for streaming
+        appendToConversation("🤖 **AI**", "...")
+        
+        val responseBuilder = StringBuilder()
+        
+        // Send to AI with streaming
+        chatService.sendMessageStreaming(
+            userMessage,
+            onToken = { token ->
+                // Update AI response in real-time
+                responseBuilder.append(token)
                 ApplicationManager.getApplication().invokeLater {
-                    // Add AI response to markdown conversation
-                    appendToConversation("🤖 **AI**", response)
+                    updateLastMessage(responseBuilder.toString())
+                }
+            },
+            onComplete = { fullResponse ->
+                ApplicationManager.getApplication().invokeLater {
+                    // Ensure final response is displayed
+                    updateLastMessage(fullResponse)
                     
                     // Reset UI state
                     isProcessing = false
@@ -251,10 +262,11 @@ class SimpleChatDialog(
                     // Focus back to input
                     inputArea.requestFocus()
                 }
-            } catch (e: Exception) {
+            },
+            onError = { error ->
                 ApplicationManager.getApplication().invokeLater {
-                    // Show error message
-                    appendToConversation("❌ **Error**", "Failed to get AI response: ${e.message}")
+                    // Update AI message with error
+                    updateLastMessage("❌ Failed to get response: ${error.message}")
                     
                     // Reset UI state
                     isProcessing = false
@@ -262,13 +274,14 @@ class SimpleChatDialog(
                     sendButton.isEnabled = true
                 }
             }
-        }
+        )
     }
 
     /**
      * Append a new message to the conversation markdown with HTML anchor for scrolling
+     * @return the message anchor for future updates
      */
-    private fun appendToConversation(header: String, content: String) {
+    private fun appendToConversation(header: String, content: String): String {
         val timestamp = timeFormatter.format(java.util.Date())
         messageCounter++
         
@@ -290,6 +303,36 @@ class SimpleChatDialog(
         
         // Scroll to the beginning of this new message using anchor
         scrollToMessageAnchor(messageAnchor)
+        
+        return messageAnchor
+    }
+    
+    /**
+     * Update the content of the last message (for streaming)
+     */
+    private fun updateLastMessage(content: String) {
+        if (lastMessageAnchor != null) {
+            // Find the last message header in the markdown
+            val text = conversationMarkdown.toString()
+            val anchorPattern = "<a name=\"$lastMessageAnchor\"></a>\\n## ([^\\n]+)\\n\\n"
+            val regex = anchorPattern.toRegex()
+            val match = regex.find(text)
+            
+            if (match != null) {
+                val headerWithTimestamp = match.groupValues[1]
+                val beforeMessage = text.substring(0, match.range.first)
+                
+                // Rebuild the markdown with updated content
+                conversationMarkdown.clear()
+                conversationMarkdown.append(beforeMessage)
+                conversationMarkdown.append("<a name=\"$lastMessageAnchor\"></a>\n")
+                conversationMarkdown.append("## $headerWithTimestamp\n\n")
+                conversationMarkdown.append(content)
+                
+                // Update the markdown display
+                updateConversationDisplay()
+            }
+        }
     }
     
     /**

@@ -6,11 +6,13 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.Disposable
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.langchain4j.ZestChatLanguageModel
+import com.zps.zest.langchain4j.ZestStreamingChatLanguageModel
 import com.zps.zest.langchain4j.util.LLMService
 import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.ChatMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.memory.chat.MessageWindowChatMemory
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.chat.request.ChatRequest
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.agentic.AgenticServices
@@ -55,6 +57,7 @@ class ChatUIService(private val project: Project) : Disposable {
     // LangChain4j components
     private val llmService: LLMService by lazy { project.getService(LLMService::class.java) }
     private var chatModel: ZestChatLanguageModel = createChatModel(currentUsage)
+    private var streamingChatModel: ZestStreamingChatLanguageModel = createStreamingChatModel(currentUsage)
     private val chatMemory: MessageWindowChatMemory = MessageWindowChatMemory.withMaxMessages(50)
     
     // Tools for file operations
@@ -68,7 +71,7 @@ class ChatUIService(private val project: Project) : Disposable {
     private var currentDialog: JCEFChatDialog? = null
     
     /**
-     * Send a message to the AI and get a response with tool support
+     * Send a message to the AI and get a response with tool support (synchronous)
      */
     fun sendMessage(userMessage: String): String {
         LOG.info("Sending message to AI: ${userMessage.take(100)}...")
@@ -89,6 +92,68 @@ class ChatUIService(private val project: Project) : Disposable {
             LOG.error("Failed to send message to AI", e)
             val errorMessage = "Sorry, I encountered an error: ${e.message}"
             return errorMessage
+        }
+    }
+    
+    /**
+     * Send a message to the AI with streaming response support
+     * 
+     * @param userMessage The message to send
+     * @param onToken Callback for each streaming token
+     * @param onComplete Callback when streaming is complete
+     * @param onError Callback for errors
+     */
+    fun sendMessageStreaming(
+        userMessage: String,
+        onToken: (String) -> Unit,
+        onComplete: (String) -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        LOG.info("Sending streaming message to AI: ${userMessage.take(100)}...")
+        
+        try {
+            // Add user message to memory
+            chatMemory.add(UserMessage.from(userMessage))
+            
+            val responseBuilder = StringBuilder()
+            
+            // Create streaming response handler
+            val handler = object : StreamingChatResponseHandler {
+                override fun onPartialResponse(partialResponse: String) {
+                    responseBuilder.append(partialResponse)
+                    onToken(partialResponse)
+                }
+                
+                override fun onCompleteResponse(response: ChatResponse) {
+                    val fullResponse = responseBuilder.toString()
+                    
+                    // Add AI response to memory
+                    if (response.aiMessage() != null) {
+                        chatMemory.add(response.aiMessage())
+                    } else {
+                        // Fallback: create AiMessage from the streamed content
+                        chatMemory.add(AiMessage.from(fullResponse))
+                    }
+                    
+                    LOG.info("Received streaming AI response: ${fullResponse.take(100)}...")
+                    onComplete(fullResponse)
+                }
+                
+                override fun onError(error: Throwable) {
+                    LOG.error("Streaming failed", error)
+                    onError(error)
+                }
+            }
+            
+            // Get all messages for context
+            val messages = chatMemory.messages()
+            
+            // Send to streaming model
+            streamingChatModel.chat(messages, handler)
+            
+        } catch (e: Exception) {
+            LOG.error("Failed to start streaming message", e)
+            onError(e)
         }
     }
     
@@ -254,6 +319,7 @@ Be concise but descriptive.
             LOG.info("Switching chat context from $currentUsage to $usage")
             currentUsage = usage
             chatModel = createChatModel(usage)
+            streamingChatModel = createStreamingChatModel(usage)
         }
     }
     
@@ -262,6 +328,13 @@ Be concise but descriptive.
      */
     private fun createChatModel(usage: ChatboxUtilities.EnumUsage): ZestChatLanguageModel {
         return ZestChatLanguageModel(createPrioritizedLLMService(), usage, selectedModel)
+    }
+    
+    /**
+     * Create a streaming chat model with the specified usage context
+     */
+    private fun createStreamingChatModel(usage: ChatboxUtilities.EnumUsage): ZestStreamingChatLanguageModel {
+        return ZestStreamingChatLanguageModel(createPrioritizedLLMService(), usage, selectedModel)
     }
     
     /**
@@ -501,8 +574,9 @@ Be concise but descriptive.
         if (selectedModel != model) {
             LOG.info("Switching model from $selectedModel to $model")
             selectedModel = model
-            // Recreate chat model with new settings
+            // Recreate both chat models with new settings
             chatModel = createChatModel(currentUsage)
+            streamingChatModel = createStreamingChatModel(currentUsage)
         }
     }
     

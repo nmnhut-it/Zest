@@ -212,20 +212,31 @@ class JCEFChatDialog(
         
         // Update UI state
         isProcessing = true
-        sendButton.text = "Sending..."
+        sendButton.text = "Streaming..."
         sendButton.isEnabled = false
 
         // Add user message to chat
         chatPanel.addMessage("👤 **You**", userMessage)
 
-        // Send to AI asynchronously
-        ApplicationManager.getApplication().executeOnPooledThread {
-            try {
-                val response = chatService.sendMessage(userMessage)
-                
+        // Add initial AI message placeholder for streaming
+        val aiMessageId = chatPanel.addMessage("🤖 **AI**", "...")
+        
+        val responseBuilder = StringBuilder()
+        
+        // Send to AI with streaming
+        chatService.sendMessageStreaming(
+            userMessage,
+            onToken = { token ->
+                // Update AI response in real-time
+                responseBuilder.append(token)
                 ApplicationManager.getApplication().invokeLater {
-                    // Add AI response to chat
-                    chatPanel.addMessage("🤖 **AI**", response)
+                    chatPanel.updateMessage(aiMessageId, responseBuilder.toString())
+                }
+            },
+            onComplete = { fullResponse ->
+                ApplicationManager.getApplication().invokeLater {
+                    // Ensure final response is displayed
+                    chatPanel.updateMessage(aiMessageId, fullResponse)
                     
                     // Reset UI state
                     isProcessing = false
@@ -235,10 +246,11 @@ class JCEFChatDialog(
                     // Focus back to input
                     inputArea.requestFocus()
                 }
-            } catch (e: Exception) {
+            },
+            onError = { error ->
                 ApplicationManager.getApplication().invokeLater {
-                    // Show error message
-                    chatPanel.addMessage("❌ **Error**", "Failed to get AI response: ${e.message}")
+                    // Update AI message with error
+                    chatPanel.updateMessage(aiMessageId, "❌ Failed to get response: ${error.message}")
                     
                     // Reset UI state
                     isProcessing = false
@@ -246,7 +258,7 @@ class JCEFChatDialog(
                     sendButton.isEnabled = true
                 }
             }
-        }
+        )
     }
 
     private fun clearInput() {

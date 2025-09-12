@@ -5,7 +5,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.codehealth.ProjectChangesTracker;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 
 import dev.langchain4j.data.document.Metadata;
 import dev.langchain4j.data.embedding.Embedding;
@@ -50,7 +50,7 @@ public final class ZestLangChain4jService {
     private static final Logger LOG = Logger.getInstance(ZestLangChain4jService.class);
     
     private final Project project;
-    private final LLMService llmService;
+    private final NaiveLLMService naiveLlmService;
     private final ProjectChangesTracker changesTracker;
     
     // LangChain4j components
@@ -86,7 +86,7 @@ public final class ZestLangChain4jService {
     
     public ZestLangChain4jService(@NotNull Project project) {
         this.project = project;
-        this.llmService = project.getService(LLMService.class);
+        this.naiveLlmService = project.getService(NaiveLLMService.class);
         this.changesTracker = ProjectChangesTracker.Companion.getInstance(project);
         
         // Initialize LangChain4j components with custom embedding model
@@ -112,7 +112,7 @@ public final class ZestLangChain4jService {
         this.astChunker = new ASTChunker(1500); // 1500 characters per chunk (optimal for embeddings)
         
         // Initialize Advanced RAG service
-        this.advancedRAGService = new AdvancedRAGService(project, llmService, embeddingModel, embeddingStore, compressingTransformer);
+        this.advancedRAGService = new AdvancedRAGService(project, naiveLlmService, embeddingModel, embeddingStore, compressingTransformer);
         
         LOG.info("ZestLangChain4jService initialized with in-memory vector store and advanced RAG techniques for project: " + project.getName());
         LOG.info("Project base path: " + project.getBasePath());
@@ -882,12 +882,12 @@ public final class ZestLangChain4jService {
                 String taskPrompt = buildTaskPrompt(enhancedPrompt);
                 
                 // Use existing LLMService to execute task
-                LLMService.LLMQueryParams params = new LLMService.LLMQueryParams(taskPrompt)
+                NaiveLLMService.LLMQueryParams params = new NaiveLLMService.LLMQueryParams(taskPrompt)
                     .withModel("local-model")
                     .withMaxTokens(8000)
                     .withTimeout(60000);
                 
-                String response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.AGENT_TEST_WRITING);
+                String response = naiveLlmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.AGENT_TEST_WRITING);
                 
                 if (response == null) {
                     return new TaskResult(false, "Failed to execute task", null, List.of());
@@ -974,12 +974,12 @@ public final class ZestLangChain4jService {
                 String chatPrompt = buildChatPrompt(message, conversationHistory, contextItems);
                 
                 // Use existing LLMService for chat
-                LLMService.LLMQueryParams params = new LLMService.LLMQueryParams(chatPrompt)
+                NaiveLLMService.LLMQueryParams params = new NaiveLLMService.LLMQueryParams(chatPrompt)
                     .withModel("local-model")
                     .withMaxTokens(4000)
                     .withTimeout(30000);
                 
-                String response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CHAT_CODE_REVIEW);
+                String response = naiveLlmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CHAT_CODE_REVIEW);
                 
                 return response != null ? response : "Sorry, I couldn't process your request.";
                 
@@ -1215,7 +1215,7 @@ public final class ZestLangChain4jService {
      */
     private dev.langchain4j.model.chat.ChatModel createChatLanguageModel(ChatboxUtilities.EnumUsage enumUsage) {
         // Create a chat model directly
-        return new ZestChatLanguageModel(llmService, enumUsage);
+        return new ZestChatLanguageModel(naiveLlmService, enumUsage);
     }
     
     /**

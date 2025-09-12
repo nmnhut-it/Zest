@@ -7,7 +7,7 @@ import com.zps.zest.testgen.statemachine.AbstractStateHandler;
 import com.zps.zest.testgen.statemachine.TestGenerationState;
 import com.zps.zest.testgen.statemachine.TestGenerationStateMachine;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.concurrent.CompletableFuture;
@@ -21,23 +21,23 @@ public class TestFixingHandler extends AbstractStateHandler {
     
     private final Project project;
     private final ZestLangChain4jService langChainService;
-    private final LLMService llmService;
+    private final NaiveLLMService naiveLlmService;
     private final Consumer<String> streamingCallback;
     
     public TestFixingHandler(@NotNull Project project,
                             @NotNull ZestLangChain4jService langChainService,
-                            @NotNull LLMService llmService) {
-        this(project, langChainService, llmService, null);
+                            @NotNull NaiveLLMService naiveLlmService) {
+        this(project, langChainService, naiveLlmService, null);
     }
     
     public TestFixingHandler(@NotNull Project project,
                             @NotNull ZestLangChain4jService langChainService,
-                            @NotNull LLMService llmService,
+                            @NotNull NaiveLLMService naiveLlmService,
                             Consumer<String> streamingCallback) {
         super(TestGenerationState.FIXING_TESTS);
         this.project = project;
         this.langChainService = langChainService;
-        this.llmService = llmService;
+        this.naiveLlmService = naiveLlmService;
         this.streamingCallback = streamingCallback;
     }
     
@@ -64,7 +64,7 @@ public class TestFixingHandler extends AbstractStateHandler {
             }
             
             // Create TestFixingAgent
-            TestFixingAgent fixingAgent = new TestFixingAgent(project, langChainService, llmService);
+            TestFixingAgent fixingAgent = new TestFixingAgent(project, langChainService, naiveLlmService);
             
             // Set up streaming callback for the agent
             if (streamingCallback != null) {

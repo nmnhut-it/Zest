@@ -3,7 +3,7 @@ package com.zps.zest.langchain4j;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
-import com.zps.zest.langchain4j.util.NaiveLLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.util.EnvLoader;
 import dev.langchain4j.data.message.ChatMessage;

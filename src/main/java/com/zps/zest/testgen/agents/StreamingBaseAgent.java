@@ -4,7 +4,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.ZestChatLanguageModel;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.ui.StreamingEventListener;
 import com.zps.zest.testgen.ui.model.ContextDisplayData;
 import com.zps.zest.testgen.ui.model.TestPlanDisplayData;
@@ -26,7 +26,7 @@ public abstract class StreamingBaseAgent {
     
     protected final Project project;
     protected final ZestLangChain4jService langChainService;
-    protected final LLMService llmService;
+    protected final NaiveLLMService naiveLlmService;
     protected final String agentName;
     protected ChatModel chatModel;
     
@@ -37,16 +37,16 @@ public abstract class StreamingBaseAgent {
     
     protected StreamingBaseAgent(@NotNull Project project,
                                 @NotNull ZestLangChain4jService langChainService,
-                                @NotNull LLMService llmService,
+                                @NotNull NaiveLLMService naiveLlmService,
                                 @NotNull String agentName) {
         this.project = project;
         this.langChainService = langChainService;
-        this.llmService = llmService;
+        this.naiveLlmService = naiveLlmService;
         this.agentName = agentName;
         
         // Create chat model using ZestChatLanguageModel with agent-specific usage
         com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage usage = determineUsageForAgent(agentName);
-        this.chatModel = new ZestChatLanguageModel(llmService, usage);
+        this.chatModel = new ZestChatLanguageModel(naiveLlmService, usage);
         
         LOG.info("[" + agentName + "] Initialized with LangChain4j chat model using " + usage.name());
     }

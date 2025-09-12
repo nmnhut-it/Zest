@@ -19,7 +19,7 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.MethodReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
 import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
-import com.zps.zest.langchain4j.util.NaiveLLMService
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 import com.zps.zest.langchain4j.ZestLangChain4jService
 import com.google.gson.Gson
 import com.google.gson.JsonObject

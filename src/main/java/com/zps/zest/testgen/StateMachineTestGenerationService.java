@@ -1,11 +1,10 @@
 package com.zps.zest.testgen;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.TestGenerationRequest;
-import com.zps.zest.testgen.model.TestGenerationSession;
 import com.zps.zest.testgen.model.TestPlan;
 import com.zps.zest.testgen.statemachine.*;
 import com.zps.zest.testgen.statemachine.handlers.*;
@@ -79,11 +78,11 @@ public final class StateMachineTestGenerationService {
         
         // Create and store agents upfront so UI can access them immediately
         com.zps.zest.langchain4j.ZestLangChain4jService langChainService = project.getService(com.zps.zest.langchain4j.ZestLangChain4jService.class);
-        com.zps.zest.langchain4j.util.LLMService llmService = project.getService(com.zps.zest.langchain4j.util.LLMService.class);
+        NaiveLLMService naiveLlmService = project.getService(NaiveLLMService.class);
         
         // Create coordinatorAgent for planning phase - will get contextTools reference during planning phase
         // Note: ContextAgent is created later in ContextGatheringHandler, so CoordinatorAgent gets null contextTools initially
-        com.zps.zest.testgen.agents.CoordinatorAgent coordinatorAgent = new com.zps.zest.testgen.agents.CoordinatorAgent(project, langChainService, llmService, null);
+        com.zps.zest.testgen.agents.CoordinatorAgent coordinatorAgent = new com.zps.zest.testgen.agents.CoordinatorAgent(project, langChainService, naiveLlmService, null);
         stateMachine.setSessionData("coordinatorAgent", coordinatorAgent);
         
         // Store active state machine

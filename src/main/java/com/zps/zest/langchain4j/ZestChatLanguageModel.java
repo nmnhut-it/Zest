@@ -3,10 +3,9 @@ package com.zps.zest.langchain4j;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.util.EnvLoader;
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.chat.Capability;
 import dev.langchain4j.model.chat.ChatModel;
@@ -34,7 +33,7 @@ public class ZestChatLanguageModel implements ChatModel {
     
     private static final Logger LOG = Logger.getInstance(ZestChatLanguageModel.class);
     private final OpenAiChatModel delegateModel;
-    private final LLMService llmService; // Keep for backward compatibility if needed
+    private final NaiveLLMService naiveLlmService; // Keep for backward compatibility if needed
     private final ChatboxUtilities.EnumUsage usage;
     private final ConfigurationManager config;
 //    private final TokenUsageTracker tokenTracker;
@@ -109,16 +108,16 @@ public class ZestChatLanguageModel implements ChatModel {
 //        }
     }
 
-    public ZestChatLanguageModel(LLMService llmService, ChatboxUtilities.EnumUsage usage) {
-        this(llmService, usage, null);
+    public ZestChatLanguageModel(NaiveLLMService naiveLlmService, ChatboxUtilities.EnumUsage usage) {
+        this(naiveLlmService, usage, null);
     }
     
-    public ZestChatLanguageModel(LLMService llmService, ChatboxUtilities.EnumUsage usage, String selectedModel) {
+    public ZestChatLanguageModel(NaiveLLMService naiveLlmService, ChatboxUtilities.EnumUsage usage, String selectedModel) {
         if (selectedModel == null)
             selectedModel = "local-model";
-        this.llmService = llmService;
+        this.naiveLlmService = naiveLlmService;
         this.usage = usage;
-        this.config = ConfigurationManager.getInstance(llmService.getProject());
+        this.config = ConfigurationManager.getInstance(naiveLlmService.getProject());
         
         // Load configurable delays from environment variables
         this.minDelayMs = loadDelayFromEnv("OPENAI_MIN_DELAY_MS", DEFAULT_MIN_DELAY_MS);
@@ -126,10 +125,10 @@ public class ZestChatLanguageModel implements ChatModel {
         
         LOG.info("Rate limiting configured - Min delay: " + minDelayMs + "ms, Request delay: " + requestDelayMs + "ms");
         
-        this.delegateModel = createOpenAiModel(llmService.getProject(), selectedModel);
+        this.delegateModel = createOpenAiModel(naiveLlmService.getProject(), selectedModel);
         
         // Trigger username fetch
-        LLMService.fetchAndStoreUsername(llmService.getProject());
+        NaiveLLMService.fetchAndStoreUsername(naiveLlmService.getProject());
     }
     
     /**
@@ -151,9 +150,9 @@ public class ZestChatLanguageModel implements ChatModel {
         return defaultValue;
     }
 
-    private OpenAiChatModel createOpenAiModel(LLMService llmService) {
+    private OpenAiChatModel createOpenAiModel(NaiveLLMService naiveLlmService) {
         // Get configuration from the LLMService's project
-        Project project = llmService.getProject();
+        Project project = naiveLlmService.getProject();
         return createOpenAiModel(project, null);
     }
 

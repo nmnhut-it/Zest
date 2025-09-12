@@ -4,7 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
@@ -42,7 +42,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     private var processingJob: Job? = null
     
     // LLM service for API calls
-    private val llmService by lazy { LLMService(project) }
+    private val naiveLlmService by lazy { NaiveLLMService(project) }
     
     init {
         logger.info("Initializing ZestInlineCompletionMetricsService")
@@ -439,7 +439,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
      * Process a single metric event
      */
     private suspend fun processEvent(event: MetricEvent) {
-        if (!llmService.isConfigured()) {
+        if (!naiveLlmService.isConfigured()) {
             logger.debug("LLM service not configured, skipping metric: ${event.eventType}")
             return
         }
@@ -476,7 +476,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             }
             
             // Send the metric using the extension method
-            llmService.sendMetricEvent(event, enumUsage)
+            naiveLlmService.sendMetricEvent(event, enumUsage)
             
             log("Sent metric with enumUsage: $enumUsage and actualModel: ${event.actualModel}")
             

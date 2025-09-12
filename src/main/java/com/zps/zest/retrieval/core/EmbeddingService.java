@@ -8,9 +8,8 @@ import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.net.URI;
@@ -38,7 +37,7 @@ public final class EmbeddingService {
     private static final Gson GSON = new Gson();
     
     private final Project project;
-    private final LLMService llmService;
+    private final NaiveLLMService naiveLlmService;
     private final ConfigurationManager config;
     private final Map<String, float[]> embeddingCache;
     private final Object cacheLock = new Object();
@@ -59,7 +58,7 @@ public final class EmbeddingService {
     
     public EmbeddingService(@NotNull Project project) {
         this.project = project;
-        this.llmService = project.getService(LLMService.class);
+        this.naiveLlmService = project.getService(NaiveLLMService.class);
         this.config = ConfigurationManager.getInstance(project);
         this.embeddingCache = new ConcurrentHashMap<>();
         
@@ -280,7 +279,7 @@ public final class EmbeddingService {
      */
     private String makeEmbeddingRequest(@NotNull String requestBody) throws IOException {
         // Create custom LLM query parameters for embedding endpoint
-        LLMService.LLMQueryParams params = new LLMService.LLMQueryParams("")
+        NaiveLLMService.LLMQueryParams params = new NaiveLLMService.LLMQueryParams("")
             .withModel(DEFAULT_EMBEDDING_MODEL)
             .withMaxTokens(0)
             .withTimeout(30000);

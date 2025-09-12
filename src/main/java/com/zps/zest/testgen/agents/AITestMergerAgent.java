@@ -2,7 +2,7 @@ package com.zps.zest.testgen.agents;
 
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.NaiveLLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.util.ExistingTestAnalyzer;
 import dev.langchain4j.agent.tool.Tool;

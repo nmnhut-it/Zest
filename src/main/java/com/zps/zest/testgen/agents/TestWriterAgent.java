@@ -2,14 +2,12 @@ package com.zps.zest.testgen.agents;
 
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
-import dev.langchain4j.rag.content.retriever.ContentRetriever;
-import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -29,8 +27,8 @@ public class TestWriterAgent extends StreamingBaseAgent {
     
     public TestWriterAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
-                          @NotNull LLMService llmService) {
-        super(project, langChainService, llmService, "TestWriterAgent");
+                          @NotNull NaiveLLMService naiveLlmService) {
+        super(project, langChainService, naiveLlmService, "TestWriterAgent");
         
         // Build the simplified agent (with dummy tool for parallelToolCalls compatibility)
         this.chatMemory = MessageWindowChatMemory.withMaxMessages(50);

@@ -1,4 +1,4 @@
-package com.zps.zest.langchain4j.util;
+package com.zps.zest.langchain4j.naive_service;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;

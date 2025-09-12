@@ -9,7 +9,7 @@ import com.zps.zest.testgen.tools.ListFilesTool;
 import com.zps.zest.testgen.tools.TakeNoteTool;
 import com.zps.zest.langchain4j.tools.impl.ReadFileTool;
 import com.zps.zest.explanation.tools.RipgrepCodeTool;
-import com.zps.zest.langchain4j.util.NaiveLLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.TestGenerationRequest;
 import com.zps.zest.testgen.model.TestPlan;
 import com.zps.zest.testgen.ui.model.ContextDisplayData;

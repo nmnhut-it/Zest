@@ -1,4 +1,4 @@
-package com.zps.zest.langchain4j.util;
+package com.zps.zest.langchain4j.naive_service;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -29,9 +29,9 @@ import java.util.function.Consumer;
  * Streaming version of the LLM service that supports real-time response streaming.
  */
 @Service(Service.Level.PROJECT)
-public final class StreamingLLMService {
+public final class NaiveStreamingLLMService {
     
-    private static final Logger LOG = Logger.getInstance(StreamingLLMService.class);
+    private static final Logger LOG = Logger.getInstance(NaiveStreamingLLMService.class);
     private static final Gson GSON = new Gson();
     
     private final Project project;
@@ -46,7 +46,7 @@ public final class StreamingLLMService {
     private String logDirectory = System.getProperty("user.home") + File.separator + "zest_llm_logs";
     private static final DateTimeFormatter LOG_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss-SSS");
     
-    public StreamingLLMService(@NotNull Project project) {
+    public NaiveStreamingLLMService(@NotNull Project project) {
         this.project = project;
         this.config = ConfigurationManager.getInstance(project);
         LOG.info("Initialized StreamingLLMService for project: " + project.getName());

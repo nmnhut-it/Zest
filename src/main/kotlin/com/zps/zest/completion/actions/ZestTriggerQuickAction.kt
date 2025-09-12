@@ -26,7 +26,7 @@ import com.zps.zest.completion.ZestQuickActionService
 import com.zps.zest.completion.MethodContext
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
 import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
-import com.zps.zest.langchain4j.util.NaiveLLMService
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.ZestNotifications
 import com.zps.zest.testgen.actions.GenerateTestAction

@@ -7,7 +7,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
-import com.zps.zest.langchain4j.util.StreamingLLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveStreamingLLMService;
 
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
@@ -155,7 +155,7 @@ public class GitCommitMessageService {
             // Start streaming in background
             ApplicationManager.getApplication().executeOnPooledThread(() -> {
                 try {
-                    StreamingLLMService streamingService = project.getService(StreamingLLMService.class);
+                    NaiveStreamingLLMService streamingService = project.getService(NaiveStreamingLLMService.class);
                     streamingService.streamQuery(prompt, chunk -> {
                         fullMessage.append(chunk);
                         try {

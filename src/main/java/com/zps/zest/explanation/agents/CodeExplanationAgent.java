@@ -4,7 +4,7 @@ import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
 import com.zps.zest.explanation.tools.*;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.agents.StreamingBaseAgent;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -27,8 +27,8 @@ public class CodeExplanationAgent extends StreamingBaseAgent {
 
     public CodeExplanationAgent(@NotNull Project project,
                                @NotNull ZestLangChain4jService langChainService,
-                               @NotNull LLMService llmService) {
-        super(project, langChainService, llmService, "CodeExplanationAgent");
+                               @NotNull NaiveLLMService naiveLlmService) {
+        super(project, langChainService, naiveLlmService, "CodeExplanationAgent");
         this.toolRegistry = project.getService(CodeExplorationToolRegistry.class);
         this.explanationTools = new CodeExplanationTools(project, toolRegistry, this::sendToUI, this);
 

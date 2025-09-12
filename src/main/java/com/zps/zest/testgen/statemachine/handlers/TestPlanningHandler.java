@@ -7,7 +7,7 @@ import com.zps.zest.testgen.statemachine.AbstractStateHandler;
 import com.zps.zest.testgen.statemachine.TestGenerationState;
 import com.zps.zest.testgen.statemachine.TestGenerationStateMachine;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.NaiveLLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.concurrent.CompletableFuture;

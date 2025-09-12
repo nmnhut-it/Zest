@@ -11,14 +11,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.*
 import com.intellij.psi.codeStyle.CodeStyleManager
 import com.intellij.psi.util.PsiTreeUtil
-import com.zps.zest.completion.MethodContext
 import com.zps.zest.completion.prompt.ZestMethodPromptBuilder
 import com.zps.zest.completion.parser.ZestMethodResponseParser
 import com.zps.zest.completion.actions.ZestTriggerQuickAction
-import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 import com.zps.zest.langchain4j.ZestLangChain4jService
 import com.zps.zest.testgen.agents.ContextAgent
-import com.zps.zest.testgen.model.TestGenerationRequest
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.ZestNotifications
 import com.zps.zest.completion.ui.ZestCompletionStatusBarWidget
@@ -43,7 +41,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
     private val llmService by lazy {
         try {
             System.out.println("[ZestMethodRewrite] Initializing LLMService...")
-            val service = LLMService(project)
+            val service = NaiveLLMService(project)
             System.out.println("[ZestMethodRewrite] LLMService initialized successfully")
             service
         } catch (e: Exception) {
@@ -443,7 +441,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
             val startTime = System.currentTimeMillis()
 
             val response = withTimeoutOrNull(METHOD_REWRITE_TIMEOUT_MS) {
-                val queryParams = LLMService.LLMQueryParams(prompt)
+                val queryParams = NaiveLLMService.LLMQueryParams(prompt)
                     .useLiteCodeModel()
                     .withMaxTokens(METHOD_REWRITE_MAX_TOKENS)
                     .withTemperature(0.3)

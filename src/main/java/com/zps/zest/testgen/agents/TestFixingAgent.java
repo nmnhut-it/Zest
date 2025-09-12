@@ -2,15 +2,11 @@ package com.zps.zest.testgen.agents;
 
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
-import com.intellij.psi.PsiManager;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.tools.TestFixingTools;
 import com.zps.zest.testgen.util.PSIErrorCollector;
 import dev.langchain4j.agentic.AgenticServices;
@@ -20,7 +16,6 @@ import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 import org.jetbrains.annotations.NotNull;
 
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -36,8 +31,8 @@ public class TestFixingAgent extends StreamingBaseAgent {
     
     public TestFixingAgent(@NotNull Project project,
                            @NotNull ZestLangChain4jService langChainService,
-                           @NotNull LLMService llmService) {
-        super(project, langChainService, llmService, "TestFixingAgent");
+                           @NotNull NaiveLLMService naiveLlmService) {
+        super(project, langChainService, naiveLlmService, "TestFixingAgent");
         
         this.tools = new TestFixingTools(project);
         this.chatMemory = MessageWindowChatMemory.withMaxMessages(20);

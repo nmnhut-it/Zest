@@ -6,29 +6,9 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
-import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.DialogWrapper
-import com.intellij.openapi.wm.ToolWindow
-import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBScrollPane
-import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UIUtil
-import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
-import java.awt.BorderLayout
-import java.awt.Dimension
-import java.awt.datatransfer.StringSelection
-import javax.swing.*
-import javax.swing.event.HyperlinkEvent
-import javax.swing.event.HyperlinkListener
-import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.fileEditor.OpenFileDescriptor
-import com.intellij.psi.JavaPsiFacade
-import com.intellij.psi.search.GlobalSearchScope
-import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.psi.PsiFile
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 
 /**
  * Code Health notification system with HTML/CSS-based UI
@@ -55,14 +35,14 @@ object CodeHealthNotification {
         println("[CodeHealthNotification] Showing report: ${results.size} methods, $totalIssues verified issues")
 
         // Generate catchy notification using LLM
-        val llmService = project.service<com.zps.zest.langchain4j.util.LLMService>()
+        val naiveLlmService = project.service<NaiveLLMService>()
         
         try {
             // Generate notification content based on severity
             val (title, content) = when {
-                criticalIssues > 0 -> generateCriticalNotification(llmService, criticalIssues, totalIssues, isGitTriggered)
-                totalIssues > 0 -> generateWarningNotification(llmService, totalIssues, averageScore, isGitTriggered)
-                else -> generateSuccessNotification(llmService, results.size, averageScore, isGitTriggered)
+                criticalIssues > 0 -> generateCriticalNotification(naiveLlmService, criticalIssues, totalIssues, isGitTriggered)
+                totalIssues > 0 -> generateWarningNotification(naiveLlmService, totalIssues, averageScore, isGitTriggered)
+                else -> generateSuccessNotification(naiveLlmService, results.size, averageScore, isGitTriggered)
             }
             
             // Show the notification
@@ -108,7 +88,7 @@ object CodeHealthNotification {
      * Generate catchy notification for critical issues
      */
     private fun generateCriticalNotification(
-        llmService: com.zps.zest.langchain4j.util.LLMService,
+        naiveLlmService: NaiveLLMService,
         criticalCount: Int,
         totalCount: Int,
         isGitTriggered: Boolean = false
@@ -137,12 +117,12 @@ object CodeHealthNotification {
             }
         """.trimIndent()
         
-        val params = com.zps.zest.langchain4j.util.LLMService.LLMQueryParams(prompt)
+        val params = NaiveLLMService.LLMQueryParams(prompt)
             .useLiteCodeModel()
             .withMaxTokens(200)
             .withTemperature(0.8) // More creativity
         
-        val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+        val response = naiveLlmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
         
         return if (response != null) {
             parseLLMNotification(response) ?: Pair(
@@ -161,7 +141,7 @@ object CodeHealthNotification {
      * Generate catchy notification for non-critical issues
      */
     private fun generateWarningNotification(
-        llmService: com.zps.zest.langchain4j.util.LLMService,
+        naiveLlmService: NaiveLLMService,
         totalCount: Int,
         averageScore: Int,
         isGitTriggered: Boolean = false
@@ -190,12 +170,12 @@ object CodeHealthNotification {
             }
         """.trimIndent()
         
-        val params = com.zps.zest.langchain4j.util.LLMService.LLMQueryParams(prompt)
+        val params = NaiveLLMService.LLMQueryParams(prompt)
             .useLiteCodeModel()
             .withMaxTokens(200)
             .withTemperature(0.8)
         
-        val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+        val response = naiveLlmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
         
         return if (response != null) {
             parseLLMNotification(response) ?: Pair(
@@ -214,7 +194,7 @@ object CodeHealthNotification {
      * Generate catchy notification for perfect score
      */
     private fun generateSuccessNotification(
-        llmService: com.zps.zest.langchain4j.util.LLMService,
+        naiveLlmService: NaiveLLMService,
         methodCount: Int,
         averageScore: Int,
         isGitTriggered: Boolean = false
@@ -242,12 +222,12 @@ object CodeHealthNotification {
             }
         """.trimIndent()
         
-        val params = com.zps.zest.langchain4j.util.LLMService.LLMQueryParams(prompt)
+        val params = NaiveLLMService.LLMQueryParams(prompt)
             .useLiteCodeModel()
             .withMaxTokens(200)
             .withTemperature(0.8)
         
-        val response = llmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
+        val response = naiveLlmService.queryWithParams(params, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH)
         
         return if (response != null) {
             parseLLMNotification(response) ?: Pair(

@@ -1,11 +1,10 @@
 package com.zps.zest.completion.experience
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.zps.zest.ConfigurationManager
-import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 import kotlinx.coroutines.*
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -16,7 +15,7 @@ import java.time.format.DateTimeFormatter
 class ZestExperienceTracker(private val project: Project) {
     private val logger = Logger.getInstance(ZestExperienceTracker::class.java)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val llmService by lazy { LLMService(project) }
+    private val naiveLlmService by lazy { NaiveLLMService(project) }
     
     data class RewriteSession(
         val methodName: String,
@@ -111,12 +110,12 @@ class ZestExperienceTracker(private val project: Project) {
                 """.trimIndent()
                 
                 // Query LLM for analysis
-                val queryParams = LLMService.LLMQueryParams(analysisPrompt)
+                val queryParams = NaiveLLMService.LLMQueryParams(analysisPrompt)
                     .useLiteCodeModel()
                     .withMaxTokens(100)
                     .withTemperature(0.3)
                 
-                val analysis = llmService.queryWithParams(queryParams, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.QUICK_ACTION_LOGGING)
+                val analysis = naiveLlmService.queryWithParams(queryParams, com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.QUICK_ACTION_LOGGING)
                 
                 if (analysis != null && analysis.isNotBlank()) {
                     recordExperience(session.methodName, analysis.trim())

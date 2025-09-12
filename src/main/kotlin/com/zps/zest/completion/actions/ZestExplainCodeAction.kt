@@ -12,7 +12,7 @@ import com.intellij.psi.PsiFile
 import com.zps.zest.explanation.agents.CodeExplanationAgent
 import com.zps.zest.explanation.ui.CodeExplanationDialog
 import com.zps.zest.langchain4j.ZestLangChain4jService
-import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -135,9 +135,9 @@ class ZestExplainCodeAction : AnAction("Explain Code", "Explain the selected cod
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val langChainService = project.getService(ZestLangChain4jService::class.java)
-                val llmService = project.getService(LLMService::class.java)
+                val naiveLlmService = project.getService(NaiveLLMService::class.java)
                 
-                if (langChainService == null || llmService == null) {
+                if (langChainService == null || naiveLlmService == null) {
                     ApplicationManager.getApplication().invokeLater {
                         Messages.showErrorDialog(
                             project,
@@ -149,7 +149,7 @@ class ZestExplainCodeAction : AnAction("Explain Code", "Explain the selected cod
                 }
 
                 // Create the explanation agent
-                val explanationAgent = CodeExplanationAgent(project, langChainService, llmService)
+                val explanationAgent = CodeExplanationAgent(project, langChainService, naiveLlmService)
 
                 // Progress callback for UI updates
                 val progressCallback: (String) -> Unit = { status ->

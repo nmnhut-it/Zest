@@ -23,7 +23,7 @@ import com.zps.zest.completion.prompt.PromptMigrationHelper
 import com.zps.zest.completion.config.PromptCachingConfig
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
 import com.zps.zest.completion.metrics.PromptCachingMetrics
-import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.*
@@ -292,7 +292,7 @@ class ZestCompletionProvider(private val project: Project) {
             var actualModel = "local-model-mini" // Default model
             val responseWithModel = try {
                 withTimeoutOrNull(COMPLETION_TIMEOUT_MS) {
-                    val queryParams = LLMService.LLMQueryParams(userPrompt)
+                    val queryParams = NaiveLLMService.LLMQueryParams(userPrompt)
                             .withSystemPrompt(systemPrompt)
                             .useLiteCodeModel()
                             .withMaxTokens(MAX_COMPLETION_TOKENS)
@@ -508,7 +508,7 @@ class ZestCompletionProvider(private val project: Project) {
             var actualModel = "local-model-mini" // Default model
             val response = try {
                 withTimeoutOrNull(LEAN_COMPLETION_TIMEOUT_MS) {
-                    val queryParams = LLMService.LLMQueryParams(userPrompt)
+                    val queryParams = NaiveLLMService.LLMQueryParams(userPrompt)
                             .withSystemPrompt(systemPrompt)
                             .useLiteCodeModel()  // Use full model for reasoning
                             .withMaxTokens(LEAN_MAX_COMPLETION_TOKENS)  // Limit tokens to control response length

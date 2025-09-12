@@ -6,7 +6,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
-import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 
@@ -15,7 +15,7 @@ import com.google.gson.JsonObject
  */
 class JsTsHealthAnalyzer(private val project: Project) {
     
-    private val llmService: LLMService = project.service()
+    private val naiveLlmService: NaiveLLMService = project.service()
     private val contextHelper = JsTsContextHelper(project)
     private val gson = Gson()
     
@@ -55,7 +55,7 @@ class JsTsHealthAnalyzer(private val project: Project) {
             )
             
             // Call LLM for analysis
-            val params = LLMService.LLMQueryParams(prompt)
+            val params = NaiveLLMService.LLMQueryParams(prompt)
                 .useLiteCodeModel()
                 .withMaxTokens(2048)
                 .withTemperature(0.3)
@@ -64,7 +64,7 @@ class JsTsHealthAnalyzer(private val project: Project) {
             val actualModel = params.getModel()
             println("[JsTsHealthAnalyzer] Using model: $actualModel for ${region.getIdentifier()}")
             
-            val response = llmService.queryWithParams(
+            val response = naiveLlmService.queryWithParams(
                 params, 
                 com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage.CODE_HEALTH
             )

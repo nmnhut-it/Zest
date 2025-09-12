@@ -6,7 +6,7 @@ import com.zps.zest.testgen.statemachine.AbstractStateHandler;
 import com.zps.zest.testgen.statemachine.TestGenerationState;
 import com.zps.zest.testgen.statemachine.TestGenerationStateMachine;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
@@ -48,8 +48,8 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             
             // Initialize context agent
             ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
-            LLMService llmService = getProject(stateMachine).getService(LLMService.class);
-            ContextAgent contextAgent = new ContextAgent(getProject(stateMachine), langChainService, llmService);
+            NaiveLLMService naiveLlmService = getProject(stateMachine).getService(NaiveLLMService.class);
+            ContextAgent contextAgent = new ContextAgent(getProject(stateMachine), langChainService, naiveLlmService);
             
             // Store the ContextAgent in session data for UI access
             stateMachine.setSessionData("contextAgent", contextAgent);

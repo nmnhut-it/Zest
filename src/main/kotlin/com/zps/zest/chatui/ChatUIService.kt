@@ -7,13 +7,9 @@ import com.intellij.openapi.Disposable
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.langchain4j.ZestChatLanguageModel
 import com.zps.zest.langchain4j.ZestStreamingChatLanguageModel
-import com.zps.zest.langchain4j.util.LLMService
-import dev.langchain4j.data.message.AiMessage
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 import dev.langchain4j.data.message.ChatMessage
-import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.memory.chat.MessageWindowChatMemory
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
-import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.service.AiServices
 import dev.langchain4j.service.TokenStream
 import com.zps.zest.testgen.tools.ReadFileTool
@@ -56,7 +52,7 @@ class ChatUIService(private val project: Project) : Disposable {
     private val modelsRefreshIntervalMinutes = 30L
     
     // LangChain4j components
-    private val llmService: LLMService by lazy { project.getService(LLMService::class.java) }
+    private val naiveLlmService: NaiveLLMService by lazy { project.getService(NaiveLLMService::class.java) }
     private var chatModel: ZestChatLanguageModel = createChatModel(currentUsage)
     private var streamingChatModel: ZestStreamingChatLanguageModel = createStreamingChatModel(currentUsage)
     private val chatMemory: MessageWindowChatMemory = MessageWindowChatMemory.withMaxMessages(500)
@@ -376,7 +372,7 @@ Be concise but descriptive.
     /**
      * Create an LLMService that prioritizes ZingPlay endpoints over LiteLLM
      */
-    private fun createPrioritizedLLMService(): LLMService {
+    private fun createPrioritizedLLMService(): NaiveLLMService {
         val configManager = com.zps.zest.ConfigurationManager.getInstance(project)
         val originalApiUrl = configManager.apiUrl
         
@@ -389,7 +385,7 @@ Be concise but descriptive.
             configManager.apiUrl = preferredApiUrl
         }
         
-        return llmService
+        return naiveLlmService
     }
     
     /**

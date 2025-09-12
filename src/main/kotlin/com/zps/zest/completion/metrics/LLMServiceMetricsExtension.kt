@@ -1,9 +1,6 @@
 package com.zps.zest.completion.metrics
 
-import com.google.gson.Gson
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
-import com.zps.zest.langchain4j.util.LLMService
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 import com.zps.zest.ConfigurationManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -19,7 +16,7 @@ import java.net.URL
  * Send inline completion metrics to the API
  * This is a fire-and-forget operation that doesn't expect a response
  */
-suspend fun LLMService.sendInlineCompletionMetrics(
+suspend fun NaiveLLMService.sendInlineCompletionMetrics(
     eventType: String,
     completionId: String,
     elapsed: Long,
@@ -148,7 +145,7 @@ suspend fun LLMService.sendInlineCompletionMetrics(
 /**
  * Convenience method to send a metric event
  */
-suspend fun LLMService.sendMetricEvent(event: MetricEvent, enumUsage: String): Boolean {
+suspend fun NaiveLLMService.sendMetricEvent(event: MetricEvent, enumUsage: String): Boolean {
     // Extract completion content from events that have it
     val completionContent = when (event) {
         is MetricEvent.InlineSelect -> event.completionContent
@@ -190,7 +187,7 @@ suspend fun LLMService.sendMetricEvent(event: MetricEvent, enumUsage: String): B
  * Extension property to get the project from LLMService
  * Uses reflection to access the private project field
  */
-private val LLMService.project: com.intellij.openapi.project.Project
+private val NaiveLLMService.project: com.intellij.openapi.project.Project
     get() = this.javaClass.getDeclaredField("project").apply {
         isAccessible = true
     }.get(this) as com.intellij.openapi.project.Project

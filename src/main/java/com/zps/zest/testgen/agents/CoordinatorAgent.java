@@ -3,7 +3,7 @@ package com.zps.zest.testgen.agents;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiMethod;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.langchain4j.util.LLMService;
+import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.ui.model.TestPlanDisplayData;
 import com.zps.zest.testgen.ui.model.ScenarioDisplayData;
@@ -35,9 +35,9 @@ public class CoordinatorAgent extends StreamingBaseAgent {
     
     public CoordinatorAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
-                          @NotNull LLMService llmService,
+                          @NotNull NaiveLLMService naiveLlmService,
                           @Nullable ContextAgent.ContextGatheringTools contextTools) {
-        super(project, langChainService, llmService, "CoordinatorAgent");
+        super(project, langChainService, naiveLlmService, "CoordinatorAgent");
         this.contextTools = contextTools;
         this.planningTools = new TestPlanningTools(this);
         

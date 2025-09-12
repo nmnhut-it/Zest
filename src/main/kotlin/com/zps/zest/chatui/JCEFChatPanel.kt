@@ -566,11 +566,40 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                             }
                             
                             const state = messageElement._streamingState;
+                            const currentTime = Date.now();
+                            
+                            // Calculate adaptive speed based on chunk arrival rate
+                            if (state.lastChunkTime > 0) {
+                                const timeSinceLastChunk = currentTime - state.lastChunkTime;
+                                state.chunkInterval = timeSinceLastChunk;
+                                
+                                // Adaptive speed calculation:
+                                // Fast chunks (< 500ms apart) → Fast display (100-200ms per word)
+                                // Medium chunks (500-2000ms apart) → Medium display (300-500ms per word)  
+                                // Slow chunks (> 2000ms apart) → Slow display (800-1500ms per word)
+                                if (timeSinceLastChunk < 500) {
+                                    state.adaptiveSpeed = Math.max(100, Math.min(200, timeSinceLastChunk / 3));
+                                } else if (timeSinceLastChunk < 2000) {
+                                    state.adaptiveSpeed = Math.max(300, Math.min(500, timeSinceLastChunk / 2));
+                                } else {
+                                    state.adaptiveSpeed = Math.max(800, Math.min(1500, timeSinceLastChunk / 2));
+                                }
+                                
+                                console.log('Adaptive speed:', state.adaptiveSpeed + 'ms per word (chunk interval:', timeSinceLastChunk + 'ms)');
+                            }
+                            state.lastChunkTime = currentTime;
+                            
                             state.contentBuffer += newChunk;
                             
                             // Split into words and add to queue
                             const words = newChunk.split(/(\s+)/);
                             state.wordQueue.push(...words);
+                            
+                            // If queue gets too long, speed up to catch up
+                            if (state.wordQueue.length > 50) {
+                                state.adaptiveSpeed = Math.max(50, state.adaptiveSpeed / 2);
+                                console.log('Queue overflow, speeding up to:', state.adaptiveSpeed + 'ms per word');
+                            }
                             
                             // Start word-by-word display if not already processing
                             if (!state.isProcessing) {
@@ -599,9 +628,13 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                             // Update display with plain text
                             contentDiv.innerHTML = '<pre style="white-space: pre-wrap; font-family: inherit; margin: 0; background: none; border: none; padding: 0;">' + this.escapeHtml(state.displayedContent) + '<span class="streaming-cursor">▎</span></pre>';
                             
-                            // Continue processing with delay (~1 word per 2 seconds, but faster for spaces)
+                            // Use adaptive speed based on chunk arrival rate
                             const isSpace = /^\s+$/.test(nextWord);
-                            const delay = isSpace ? 100 : 500; // Faster for spaces, slower for words
+                            const baseDelay = isSpace ? Math.max(50, state.adaptiveSpeed / 5) : state.adaptiveSpeed;
+                            
+                            // Add some randomness for more natural typing (±20%)
+                            const randomFactor = 0.8 + (Math.random() * 0.4);
+                            const delay = Math.floor(baseDelay * randomFactor);
                             
                             setTimeout(() => {
                                 this.processWordQueue(messageId);

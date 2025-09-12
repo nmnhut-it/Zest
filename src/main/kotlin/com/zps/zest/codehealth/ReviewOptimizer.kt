@@ -1,255 +1,205 @@
 package com.zps.zest.codehealth
 
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
-import com.intellij.psi.PsiFile
-import com.intellij.psi.PsiJavaFile
-import com.intellij.psi.PsiMethod
-import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.psi.*
+import com.intellij.psi.search.GlobalSearchScope
 
 /**
- * Optimizes review process by grouping methods and handling small files
+ * Optimizes review process by grouping methods and handling small files.
+ * Logic and API preserved. Refactored for readability and shorter methods.
  */
 class ReviewOptimizer(private val project: Project) {
-    
+
     companion object {
-        const val SMALL_FILE_THRESHOLD = 2000 // lines - increased to review more whole files
-        const val CHUNK_SIZE = 500 // lines per chunk for large files
-        const val CHUNK_OVERLAP = 50 // lines of overlap between chunks for context
+        const val SMALL_FILE_THRESHOLD = 2000
+        const val CHUNK_SIZE = 500
+        const val CHUNK_OVERLAP = 50
+        private const val TAG = "[ReviewOptimizer]"
     }
-    
+
     data class ReviewUnit(
         val type: ReviewType,
         val className: String,
         val methods: List<String>,
         val filePath: String? = null,
         val lineCount: Int = 0,
-        val language: String = "java", // Add language field
-        val startLine: Int = 0, // For partial files
-        val endLine: Int = 0 // For partial files
+        val language: String = "java",
+        val startLine: Int = 0,
+        val endLine: Int = 0
     ) {
         enum class ReviewType {
-            WHOLE_FILE,      // Review entire small file
-            PARTIAL_FILE,    // Review part of a large file
-            METHOD_GROUP,    // Review group of methods from same class
-            JS_TS_REGION    // Review JS/TS region
+            WHOLE_FILE, PARTIAL_FILE, METHOD_GROUP, JS_TS_REGION
         }
-        
-        fun getIdentifier(): String {
-            return when (type) {
-                ReviewType.WHOLE_FILE -> "file:$className"
-                ReviewType.PARTIAL_FILE -> "partial:$className:$startLine-$endLine" // Include line range for uniqueness
-                ReviewType.METHOD_GROUP -> "class:$className:${methods.sorted().joinToString(",")}"
-                ReviewType.JS_TS_REGION -> "region:$className" // For JS/TS, className is the region identifier
-            }
+
+        fun getIdentifier(): String = when (type) {
+            ReviewType.WHOLE_FILE -> "file:$className"
+            ReviewType.PARTIAL_FILE -> "partial:$className:$startLine-$endLine"
+            ReviewType.METHOD_GROUP -> "class:$className:${methods.sorted().joinToString(",")}"
+            ReviewType.JS_TS_REGION -> "region:$className"
         }
-        
-        fun getDescription(): String {
-            return when (type) {
-                ReviewType.WHOLE_FILE -> "Entire file: $className ($lineCount lines)"
-                ReviewType.PARTIAL_FILE -> "Partial file: $className (lines $startLine-$endLine)"
-                ReviewType.METHOD_GROUP -> "Class $className: ${methods.size} methods (${methods.joinToString(", ")})"
-                ReviewType.JS_TS_REGION -> "JS/TS Region: $className"
-            }
+
+        fun getDescription(): String = when (type) {
+            ReviewType.WHOLE_FILE -> "Entire file: $className ($lineCount lines)"
+            ReviewType.PARTIAL_FILE -> "Partial file: $className (lines $startLine-$endLine)"
+            ReviewType.METHOD_GROUP -> "Class $className: ${methods.size} methods (${methods.joinToString(", ")})"
+            ReviewType.JS_TS_REGION -> "JS/TS Region: $className"
         }
     }
-    
-    /**
-     * Groups methods by class and identifies small files for whole-file review
-     */
+
     fun optimizeReviewUnits(methodFQNs: List<String>): List<ReviewUnit> {
-        val reviewUnits = mutableListOf<ReviewUnit>()
-        
-        // Separate Java methods from JS/TS regions
-        val javaMethods = mutableListOf<String>()
-        val jsTsRegions = mutableListOf<String>()
-        
-        methodFQNs.forEach { fqn ->
-            when {
-                fqn.contains(".js:") || fqn.contains(".ts:") -> jsTsRegions.add(fqn)
-                else -> javaMethods.add(fqn)
-            }
-        }
-        
-        // Process Java methods
-        if (javaMethods.isNotEmpty()) {
-            reviewUnits.addAll(optimizeJavaReviewUnits(javaMethods))
-        }
-        
-        // Process JS/TS regions
-        if (jsTsRegions.isNotEmpty()) {
-            reviewUnits.addAll(optimizeJsTsReviewUnits(jsTsRegions))
-        }
-        
-        return reviewUnits
+        val (javaMethods, jsTsRegions) = splitByLanguage(methodFQNs)
+        val units = mutableListOf<ReviewUnit>()
+        if (javaMethods.isNotEmpty()) units += optimizeJavaReviewUnits(javaMethods)
+        if (jsTsRegions.isNotEmpty()) units += optimizeJsTsReviewUnits(jsTsRegions)
+        return units
     }
-    
-    /**
-     * Optimize Java methods into review units
-     */
+
+    private fun splitByLanguage(methodFQNs: List<String>): Pair<List<String>, List<String>> {
+        val java = mutableListOf<String>()
+        val jsTs = mutableListOf<String>()
+        methodFQNs.forEach { if (it.contains(".js:") || it.contains(".ts:")) jsTs += it else java += it }
+        return java to jsTs
+    }
+
     private fun optimizeJavaReviewUnits(methodFQNs: List<String>): List<ReviewUnit> {
-        // Group methods by class
-        val methodsByClass = methodFQNs.groupBy { fqn ->
-            fqn.substringBeforeLast(".")
-        }
-        
-        val reviewUnits = mutableListOf<ReviewUnit>()
-        
-        methodsByClass.forEach { (className, methods) ->
-            // Try to find the class file - wrap in read action
-            val psiClassInfo = com.intellij.openapi.application.ReadAction.compute<Pair<com.intellij.psi.PsiClass?, Int>, Throwable> {
-                val psiClass = com.intellij.psi.JavaPsiFacade.getInstance(project)
-                    .findClass(className, com.intellij.psi.search.GlobalSearchScope.projectScope(project))
-                
-                val lineCount = psiClass?.containingFile?.text?.lines()?.size ?: 0
-                Pair(psiClass, lineCount)
-            }
-            
-            val psiClass = psiClassInfo.first
-            val lineCount = psiClassInfo.second
-            
+        val byClass = methodFQNs.groupBy { it.substringBeforeLast(".") }
+        val result = mutableListOf<ReviewUnit>()
+        byClass.forEach { (className, methods) ->
+            val (psiClass, lineCount) = resolvePsiClassInfo(className)
             if (psiClass != null) {
-                val filePath = psiClass.containingFile?.virtualFile?.path
-                
-                // If file is small, review the whole file
-                if (lineCount <= SMALL_FILE_THRESHOLD) {
-                    reviewUnits.add(ReviewUnit(
-                        type = ReviewUnit.ReviewType.WHOLE_FILE,
-                        className = className,
-                        methods = methods.map { it.substringAfterLast(".") },
-                        filePath = filePath,
-                        lineCount = lineCount,
-                        language = "java"
-                    ))
-                } else {
-                    // For large files, create chunks
-                    println("[ReviewOptimizer] Large file detected: $className with $lineCount lines. Creating chunks...")
-                    var currentLine = 0
-                    var chunkNumber = 1
-                    
-                    while (currentLine < lineCount) {
-                        val startLine = if (currentLine == 0) 0 else currentLine - CHUNK_OVERLAP
-                        val endLine = minOf(currentLine + CHUNK_SIZE, lineCount)
-                        
-                        reviewUnits.add(ReviewUnit(
-                            type = ReviewUnit.ReviewType.PARTIAL_FILE,
-                            className = className,
-                            methods = methods.map { it.substringAfterLast(".") }, // Include all methods for context
-                            filePath = filePath,
-                            lineCount = endLine - startLine,
-                            language = "java",
-                            startLine = startLine,
-                            endLine = endLine
-                        ))
-                        
-                        println("[ReviewOptimizer] Created chunk $chunkNumber: lines $startLine-$endLine")
-                        currentLine += CHUNK_SIZE
-                        chunkNumber++
-                    }
-                }
+                result += buildJavaUnitsForClass(className, methods, psiClass, lineCount)
             } else {
-                // Fallback if we can't find the file
-                reviewUnits.add(ReviewUnit(
-                    type = ReviewUnit.ReviewType.METHOD_GROUP,
+                result += fallbackMethodGroup(className, methods)
+            }
+        }
+        return result
+    }
+
+    private fun resolvePsiClassInfo(className: String): Pair<PsiClass?, Int> {
+        return ReadAction.compute<Pair<PsiClass?, Int>, Throwable> {
+            val psi = JavaPsiFacade.getInstance(project)
+                .findClass(className, GlobalSearchScope.projectScope(project))
+            val lines = psi?.containingFile?.text?.lines()?.size ?: 0
+            psi to lines
+        }
+    }
+
+    private fun buildJavaUnitsForClass(
+        className: String,
+        methods: List<String>,
+        psiClass: PsiClass,
+        lineCount: Int
+    ): List<ReviewUnit> {
+        val filePath = psiClass.containingFile?.virtualFile?.path
+        val methodNames = methods.map { it.substringAfterLast(".") }
+        return if (lineCount <= SMALL_FILE_THRESHOLD) {
+            listOf(
+                ReviewUnit(
+                    type = ReviewUnit.ReviewType.WHOLE_FILE,
                     className = className,
-                    methods = methods.map { it.substringAfterLast(".") },
+                    methods = methodNames,
+                    filePath = filePath,
+                    lineCount = lineCount,
                     language = "java"
-                ))
-            }
+                )
+            )
+        } else {
+            createFileChunks(className, methodNames, filePath, lineCount)
         }
-        
-        return reviewUnits
     }
-    
-    /**
-     * Optimize JS/TS regions into review units
-     */
-    private fun optimizeJsTsReviewUnits(regionIdentifiers: List<String>): List<ReviewUnit> {
-        // Group regions by file - need to handle file paths with colons correctly
-        val regionsByFile = regionIdentifiers.groupBy { identifier ->
-            // Find the last colon which separates file path from line number
-            val lastColonIndex = identifier.lastIndexOf(":")
-            if (lastColonIndex > 0) {
-                identifier.substring(0, lastColonIndex)
-            } else {
-                identifier
-            }
-        }
-        
-        val reviewUnits = mutableListOf<ReviewUnit>()
-        
-        regionsByFile.forEach { (filePath, regions) ->
-            println("[ReviewOptimizer] Processing file: $filePath with ${regions.size} regions")
-            
-            // Deduplicate nearby regions
-            val lineNumbers = regions.mapNotNull { region ->
-                val lastColonIndex = region.lastIndexOf(":")
-                if (lastColonIndex > 0) {
-                    region.substring(lastColonIndex + 1).toIntOrNull()?.let { line ->
-                        line to region
-                    }
-                } else {
-                    null
-                }
-            }.sortedBy { it.first }
-            
-            val deduplicatedRegions = mutableListOf<String>()
-            var lastLine = -100
-            
-            lineNumbers.forEach { (line, region) ->
-                // Keep regions that are more than 40 lines apart
-                if (line - lastLine > 40) {
-                    deduplicatedRegions.add(region)
-                    lastLine = line
-                }
-            }
-            
-            // If no regions after deduplication, use the original list
-            val finalRegions = if (deduplicatedRegions.isEmpty()) regions else deduplicatedRegions
-            
-            val language = when {
-                filePath.endsWith(".ts") -> "typescript"
-                filePath.endsWith(".js") -> "javascript"
-                else -> "javascript"
-            }
-            
-            reviewUnits.add(ReviewUnit(
-                type = ReviewUnit.ReviewType.JS_TS_REGION,
-                className = filePath, // Use file path as identifier
-                methods = finalRegions, // Store deduplicated region identifiers
+
+    private fun createFileChunks(
+        className: String,
+        methodNames: List<String>,
+        filePath: String?,
+        lineCount: Int
+    ): List<ReviewUnit> {
+        println("$TAG Large file detected: $className with $lineCount lines. Creating chunks...")
+        val chunks = mutableListOf<ReviewUnit>()
+        var current = 0
+        var index = 1
+        while (current < lineCount) {
+            val start = if (current == 0) 0 else current - CHUNK_OVERLAP
+            val end = minOf(current + CHUNK_SIZE, lineCount)
+            chunks += ReviewUnit(
+                type = ReviewUnit.ReviewType.PARTIAL_FILE,
+                className = className,
+                methods = methodNames,
                 filePath = filePath,
-                lineCount = 0, // Will be determined when reading file
-                language = language
-            ))
+                lineCount = end - start,
+                language = "java",
+                startLine = start,
+                endLine = end
+            )
+            println("$TAG Created chunk $index: lines $start-$end")
+            current += CHUNK_SIZE
+            index++
         }
-        
-        return reviewUnits
+        return chunks
     }
-    
-    /**
-     * Prepares review context based on review unit type
-     */
-    fun prepareReviewContext(unit: ReviewUnit): ReviewContext {
-        return when (unit.type) {
-            ReviewUnit.ReviewType.WHOLE_FILE -> prepareWholeFileContext(unit)
-            ReviewUnit.ReviewType.PARTIAL_FILE -> preparePartialFileContext(unit)
-            ReviewUnit.ReviewType.METHOD_GROUP -> prepareMethodGroupContext(unit)
-            ReviewUnit.ReviewType.JS_TS_REGION -> prepareJsTsRegionContext(unit)
+
+    private fun fallbackMethodGroup(className: String, methods: List<String>): ReviewUnit {
+        return ReviewUnit(
+            type = ReviewUnit.ReviewType.METHOD_GROUP,
+            className = className,
+            methods = methods.map { it.substringAfterLast(".") },
+            language = "java"
+        )
+    }
+
+    private fun optimizeJsTsReviewUnits(regionIdentifiers: List<String>): List<ReviewUnit> {
+        val byFile = regionIdentifiers.groupBy { it.substringBeforeLast(":").ifEmpty { it } }
+        val result = mutableListOf<ReviewUnit>()
+        byFile.forEach { (filePath, regions) ->
+            println("$TAG Processing file: $filePath with ${regions.size} regions")
+            val finalRegions = deduplicateRegionsByLine(regions)
+            result += ReviewUnit(
+                type = ReviewUnit.ReviewType.JS_TS_REGION,
+                className = filePath,
+                methods = finalRegions,
+                filePath = filePath,
+                language = detectJsTsLanguage(filePath)
+            )
         }
+        return result
     }
-    
-    private fun prepareWholeFileContext(unit: ReviewUnit): ReviewContext {
-        return com.intellij.openapi.application.ReadAction.compute<ReviewContext, Throwable> {
-            val psiClass = com.intellij.psi.JavaPsiFacade.getInstance(project)
-                .findClass(unit.className, com.intellij.psi.search.GlobalSearchScope.projectScope(project))
-                ?: return@compute ReviewContext.empty(unit.className)
-                
-            val psiFile = psiClass.containingFile
-            
-            // Ensure it's a Java file
-            if (!isJavaFile(psiFile)) {
-                return@compute ReviewContext.empty(unit.className)
+
+    private fun deduplicateRegionsByLine(regions: List<String>): List<String> {
+        val pairs = regions.mapNotNull { id ->
+            val idx = id.lastIndexOf(":")
+            if (idx > 0) id.substring(idx + 1).toIntOrNull()?.let { it to id } else null
+        }.sortedBy { it.first }
+        val deduped = mutableListOf<String>()
+        var lastLine = -100
+        pairs.forEach { (line, id) ->
+            if (line - lastLine > 40) {
+                deduped += id
+                lastLine = line
             }
-            
+        }
+        return if (deduped.isEmpty()) regions else deduped
+    }
+
+    private fun detectJsTsLanguage(filePath: String): String = when {
+        filePath.endsWith(".ts") -> "typescript"
+        filePath.endsWith(".js") -> "javascript"
+        else -> "javascript"
+    }
+
+    fun prepareReviewContext(unit: ReviewUnit): ReviewContext = when (unit.type) {
+        ReviewUnit.ReviewType.WHOLE_FILE -> prepareWholeFileContext(unit)
+        ReviewUnit.ReviewType.PARTIAL_FILE -> preparePartialFileContext(unit)
+        ReviewUnit.ReviewType.METHOD_GROUP -> prepareMethodGroupContext(unit)
+        ReviewUnit.ReviewType.JS_TS_REGION -> prepareJsTsRegionContext(unit)
+    }
+
+    private fun prepareWholeFileContext(unit: ReviewUnit): ReviewContext {
+        return ReadAction.compute<ReviewContext, Throwable> {
+            val psiClass = findPsiClass(unit.className) ?: return@compute ReviewContext.empty(unit.className)
+            val psiFile = psiClass.containingFile
+            if (!isJavaFile(psiFile)) return@compute ReviewContext.empty(unit.className)
             ReviewContext(
                 className = unit.className,
                 fileContent = psiFile.text,
@@ -261,41 +211,19 @@ class ReviewOptimizer(private val project: Project) {
             )
         }
     }
-    
+
     private fun preparePartialFileContext(unit: ReviewUnit): ReviewContext {
-        return com.intellij.openapi.application.ReadAction.compute<ReviewContext, Throwable> {
-            val psiClass = com.intellij.psi.JavaPsiFacade.getInstance(project)
-                .findClass(unit.className, com.intellij.psi.search.GlobalSearchScope.projectScope(project))
-                ?: return@compute ReviewContext.empty(unit.className)
-                
+        return ReadAction.compute<ReviewContext, Throwable> {
+            val psiClass = findPsiClass(unit.className) ?: return@compute ReviewContext.empty(unit.className)
             val psiFile = psiClass.containingFile
-            
-            // Ensure it's a Java file
-            if (!isJavaFile(psiFile)) {
-                return@compute ReviewContext.empty(unit.className)
-            }
-            
-            // Extract the partial content
-            val fullText = psiFile.text
-            val lines = fullText.lines()
-            
-            // Get the chunk with bounds checking
-            val startIdx = maxOf(0, unit.startLine)
-            val endIdx = minOf(lines.size, unit.endLine)
-            
-            val partialContent = if (startIdx < endIdx) {
-                lines.subList(startIdx, endIdx).joinToString("\n")
-            } else {
-                fullText // Fallback to full text if bounds are invalid
-            }
-            
-            println("[ReviewOptimizer] Extracted partial content for ${unit.className}: lines $startIdx-$endIdx (${partialContent.length} chars)")
-            
+            if (!isJavaFile(psiFile)) return@compute ReviewContext.empty(unit.className)
+            val (content, start, end) = extractChunk(psiFile.text, unit.startLine, unit.endLine)
+            println("$TAG Extracted partial content for ${unit.className}: lines $start-$end (${content.length} chars)")
             ReviewContext(
                 className = unit.className,
-                fileContent = partialContent,
+                fileContent = content,
                 reviewType = "partial_file",
-                lineCount = endIdx - startIdx,
+                lineCount = end - start,
                 methodNames = unit.methods,
                 imports = extractImports(psiFile),
                 classContext = extractClassContext(psiClass),
@@ -304,36 +232,13 @@ class ReviewOptimizer(private val project: Project) {
             )
         }
     }
-    
+
     private fun prepareMethodGroupContext(unit: ReviewUnit): ReviewContext {
-        return com.intellij.openapi.application.ReadAction.compute<ReviewContext, Throwable> {
-            val psiClass = com.intellij.psi.JavaPsiFacade.getInstance(project)
-                .findClass(unit.className, com.intellij.psi.search.GlobalSearchScope.projectScope(project))
-                ?: return@compute ReviewContext.empty(unit.className)
-                
+        return ReadAction.compute<ReviewContext, Throwable> {
+            val psiClass = findPsiClass(unit.className) ?: return@compute ReviewContext.empty(unit.className)
             val psiFile = psiClass.containingFile
-            
-            // Ensure it's a Java file
-            if (!isJavaFile(psiFile)) {
-                return@compute ReviewContext.empty(unit.className)
-            }
-            
-            val methods = mutableListOf<MethodInfo>()
-            
-            // Extract method details
-            unit.methods.forEach { methodName ->
-                val psiMethods = psiClass.findMethodsByName(methodName, false)
-                psiMethods.forEach { psiMethod ->
-                    methods.add(MethodInfo(
-                        name = methodName,
-                        signature = psiMethod.text.lines().firstOrNull() ?: methodName,
-                        body = psiMethod.body?.text ?: "",
-                        startLine = getLineNumber(psiFile, psiMethod),
-                        annotations = psiMethod.annotations.map { it.text }
-                    ))
-                }
-            }
-            
+            if (!isJavaFile(psiFile)) return@compute ReviewContext.empty(unit.className)
+            val methods = extractMethodInfos(psiClass, unit.methods, psiFile)
             ReviewContext(
                 className = unit.className,
                 reviewType = "method_group",
@@ -344,162 +249,163 @@ class ReviewOptimizer(private val project: Project) {
             )
         }
     }
-    
-    /**
-     * Prepare context for JS/TS regions
-     */
+
     private fun prepareJsTsRegionContext(unit: ReviewUnit): ReviewContext {
-        return com.intellij.openapi.application.ReadAction.compute<ReviewContext, Throwable> {
-            val filePath = unit.filePath ?: unit.className // Use className as fallback since it contains the file path
-            
-            println("[ReviewOptimizer] Preparing JS/TS context for file: $filePath")
-            println("[ReviewOptimizer] Regions to process: ${unit.methods}")
-            
-            val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
-                .findFileByPath(filePath)
-            
-            if (virtualFile == null) {
-                println("[ReviewOptimizer] Virtual file not found for path: $filePath")
-                return@compute ReviewContext.empty(unit.className)
-            }
-                
-            val psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(virtualFile)
-            if (psiFile == null) {
-                println("[ReviewOptimizer] PSI file not found for virtual file: ${virtualFile.path}")
-                return@compute ReviewContext.empty(unit.className)
-            }
-                
-            val document = com.intellij.psi.PsiDocumentManager.getInstance(project)
-                .getDocument(psiFile)
-            if (document == null) {
-                println("[ReviewOptimizer] Document not found for PSI file")
-                return@compute ReviewContext.empty(unit.className)
-            }
-                
-            val contextHelper = JsTsContextHelper(project)
-            val regionContexts = mutableListOf<JsTsRegionContext>()
-            
-            // Process each region identifier
-            unit.methods.forEach { regionId ->
-                println("[ReviewOptimizer] Processing region: $regionId")
-                val lastColonIndex = regionId.lastIndexOf(":")
-                if (lastColonIndex > 0) {
-                    val lineNumber = regionId.substring(lastColonIndex + 1).toIntOrNull()
-                    if (lineNumber != null && lineNumber >= 0) {
-                        // Line numbers in the region ID are 0-based
-                        if (lineNumber < document.lineCount) {
-                            val regionContext = contextHelper.extractRegionContext(
-                                document,
-                                lineNumber,
-                                20 // Context lines
-                            )
-                    
-                            regionContexts.add(JsTsRegionContext(
-                                regionId = regionId,
-                                startLine = regionContext.startLine,
-                                endLine = regionContext.endLine,
-                                content = regionContext.markedText,
-                                framework = regionContext.framework.name
-                            ))
-                            println("[ReviewOptimizer] Added region context for line $lineNumber")
-                        } else {
-                            println("[ReviewOptimizer] Line number $lineNumber out of bounds (document has ${document.lineCount} lines)")
-                        }
-                    } else {
-                        println("[ReviewOptimizer] Invalid line number in region ID: $regionId")
-                    }
-                } else {
-                    println("[ReviewOptimizer] Invalid region ID format: $regionId")
-                }
-            }
-            
-            println("[ReviewOptimizer] Total region contexts created: ${regionContexts.size}")
-            
-            // Fix the language detection based on file extension
-            val language = when {
-                filePath.endsWith(".ts") -> "typescript"
-                filePath.endsWith(".js") -> "javascript"  
-                else -> "javascript"
-            }
-            
+        return ReadAction.compute<ReviewContext, Throwable> {
+            val filePath = unit.filePath ?: unit.className
+            println("$TAG Preparing JS/TS context for file: $filePath")
+            println("$TAG Regions to process: ${unit.methods}")
+            val document = loadDocument(filePath) ?: return@compute ReviewContext.empty(unit.className)
+            val helper = JsTsContextHelper(project)
+            val regions = buildJsTsRegionContexts(helper, document, unit.methods)
+            val language = detectJsTsLanguage(filePath)
             ReviewContext(
                 className = unit.className,
                 reviewType = "js_ts_region",
-                language = language, // Use the dynamically detected language, not unit.language
-                regionContexts = regionContexts,
-                lineCount = if (regionContexts.isNotEmpty()) document.lineCount else 0
+                language = language,
+                regionContexts = regions,
+                lineCount = if (regions.isNotEmpty()) document.lineCount else 0
             )
         }
     }
-    
-    private fun extractImports(psiFile: PsiFile): List<String> {
-        if (psiFile !is PsiJavaFile) return emptyList()
-        return psiFile.importList?.allImportStatements?.map { it.text } ?: emptyList()
+
+    private fun findPsiClass(className: String): PsiClass? {
+        return JavaPsiFacade.getInstance(project)
+            .findClass(className, GlobalSearchScope.projectScope(project))
     }
-    
+
+    private fun extractChunk(fullText: String, startLine: Int, endLine: Int): Triple<String, Int, Int> {
+        val lines = fullText.lines()
+        val start = maxOf(0, startLine)
+        val end = minOf(lines.size, endLine)
+        val content = if (start < end) lines.subList(start, end).joinToString("\n") else fullText
+        return Triple(content, start, end)
+    }
+
+    private fun extractMethodInfos(
+        psiClass: PsiClass,
+        methodNames: List<String>,
+        psiFile: PsiFile
+    ): List<MethodInfo> {
+        val infos = mutableListOf<MethodInfo>()
+        methodNames.forEach { name ->
+            psiClass.findMethodsByName(name, false).forEach { m ->
+                infos += MethodInfo(
+                    name = name,
+                    signature = m.text.lines().firstOrNull() ?: name,
+                    body = m.body?.text ?: "",
+                    startLine = getLineNumber(psiFile, m),
+                    annotations = m.annotations.map { it.text }
+                )
+            }
+        }
+        return infos
+    }
+
+    private fun loadDocument(filePath: String): com.intellij.openapi.editor.Document? {
+        val vf = LocalFileSystem.getInstance().findFileByPath(filePath)
+        if (vf == null) {
+            println("$TAG Virtual file not found for path: $filePath")
+            return null
+        }
+        val psi = PsiManager.getInstance(project).findFile(vf)
+        if (psi == null) {
+            println("$TAG PSI file not found for virtual file: ${vf.path}")
+            return null
+        }
+        val doc = PsiDocumentManager.getInstance(project).getDocument(psi)
+        if (doc == null) println("$TAG Document not found for PSI file")
+        return doc
+    }
+
+    private fun buildJsTsRegionContexts(
+        contextHelper: JsTsContextHelper,
+        document: com.intellij.openapi.editor.Document,
+        regionIds: List<String>
+    ): List<JsTsRegionContext> {
+        val regions = mutableListOf<JsTsRegionContext>()
+        regionIds.forEach { id -> parseJsTsRegionId(id)?.let { line ->
+            if (line in 0 until document.lineCount) {
+                val rc = contextHelper.extractRegionContext(document, line, 20)
+                regions += JsTsRegionContext(
+                    regionId = id,
+                    startLine = rc.startLine,
+                    endLine = rc.endLine,
+                    content = rc.markedText,
+                    framework = rc.framework.name
+                )
+                println("$TAG Added region context for line $line")
+            } else {
+                println("$TAG Line number $line out of bounds (document has ${document.lineCount} lines)")
+            }
+        } ?: println("$TAG Invalid region ID format: $id") }
+        println("$TAG Total region contexts created: ${regions.size}")
+        return regions
+    }
+
+    private fun parseJsTsRegionId(regionId: String): Int? {
+        val idx = regionId.lastIndexOf(":")
+        if (idx <= 0) return null
+        return regionId.substring(idx + 1).toIntOrNull()
+            ?: run { println("$TAG Invalid line number in region ID: $regionId"); null }
+    }
+
+    private fun extractImports(psiFile: PsiFile): List<String> {
+        return (psiFile as? PsiJavaFile)?.importList?.allImportStatements?.map { it.text } ?: emptyList()
+    }
+
     private fun isJavaFile(psiFile: PsiFile?): Boolean {
         return psiFile != null && (psiFile is PsiJavaFile || psiFile.name.endsWith(".java"))
     }
-    
-    private fun extractClassContext(psiClass: com.intellij.psi.PsiClass): ClassContext {
+
+    private fun extractClassContext(psiClass: PsiClass): ClassContext {
         return ClassContext(
             fields = psiClass.fields.map { "${it.modifierList?.text ?: ""} ${it.type.presentableText} ${it.name}" },
             superClass = psiClass.superClass?.qualifiedName,
             interfaces = psiClass.interfaces.map { it.qualifiedName ?: "" },
             annotations = psiClass.annotations.map { it.text },
-            isAbstract = psiClass.isInterface || psiClass.hasModifierProperty(com.intellij.psi.PsiModifier.ABSTRACT),
+            isAbstract = psiClass.isInterface || psiClass.hasModifierProperty(PsiModifier.ABSTRACT),
             constructors = psiClass.constructors.size
         )
     }
-    
-    private fun extractSurroundingCode(psiClass: com.intellij.psi.PsiClass, methodNames: List<String>): String {
-        // Extract other methods that might be relevant (called by or calling the target methods)
-        val targetMethods = methodNames.flatMap { name ->
-            psiClass.findMethodsByName(name, false).toList()
-        }
-        
-        val relatedMethods = mutableSetOf<PsiMethod>()
-        
-        targetMethods.forEach { method ->
-            // Find methods that call this method
-            val callers = findMethodCallers(method, psiClass)
-            relatedMethods.addAll(callers)
-            
-            // Find methods called by this method
-            val callees = findMethodCallees(method, psiClass)
-            relatedMethods.addAll(callees)
-        }
-        
-        return relatedMethods
-            .filter { it.name !in methodNames }
-            .take(5) // Limit to 5 related methods
-            .joinToString("\n\n") { method ->
-                "// Related method: ${method.name}\n${method.text}"
-            }
+
+    private fun extractSurroundingCode(psiClass: PsiClass, methodNames: List<String>): String {
+        val targets = findTargetMethods(psiClass, methodNames)
+        val related = collectRelatedMethods(psiClass, targets)
+        return formatRelatedMethods(related.filter { it.name !in methodNames }.take(5))
     }
-    
-    private fun findMethodCallers(method: PsiMethod, withinClass: com.intellij.psi.PsiClass): List<PsiMethod> {
-        return withinClass.methods.filter { potentialCaller ->
-            potentialCaller.body?.text?.contains(method.name) == true
-        }
+
+    private fun findTargetMethods(psiClass: PsiClass, names: List<String>): List<PsiMethod> {
+        return names.flatMap { psiClass.findMethodsByName(it, false).toList() }
     }
-    
-    private fun findMethodCallees(method: PsiMethod, withinClass: com.intellij.psi.PsiClass): List<PsiMethod> {
-        val methodBody = method.body?.text ?: return emptyList()
-        return withinClass.methods.filter { potentialCallee ->
-            methodBody.contains(potentialCallee.name)
+
+    private fun collectRelatedMethods(psiClass: PsiClass, targets: List<PsiMethod>): Set<PsiMethod> {
+        val related = mutableSetOf<PsiMethod>()
+        targets.forEach { m ->
+            related += findMethodCallers(m, psiClass)
+            related += findMethodCallees(m, psiClass)
         }
+        return related
     }
-    
-    private fun getLineNumber(psiFile: PsiFile, element: com.intellij.psi.PsiElement): Int {
-        val document = com.intellij.psi.PsiDocumentManager.getInstance(project).getDocument(psiFile)
-        return if (document != null) {
-            document.getLineNumber(element.textOffset) + 1
-        } else {
-            0
-        }
+
+    private fun formatRelatedMethods(methods: List<PsiMethod>): String {
+        return methods.joinToString("\n\n") { m -> "// Related method: ${m.name}\n${m.text}" }
     }
-    
+
+    private fun findMethodCallers(method: PsiMethod, withinClass: PsiClass): List<PsiMethod> {
+        return withinClass.methods.filter { it.body?.text?.contains(method.name) == true }
+    }
+
+    private fun findMethodCallees(method: PsiMethod, withinClass: PsiClass): List<PsiMethod> {
+        val body = method.body?.text ?: return emptyList()
+        return withinClass.methods.filter { body.contains(it.name) }
+    }
+
+    private fun getLineNumber(psiFile: PsiFile, element: PsiElement): Int {
+        val doc = PsiDocumentManager.getInstance(project).getDocument(psiFile)
+        return doc?.getLineNumber(element.textOffset)?.plus(1) ?: 0
+    }
+
     data class ReviewContext(
         val className: String,
         val fileContent: String? = null,
@@ -510,28 +416,23 @@ class ReviewOptimizer(private val project: Project) {
         val imports: List<String> = emptyList(),
         val classContext: ClassContext? = null,
         val surroundingCode: String? = null,
-        val language: String = "java", // Add language field
-        val regionContexts: List<JsTsRegionContext> = emptyList(), // For JS/TS regions
-        val startLine: Int = 0, // For partial files
-        val endLine: Int = 0 // For partial files
+        val language: String = "java",
+        val regionContexts: List<JsTsRegionContext> = emptyList(),
+        val startLine: Int = 0,
+        val endLine: Int = 0
     ) {
         companion object {
-            fun empty(className: String) = ReviewContext(
-                className = className,
-                reviewType = "unknown"
-            )
+            fun empty(className: String) = ReviewContext(className = className, reviewType = "unknown")
         }
-        
-        fun toPromptContext(): String {
-            return when (reviewType) {
-                "whole_file" -> buildWholeFilePrompt()
-                "partial_file" -> buildPartialFilePrompt()
-                "method_group" -> buildMethodGroupPrompt()
-                "js_ts_region" -> buildJsTsRegionPrompt()
-                else -> "No context available"
-            }
+
+        fun toPromptContext(): String = when (reviewType) {
+            "whole_file" -> buildWholeFilePrompt()
+            "partial_file" -> buildPartialFilePrompt()
+            "method_group" -> buildMethodGroupPrompt()
+            "js_ts_region" -> buildJsTsRegionPrompt()
+            else -> "No context available"
         }
-        
+
         private fun buildWholeFilePrompt(): String {
             return """
                 |Review Type: Entire File
@@ -545,7 +446,7 @@ class ReviewOptimizer(private val project: Project) {
                 |```
             """.trimMargin()
         }
-        
+
         private fun buildPartialFilePrompt(): String {
             return """
                 |Review Type: Partial File (Chunk)
@@ -562,44 +463,25 @@ class ReviewOptimizer(private val project: Project) {
                 |```
             """.trimMargin()
         }
-        
+
         private fun buildMethodGroupPrompt(): String {
+            val ctx = buildClassContextSection()
+            val methodsBlock = buildMethodsSection()
+            val related = buildRelatedSection()
             return """
                 |Review Type: Method Group
                 |Class: $className
-                |Methods to review: ${methods.map { it.name }.joinToString(", ")}
-                |
-                |Class Context:
-                |${classContext?.let {
-                    """
-                    |- Super class: ${it.superClass ?: "None"}
-                    |- Interfaces: ${it.interfaces.joinToString(", ")}
-                    |- Fields: ${it.fields.size}
-                    |- Constructors: ${it.constructors}
-                    |- Abstract: ${it.isAbstract}
-                    """.trimIndent()
-                } ?: "Not available"}
+                |$ctx
                 |
                 |Methods to Review:
-                |${methods.joinToString("\n\n") { method ->
-                    """
-                    |Method: ${method.name} (line ${method.startLine})
-                    |${method.annotations.joinToString("\n")}
-                    |${method.signature}
-                    |${method.body}
-                    """.trimMargin()
-                }}
+                |$methodsBlock
                 |
-                |${surroundingCode?.let { 
-                    """
-                    |Related Methods:
-                    |$it
-                    """.trimMargin()
-                } ?: ""}
+                |$related
             """.trimMargin()
         }
-        
+
         private fun buildJsTsRegionPrompt(): String {
+            val blocks = regionContexts.joinToString("\n\n") { buildRegionBlock(it) }
             return """
                 |Review Type: JS/TS Code Regions
                 |File: $className
@@ -609,21 +491,56 @@ class ReviewOptimizer(private val project: Project) {
                 |IMPORTANT: These are PARTIAL views of the file (±20 lines around changes).
                 |Don't flag missing imports or undefined variables that might exist elsewhere.
                 |
-                |${regionContexts.joinToString("\n\n") { region ->
-                    """
-                    |Region ${region.regionId}:
-                    |Lines ${region.startLine + 1} to ${region.endLine + 1}
-                    |Framework: ${region.framework}
-                    |
-                    |```$language
-                    |${region.content}
-                    |```
-                    """.trimMargin()
-                }}
+                |$blocks
+            """.trimMargin()
+        }
+
+        private fun buildClassContextSection(): String {
+            return classContext?.let {
+                """
+                |Class Context:
+                |- Super class: ${it.superClass ?: "None"}
+                |- Interfaces: ${it.interfaces.joinToString(", ")}
+                |- Fields: ${it.fields.size}
+                |- Constructors: ${it.constructors}
+                |- Abstract: ${it.isAbstract}
+                """.trimMargin()
+            } ?: "Class Context: Not available"
+        }
+
+        private fun buildMethodsSection(): String {
+            return methods.joinToString("\n\n") { m ->
+                """
+                |Method: ${m.name} (line ${m.startLine})
+                |${m.annotations.joinToString("\n")}
+                |${m.signature}
+                |${m.body}
+                """.trimMargin()
+            }
+        }
+
+        private fun buildRelatedSection(): String {
+            return surroundingCode?.let {
+                """
+                |Related Methods:
+                |$it
+                """.trimMargin()
+            } ?: ""
+        }
+
+        private fun buildRegionBlock(region: JsTsRegionContext): String {
+            return """
+                |Region ${region.regionId}:
+                |Lines ${region.startLine + 1} to ${region.endLine + 1}
+                |Framework: ${region.framework}
+                |
+                |```$language
+                |${region.content}
+                |```
             """.trimMargin()
         }
     }
-    
+
     data class MethodInfo(
         val name: String,
         val signature: String,
@@ -631,7 +548,7 @@ class ReviewOptimizer(private val project: Project) {
         val startLine: Int,
         val annotations: List<String> = emptyList()
     )
-    
+
     data class ClassContext(
         val fields: List<String>,
         val superClass: String?,
@@ -640,7 +557,7 @@ class ReviewOptimizer(private val project: Project) {
         val isAbstract: Boolean,
         val constructors: Int
     )
-    
+
     data class JsTsRegionContext(
         val regionId: String,
         val startLine: Int,

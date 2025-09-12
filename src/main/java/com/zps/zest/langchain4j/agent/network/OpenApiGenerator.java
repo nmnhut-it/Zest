@@ -43,7 +43,7 @@ public class OpenApiGenerator {
         JsonObject schemas = components.getAsJsonObject("schemas");
         
         // Add orchestration endpoints
-        addOrchestrationEndpoints(paths, schemas);
+//        addOrchestrationEndpoints(paths, schemas);
         
         CodeExplorationToolRegistry registry = project.getService(CodeExplorationToolRegistry.class);
         
@@ -82,12 +82,12 @@ public class OpenApiGenerator {
         // explore_code endpoint
         JsonObject explorePath = new JsonObject();
         JsonObject explorePost = new JsonObject();
-        explorePost.addProperty("summary", "Orchestrate multiple code exploration tools to answer complex queries about the codebase");
-        explorePost.addProperty("description", 
-            "This endpoint intelligently combines multiple code exploration tools to provide comprehensive answers. " +
-            "It can search for code, analyze relationships, find implementations, and generate detailed reports. " +
-            "The agent automatically selects and executes the most appropriate tools based on your query.");
-        explorePost.addProperty("operationId", "explore_code_post");
+//        explorePost.addProperty("summary", "Orchestrate multiple code exploration tools to answer complex queries about the codebase");
+//        explorePost.addProperty("description",
+//            "This endpoint intelligently combines multiple code exploration tools to provide comprehensive answers. " +
+//            "It can search for code, analyze relationships, find implementations, and generate detailed reports. " +
+//            "The agent automatically selects and executes the most appropriate tools based on your query.");
+//        explorePost.addProperty("operationId", "explore_code_post");
         
         // Request body
         JsonObject exploreRequestBody = new JsonObject();

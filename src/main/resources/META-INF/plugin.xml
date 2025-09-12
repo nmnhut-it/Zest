@@ -64,6 +64,7 @@
                 nonDefaultProject="true"/>
 
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
+        <notificationGroup id="Code Health" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
         <notificationGroup id="Zest Completion Debug" displayType="BALLOON" isLogByDefault="false"/>
         <notificationGroup id="Zest Updates" displayType="BALLOON" isLogByDefault="false"/>
 

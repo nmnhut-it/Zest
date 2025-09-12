@@ -70,7 +70,7 @@ public class JCEFBrowserManager implements Disposable {
         // Enable cookies in browser settings
         JBCefBrowserBuilder browserBuilder = new JBCefBrowserBuilder()
                 .setClient(client)
-                .setOffScreenRendering(true)
+                .setOffScreenRendering(false)
                 .setCefBrowser(null)
                 .setEnableOpenDevToolsMenuItem(true);
         

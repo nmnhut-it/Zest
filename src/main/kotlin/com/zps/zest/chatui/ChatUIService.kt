@@ -13,13 +13,13 @@ import dev.langchain4j.data.message.ChatMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.memory.chat.MessageWindowChatMemory
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
-import dev.langchain4j.model.chat.request.ChatRequest
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.agentic.AgenticServices
 import com.zps.zest.testgen.tools.ReadFileTool
 import com.zps.zest.explanation.tools.RipgrepCodeTool
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
+import com.intellij.openapi.application.ApplicationManager
 import com.zps.zest.ConfigurationManager
 import java.net.HttpURLConnection
 import java.net.URL
@@ -58,7 +58,7 @@ class ChatUIService(private val project: Project) : Disposable {
     private val llmService: LLMService by lazy { project.getService(LLMService::class.java) }
     private var chatModel: ZestChatLanguageModel = createChatModel(currentUsage)
     private var streamingChatModel: ZestStreamingChatLanguageModel = createStreamingChatModel(currentUsage)
-    private val chatMemory: MessageWindowChatMemory = MessageWindowChatMemory.withMaxMessages(50)
+    private val chatMemory: MessageWindowChatMemory = MessageWindowChatMemory.withMaxMessages(500)
     
     // Tools for file operations
     private val readFiles = mutableMapOf<String, String>()
@@ -117,14 +117,40 @@ class ChatUIService(private val project: Project) : Disposable {
             
             val responseBuilder = StringBuilder()
             
-            // Create streaming response handler
+            // Token batching for better performance
+            val tokenBatch = StringBuilder()
+            var lastBatchTime = System.currentTimeMillis()
+            val batchInterval = 200L // Send batch every 200ms
+            val batchTimer = java.util.Timer(true)
+            
+            val sendBatch = {
+                if (tokenBatch.isNotEmpty()) {
+                    val chunk = tokenBatch.toString()
+                    tokenBatch.clear()
+                    ApplicationManager.getApplication().invokeLater {
+                        onToken(chunk)
+                    }
+                }
+            }
+            
+            // Create streaming response handler with batching
             val handler = object : StreamingChatResponseHandler {
                 override fun onPartialResponse(partialResponse: String) {
                     responseBuilder.append(partialResponse)
-                    onToken(partialResponse)
+                    tokenBatch.append(partialResponse)
+                    
+                    val currentTime = System.currentTimeMillis()
+                    if (currentTime - lastBatchTime >= batchInterval || tokenBatch.length > 50) {
+                        sendBatch()
+                        lastBatchTime = currentTime
+                    }
                 }
                 
                 override fun onCompleteResponse(response: ChatResponse) {
+                    // Send final batch if any
+                    sendBatch()
+                    batchTimer.cancel()
+                    
                     val fullResponse = responseBuilder.toString()
                     
                     // Add AI response to memory
@@ -140,6 +166,7 @@ class ChatUIService(private val project: Project) : Disposable {
                 }
                 
                 override fun onError(error: Throwable) {
+                    batchTimer.cancel()
                     LOG.error("Streaming failed", error)
                     onError(error)
                 }
@@ -214,39 +241,7 @@ class ChatUIService(private val project: Project) : Disposable {
         val dialog = openChat()
         dialog.openWithMessage(message, autoSend)
     }
-    
-    /**
-     * Close the current chat dialog
-     */
-    fun closeChat() {
-        currentDialog?.close(0)
-        // Don't set currentDialog = null to allow reuse of the dialog and its JCEF components
-        LOG.debug("Chat dialog closed but kept for potential reuse")
-    }
-    
-    /**
-     * Check if chat dialog is currently open
-     */
-    fun isChatOpen(): Boolean {
-        return currentDialog?.isVisible == true
-    }
-    
-    /**
-     * Get chat statistics
-     */
-    fun getChatStats(): ChatStats {
-        val messages = getMessages()
-        val userMessages = messages.count { it is UserMessage }
-        val aiMessages = messages.count { it is AiMessage }
-        
-        return ChatStats(
-            totalMessages = messages.size,
-            userMessages = userMessages,
-            aiMessages = aiMessages,
-            hasActiveConversation = messages.isNotEmpty()
-        )
-    }
-    
+
     /**
      * Add a system message to the conversation (for context/instructions)
      */
@@ -271,13 +266,15 @@ You are an expert code reviewer and software development assistant. Your role is
 3. **Best Practices**: Recommend industry-standard patterns and conventions
 4. **Security**: Identify potential security issues and suggest fixes
 5. **Performance**: Point out performance bottlenecks and optimization opportunities
+6. **Test-ability**: Point out flaws that make the code hard to be unit-tested or integration-tested
 
 Please provide:
 
-- **Summary**: Brief overall assessment
+
 - **Issues**: Specific problems with line numbers when possible
 - **Recommendations**: Concrete suggestions with code examples
 - **Priority**: Which issues to address first
+- **Summary**: Brief overall assessment
 Be thorough but concise. Focus on actionable feedback.
 
             """.trimIndent())

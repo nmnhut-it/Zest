@@ -21,6 +21,7 @@ class JCEFChatDialog(
     private val project: Project
 ) : DialogWrapper(project, false) {
 
+
     private val chatService = project.getService(ChatUIService::class.java)
     private val chatPanel = JCEFChatPanel(project)
     private val inputArea = JBTextArea()
@@ -68,6 +69,9 @@ class JCEFChatDialog(
         // Footer with controls
         val footerPanel = createFooterPanel()
         mainPanel.add(footerPanel, BorderLayout.SOUTH)
+
+        // Add developer tools integration
+        addDeveloperToolsIntegration(mainPanel)
 
         loadMessages()
         return mainPanel
@@ -226,17 +230,19 @@ class JCEFChatDialog(
         // Send to AI with streaming
         chatService.sendMessageStreaming(
             userMessage,
-            onToken = { token ->
-                // Update AI response in real-time
-                responseBuilder.append(token)
-                ApplicationManager.getApplication().invokeLater {
-                    chatPanel.updateMessage(aiMessageId, responseBuilder.toString())
-                }
+            onToken = { chunk ->
+                // Send chunk to client-side streaming handler
+                val escapedChunk = escapeJavaScriptString(chunk)
+                chatPanel.getBrowserManager().executeJavaScript("""
+                    if (window.chatFunctions && window.chatFunctions.updateMessageStreaming) {
+                        window.chatFunctions.updateMessageStreaming('$aiMessageId', '$escapedChunk');
+                    }
+                """)
             },
             onComplete = { fullResponse ->
                 ApplicationManager.getApplication().invokeLater {
-                    // Ensure final response is displayed
-                    chatPanel.updateMessage(aiMessageId, fullResponse)
+                    // Finalize message with proper markdown rendering
+                    chatPanel.finalizeMessage(aiMessageId, fullResponse)
                     
                     // Reset UI state
                     isProcessing = false
@@ -249,8 +255,9 @@ class JCEFChatDialog(
             },
             onError = { error ->
                 ApplicationManager.getApplication().invokeLater {
-                    // Update AI message with error
-                    chatPanel.updateMessage(aiMessageId, "❌ Failed to get response: ${error.message}")
+                    // Show error in the message
+                    val errorMessage = "❌ Failed to get response: ${error.message}"
+                    chatPanel.finalizeMessage(aiMessageId, errorMessage)
                     
                     // Reset UI state
                     isProcessing = false
@@ -264,6 +271,71 @@ class JCEFChatDialog(
     private fun clearInput() {
         inputArea.text = ""
         inputArea.requestFocus()
+    }
+    
+    /**
+     * Escape JavaScript string for safe execution in executeJavaScript
+     */
+    private fun escapeJavaScriptString(text: String): String {
+        return text
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace("\b", "\\b")
+            .replace("\u000C", "\\f")
+    }
+    
+    /**
+     * Add developer tools integration with context menu and F12 key binding
+     */
+    private fun addDeveloperToolsIntegration(panel: JPanel) {
+        // Create context menu for debugging
+        val contextMenu = JPopupMenu()
+        val devToolsItem = JMenuItem("Open Developer Tools (F12)")
+        devToolsItem.addActionListener {
+            try {
+                chatPanel.getBrowserManager().getBrowser().openDevtools()
+            } catch (ex: Exception) {
+                ex.printStackTrace();
+            }
+        }
+        contextMenu.add(devToolsItem)
+        
+        // Add context menu to main panel and chat component
+        panel.setComponentPopupMenu(contextMenu)
+        val chatComponent = chatPanel.getComponent(0)
+        
+        // Add mouse listener for context menu
+        chatComponent.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mousePressed(e: java.awt.event.MouseEvent) {
+                if (e.isPopupTrigger) {
+                    contextMenu.show(e.component, e.x, e.y)
+                }
+            }
+            
+            override fun mouseReleased(e: java.awt.event.MouseEvent) {
+                if (e.isPopupTrigger) {
+                    contextMenu.show(e.component, e.x, e.y)
+                }
+            }
+        })
+        
+        // Add F12 key binding for dev tools
+        panel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(
+            KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_F12, 0), "openDevTools")
+        panel.actionMap.put("openDevTools", object : AbstractAction() {
+            override fun actionPerformed(e: java.awt.event.ActionEvent) {
+                try {
+                    chatPanel.getBrowserManager().getBrowser().openDevtools()
+//                    LOG.info("Dev tools opened via F12 key")
+                } catch (ex: Exception) {
+//                    LOG.warn("Failed to open dev tools via F12", ex)
+                }
+            }
+        })
     }
 
     private fun startNewChat() {

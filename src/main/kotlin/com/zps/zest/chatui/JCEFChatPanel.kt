@@ -78,14 +78,40 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     /**
-     * Update an existing message's content
+     * Update an existing message's content for streaming (sends chunk to client-side queue)
      */
     fun updateMessage(messageId: String, newContent: String) {
         val messageIndex = conversationMessages.indexOfFirst { it.id == messageId }
         if (messageIndex >= 0) {
             val updatedMessage = conversationMessages[messageIndex].copy(content = newContent)
             conversationMessages[messageIndex] = updatedMessage
-            updateChatDisplay()
+            
+            // Send chunk to client-side streaming handler
+            val escapedContent = escapeJavaScriptString(newContent)
+            browserManager.executeJavaScript("""
+                if (window.chatFunctions && window.chatFunctions.updateMessageStreaming) {
+                    window.chatFunctions.updateMessageStreaming('$messageId', '$escapedContent');
+                }
+            """)
+        }
+    }
+    
+    /**
+     * Finalize message content (render as markdown when streaming is complete)
+     */
+    fun finalizeMessage(messageId: String, finalContent: String) {
+        val messageIndex = conversationMessages.indexOfFirst { it.id == messageId }
+        if (messageIndex >= 0) {
+            val updatedMessage = conversationMessages[messageIndex].copy(content = finalContent)
+            conversationMessages[messageIndex] = updatedMessage
+            
+            // Finalize message with proper markdown rendering
+            val escapedContent = escapeJavaScriptString(finalContent)
+            browserManager.executeJavaScript("""
+                if (window.chatFunctions && window.chatFunctions.finalizeMessage) {
+                    window.chatFunctions.finalizeMessage('$messageId', '$escapedContent');
+                }
+            """)
         }
     }
     
@@ -346,6 +372,17 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                         max-height: none;
                         transition: max-height 0.3s ease;
                     }
+                    
+                    .streaming-cursor {
+                        animation: blink 1s infinite;
+                        color: #3b82f6;
+                        font-weight: bold;
+                    }
+                    
+                    @keyframes blink {
+                        0%, 50% { opacity: 1; }
+                        51%, 100% { opacity: 0; }
+                    }
                 </style>
             </head>
             <body>
@@ -497,6 +534,110 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                             this.scrollToMessage(messageId);
                         },
                         
+                        updateMessage: function(messageId, newContent) {
+                            const messageElement = document.getElementById(messageId);
+                            if (messageElement) {
+                                const contentDiv = messageElement.querySelector('.message-content');
+                                if (contentDiv) {
+                                    // Show as plain text during streaming for better performance
+                                    contentDiv.innerHTML = '<pre style="white-space: pre-wrap; font-family: inherit; margin: 0; background: none; border: none; padding: 0;">' + this.escapeHtml(newContent) + '</pre>';
+                                }
+                            }
+                        },
+                        
+                        updateMessageStreaming: function(messageId, newChunk) {
+                            const messageElement = document.getElementById(messageId);
+                            if (!messageElement) return;
+                            
+                            const contentDiv = messageElement.querySelector('.message-content');
+                            if (!contentDiv) return;
+                            
+                            // Initialize streaming state if needed
+                            if (!messageElement._streamingState) {
+                                messageElement._streamingState = {
+                                    contentBuffer: '',
+                                    displayedContent: '',
+                                    wordQueue: [],
+                                    isProcessing: false,
+                                    lastChunkTime: Date.now(),
+                                    chunkInterval: 2000, // Start with 2 second default
+                                    adaptiveSpeed: 500    // Current display speed
+                                };
+                            }
+                            
+                            const state = messageElement._streamingState;
+                            state.contentBuffer += newChunk;
+                            
+                            // Split into words and add to queue
+                            const words = newChunk.split(/(\s+)/);
+                            state.wordQueue.push(...words);
+                            
+                            // Start word-by-word display if not already processing
+                            if (!state.isProcessing) {
+                                this.processWordQueue(messageId);
+                            }
+                        },
+                        
+                        processWordQueue: function(messageId) {
+                            const messageElement = document.getElementById(messageId);
+                            if (!messageElement || !messageElement._streamingState) return;
+                            
+                            const state = messageElement._streamingState;
+                            const contentDiv = messageElement.querySelector('.message-content');
+                            
+                            if (state.wordQueue.length === 0) {
+                                state.isProcessing = false;
+                                return;
+                            }
+                            
+                            state.isProcessing = true;
+                            
+                            // Display next word
+                            const nextWord = state.wordQueue.shift();
+                            state.displayedContent += nextWord;
+                            
+                            // Update display with plain text
+                            contentDiv.innerHTML = '<pre style="white-space: pre-wrap; font-family: inherit; margin: 0; background: none; border: none; padding: 0;">' + this.escapeHtml(state.displayedContent) + '<span class="streaming-cursor">▎</span></pre>';
+                            
+                            // Continue processing with delay (~1 word per 2 seconds, but faster for spaces)
+                            const isSpace = /^\s+$/.test(nextWord);
+                            const delay = isSpace ? 100 : 500; // Faster for spaces, slower for words
+                            
+                            setTimeout(() => {
+                                this.processWordQueue(messageId);
+                            }, delay);
+                        },
+                        
+                        finalizeMessage: function(messageId, finalContent) {
+                            const messageElement = document.getElementById(messageId);
+                            if (messageElement) {
+                                // Clear streaming state
+                                if (messageElement._streamingState) {
+                                    delete messageElement._streamingState;
+                                }
+                                
+                                const contentDiv = messageElement.querySelector('.message-content');
+                                if (contentDiv && typeof marked !== 'undefined') {
+                                    // Now render as proper markdown
+                                    contentDiv.innerHTML = marked.parse(finalContent);
+                                    // Re-highlight code blocks
+                                    if (typeof hljs !== 'undefined') {
+                                        contentDiv.querySelectorAll('pre code').forEach(function(block) {
+                                            hljs.highlightElement(block);
+                                        });
+                                    }
+                                    // Re-apply interactive features
+                                    makeCodeBlocksCollapsible();
+                                }
+                            }
+                        },
+                        
+                        escapeHtml: function(text) {
+                            const div = document.createElement('div');
+                            div.textContent = text;
+                            return div.innerHTML;
+                        },
+                        
                         clearMessages: function() {
                             document.getElementById('chat-container').innerHTML = '';
                         },
@@ -531,6 +672,21 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     /**
+     * Escape JavaScript string for safe execution in executeJavaScript
+     */
+    private fun escapeJavaScriptString(text: String): String {
+        return text
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace("\b", "\\b")
+            .replace("\u000C", "\\f")
+    }
+    
+    /**
      * Load a resource file as a string
      */
     private fun loadResource(path: String): String? {
@@ -552,6 +708,11 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
      * Get the browser component for integration
      */
     fun getBrowserComponent(): JComponent = browserManager.component
+    
+    /**
+     * Get the browser manager for developer tools access
+     */
+    fun getBrowserManager(): JCEFBrowserManager = browserManager
     
     /**
      * Data class for chat messages

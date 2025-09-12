@@ -1,6 +1,6 @@
 package com.zps.zest.codehealth
+
 import com.google.gson.Gson
-import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
@@ -15,7 +15,6 @@ import com.intellij.psi.*
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.MethodReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
-import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
 import com.zps.zest.langchain4j.ZestLangChain4jService
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService
 import java.util.concurrent.*
@@ -27,7 +26,7 @@ import java.util.concurrent.atomic.AtomicLong
 class CodeHealthAnalyzer(private val project: Project) {
 
     companion object {
-        private const val LLM_DELAY_MS = 200_000L
+        private const val LLM_DELAY_MS = 500_000L
         const val MAX_METHODS_PER_ANALYSIS = 20
         private const val MAX_LLM_RETRIES = 1
         private const val LLM_TIMEOUT_MS = 300_000L
@@ -47,10 +46,8 @@ class CodeHealthAnalyzer(private val project: Project) {
         private val PROMPT_DETECTION_LINENUM_TEMPLATE = """
             Phân tích method đã ĐÁNH SỐ DÒNG (mỗi dòng có prefix "L{n}| ") dưới đây và xác định TỐI ĐA 3 issues thật sự (severity ≥ 3), sắp xếp theo mức độ nghiêm trọng/ảnh hưởng thực tế.
             Method: {{FQN}}
-            
             CODE (đã đánh số dòng):
             {{NUMBERED_CONTEXT}}
-            
             QUY TẮC:
             - KHÔNG được trả lại code. KHÔNG echo nội dung code.
             - Chỉ trả về CHÍNH XÁC JSON theo schema bên dưới.
@@ -58,7 +55,6 @@ class CodeHealthAnalyzer(private val project: Project) {
             - Với mỗi issue, luôn có range (relativeTo="method"), và nên kèm anchors.before/anchors.after là 1-2 cụm ngắn (<= 40 ký tự) mô tả bối cảnh gần vị trí lỗi.
             - Tối đa 3 issues, ưu tiên critical nhất trước.
             - Bỏ qua style/naming/formatting/optimizations nhỏ.
-            
             TRẢ VỀ CHỈ JSON:
             {
               "summary": "1 câu ngắn",
@@ -116,17 +112,14 @@ class CodeHealthAnalyzer(private val project: Project) {
             Phân tích Java file này và tìm tối đa 3 issues mỗi method, sắp xếp theo độ nghiêm trọng.
             File: {{CLASS}}
             Modified methods: {{METHODS}}
-            
             CODE:
             {{CONTEXT}}
-            
             QUY TẮC:
             - KHÔNG được echo lại code trong JSON.
             - Với mỗi method được phân tích, trả về tối đa 3 "diagnostics".
             - Dùng line số 1-based tương ứng với method body bạn thấy trong context.
             - Mỗi diagnostic có range (relativeTo="method") và ưu tiên có anchors.before/after (cụm ngắn).
             - Chỉ report issues severity ≥ 3, tập trung vào lỗi thực sự (crash, security, leak, performance nghiêm trọng).
-            
             JSON TRẢ VỀ:
             {
               "methods": [
@@ -158,16 +151,13 @@ class CodeHealthAnalyzer(private val project: Project) {
             File: {{CLASS}}
             Chunk: Lines {{START}}-{{END}}
             Modified methods in full file: {{METHODS}}
-            
             CODE CHUNK:
             {{CONTEXT}}
-            
             QUY TẮC:
             - KHÔNG echo code.
             - Chỉ report diagnostics cho methods hoàn chỉnh trong chunk.
             - Mỗi diagnostic có range relativeTo="method", line 1-based theo method block bạn thấy.
             - Severity ≥ 3, tối đa 3 per method.
-            
             JSON TRẢ VỀ: giống template WHOLE_FILE (field "methods" với "diagnostics")
         """.trimIndent()
 
@@ -176,10 +166,8 @@ class CodeHealthAnalyzer(private val project: Project) {
             Phân tích các Java methods sau, tối đa 3 diagnostics mỗi method.
             Class: {{CLASS}}
             Methods: {{METHODS}}
-            
             CODE:
             {{CONTEXT}}
-            
             QUY TẮC & JSON TRẢ VỀ: giống WHOLE_FILE (field "methods" với "diagnostics").
         """.trimIndent()
 
@@ -189,16 +177,13 @@ class CodeHealthAnalyzer(private val project: Project) {
             File: {{CLASS}}
             Language: {{LANG}}
             Số regions được phân tích: {{COUNT}}
-            
             CODE REGIONS:
             {{CONTEXT}}
-            
             QUAN TRỌNG: bạn đang xem PARTIAL views (±20 dòng).
             - KHÔNG flag missing imports hoặc undefined variables có thể tồn tại ở nơi khác.
             - Tập trung vào các vấn đề thấy rõ trong fragment.
             - KHÔNG echo lại code trong JSON.
             - Trả về diagnostics với range relativeTo="region" (1-based theo block region bạn thấy).
-            
             JSON TRẢ VỀ:
             {
               "regions": [
@@ -225,13 +210,13 @@ class CodeHealthAnalyzer(private val project: Project) {
         """.trimIndent()
     }
 
-    private val contextCollector = ZestLeanContextCollectorPSI(project)
     private val naiveLlmService: NaiveLLMService = project.service()
     private val langChainService: ZestLangChain4jService = project.service()
-    private val analysisQueue = SimpleAnalysisQueue(delayMs = 50L)
-    private val results = ConcurrentHashMap<String, MethodHealthResult>()
+
+     private val results = ConcurrentHashMap<String, MethodHealthResult>()
     private val gson = Gson()
     private val llmRateLimiter = RateLimiter(LLM_DELAY_MS)
+
     private val jsTsAnalyzer = JsTsHealthAnalyzer(project)
     private val analyzedJsTsFiles = ConcurrentHashMap.newKeySet<String>()
 
@@ -275,8 +260,8 @@ class CodeHealthAnalyzer(private val project: Project) {
         val codeContext: String = "",
         val summary: String = "",
         val actualModel: String = "local-model-mini",
-        val annotatedCode: String = "",
-        val originalCode: String = ""
+        val annotatedCode: String,
+        val originalCode: String
     )
 
     fun analyzeFiles(filePaths: List<String>): List<MethodHealthResult> {
@@ -356,7 +341,11 @@ class CodeHealthAnalyzer(private val project: Project) {
         impactedCallers = emptyList(),
         healthScore = 100,
         modificationCount = method.modificationCount,
-        summary = summary
+        codeContext = "",
+        summary = summary,
+        actualModel = "local-model-mini",
+        annotatedCode = "",
+        originalCode = ""
     )
 
     fun analyzeAllMethodsAsync(
@@ -367,14 +356,17 @@ class CodeHealthAnalyzer(private val project: Project) {
         if (limited.size < methods.size) println("[CodeHealthAnalyzer] Limited from ${methods.size} to ${limited.size}")
         println("[CodeHealthAnalyzer] Starting analysis of ${limited.size} methods")
         resetState()
+
         val latch = CountDownLatch(limited.size)
         val completed = AtomicInteger(0)
         val cancelled = AtomicBoolean(false)
+
         limited.forEachIndexed { index, method ->
             if (cancelled.get() || indicator?.isCanceled == true) return@forEachIndexed latch.countDown()
             updateProgressQueued(indicator, index + 1, limited.size, method)
             analyzeMethodAsync(method) { onMethodComplete(it, latch, completed, limited.size, indicator, cancelled) }
         }
+
         waitForAll(latch, limited.size)
         return sortedResults()
     }
@@ -405,11 +397,13 @@ class CodeHealthAnalyzer(private val project: Project) {
         val verifiedCount = result.issues.count { it.verified && !it.falsePositive }
         println("[CodeHealthAnalyzer] Complete: ${result.fqn} -> $issueCount issues, $verifiedCount verified")
         results[result.fqn] = result
+
         val done = completed.incrementAndGet()
         indicator?.fraction = done.toDouble() / total
         indicator?.text = "Completed $done of $total methods"
         if (indicator?.isCanceled == true) cancelled.set(true)
         latch.countDown()
+
         println("[CodeHealthAnalyzer] Progress: $done/$total completed, ${latch.count} remaining")
     }
 
@@ -458,10 +452,13 @@ class CodeHealthAnalyzer(private val project: Project) {
     ) {
         try {
             val context = fetchContext(method.fqn)
-            if (context.isBlank() || context.contains("Method not found"))
-                return onComplete(createFallbackResult(method.fqn, context, emptyList(), method.modificationCount))
+            if (context.isBlank() || context.contains("Method not found")) {
+                return onComplete(errorResult(method, "Method not found or empty context"))
+            }
+
             val callers = fetchCallers(method.fqn)
             val callerSnippets = fetchCallerSnippets(method.fqn).take(5)
+
             val detection = detectIssuesWithLLM(method, context, callers, callerSnippets)
             val final = finalizeDetection(detection)
             onComplete(final)
@@ -469,7 +466,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             if (e is com.intellij.openapi.progress.ProcessCanceledException) throw e
             println("[CodeHealthAnalyzer] ERROR analyzing ${method.fqn}: ${e.message}")
             e.printStackTrace()
-            onComplete(createFallbackResult(method.fqn, "", emptyList(), method.modificationCount))
+            onComplete(errorResult(method, "Unexpected error: ${e.message}"))
         }
     }
 
@@ -504,9 +501,11 @@ class CodeHealthAnalyzer(private val project: Project) {
         val region = toModifiedRegion(method) ?: return onComplete(
             createFallbackResult(method.fqn, "", emptyList(), method.modificationCount)
         )
+
         if (!markJsTsFile(region.filePath)) return onComplete(
             createFallbackResult(method.fqn, "", emptyList(), method.modificationCount)
         )
+
         jsTsAnalyzer.analyzeRegion(region) { result ->
             results[method.fqn] = result
             onComplete(result)
@@ -616,8 +615,8 @@ class CodeHealthAnalyzer(private val project: Project) {
                 codeContext = context,
                 summary = "Analysis failed",
                 actualModel = model,
-                annotatedCode = context,
-                originalCode = context
+                annotatedCode = "",
+                originalCode = ""
             )
         }
     }
@@ -677,9 +676,9 @@ class CodeHealthAnalyzer(private val project: Project) {
     }
 
     private fun extractJsonFromResponse(response: String): JsonObject? {
-        val start = response.indexOf("{")
-        val end = response.lastIndexOf("}")
-        if (start == -1 || end == -1) {
+        val start = response.indexOf('{')
+        val end = response.lastIndexOf('}')
+        if (start == -1 || end == -1 || end < start) {
             showMalformedJsonDialog(response, "Response does not contain JSON object")
             return null
         }
@@ -696,9 +695,11 @@ class CodeHealthAnalyzer(private val project: Project) {
         val preview = raw.take(1500) + if (raw.length > 1500) "\n... (truncated)" else ""
         val title = "Zest Code Health: Malformed LLM JSON"
         val message = "The LLM returned a malformed JSON. Reason: $reason\n\nRaw response preview:\n\n$preview"
+
         ApplicationManager.getApplication().invokeLater {
             if (!project.isDisposed) Messages.showErrorDialog(project, message, title)
         }
+
         NotificationGroupManager.getInstance()
             .getNotificationGroup("Zest Code Health")
             .createNotification("Malformed LLM JSON", "We could not parse the LLM response. See error dialog for details.", NotificationType.ERROR)
@@ -715,7 +716,7 @@ class CodeHealthAnalyzer(private val project: Project) {
         actualModel: String
     ): MethodHealthResult {
         return try {
-            val json = extractJsonFromResponse(llmResponse) ?: return createFallbackResult(fqn, context, callers, modificationCount, actualModel)
+            val json = extractJsonFromResponse(llmResponse) ?: return createFallbackResult(fqn, "", callers, modificationCount, actualModel)
             val summary = json.optString("summary", "Analysis completed")
             val healthScore = json.optInt("healthScore", 85)
 
@@ -723,11 +724,6 @@ class CodeHealthAnalyzer(private val project: Project) {
             if (json.has("diagnostics")) {
                 json.getAsJsonArray("diagnostics").forEach { el ->
                     parseDiagnostic(el.asJsonObject)?.let { issues.add(it.copy(callerSnippets = callerSnippets)) }
-                }
-            } else if (json.has("issues")) {
-                // Backward-compat if model still returns "issues"
-                json.getAsJsonArray("issues").take(3).forEach { el ->
-                    parseIssueCompat(el.asJsonObject)?.let { issues.add(it.copy(callerSnippets = callerSnippets)) }
                 }
             }
 
@@ -749,25 +745,8 @@ class CodeHealthAnalyzer(private val project: Project) {
         } catch (e: Exception) {
             println("[CodeHealthAnalyzer] Error parsing detection response: ${e.message}")
             e.printStackTrace()
-            createFallbackResult(fqn, context, callers, modificationCount, actualModel)
+            createFallbackResult(fqn, "", callers, modificationCount, actualModel)
         }
-    }
-
-    // Backward-compat for old "issues" objects
-    private fun parseIssueCompat(issueObject: JsonObject): HealthIssue? {
-        val severity = issueObject.optInt("severity", 3)
-        if (severity < 3) return null
-        return HealthIssue(
-            issueCategory = issueObject.optString("category", "Unknown"),
-            severity = severity,
-            title = issueObject.optString("title", "Unknown Issue"),
-            description = issueObject.optString("description", ""),
-            impact = issueObject.optString("impact", ""),
-            suggestedFix = issueObject.optString("suggestedFix", ""),
-            confidence = issueObject.optDouble("confidence", 0.8),
-            codeSnippet = issueObject.optStringOrNull("codeSnippet"),
-            callerSnippets = emptyList()
-        )
     }
 
     private fun logCodeFieldDebug(fqn: String, original: String, annotated: String) {
@@ -839,8 +818,8 @@ class CodeHealthAnalyzer(private val project: Project) {
             codeContext = context,
             summary = "Unable to perform detailed analysis",
             actualModel = actualModel,
-            annotatedCode = context,
-            originalCode = context
+            annotatedCode = "",
+            originalCode = ""
         )
     }
 
@@ -1000,14 +979,17 @@ class CodeHealthAnalyzer(private val project: Project) {
     ): List<MethodHealthResult> {
         println("[CodeHealthAnalyzer] Starting analysis of ${reviewUnits.size} review units")
         resetState()
+
         val latch = CountDownLatch(reviewUnits.size)
         val completed = AtomicInteger(0)
         val cancelled = AtomicBoolean(false)
+
         reviewUnits.forEachIndexed { idx, unit ->
             if (cancelled.get()) return@forEachIndexed latch.countDown()
             progressCallback?.invoke("Analyzing unit ${idx + 1} of ${reviewUnits.size}: ${unit.getDescription()}")
             analyzeReviewUnitAsync(unit, optimizer) { onUnitComplete(unit, it, latch, completed, reviewUnits.size, progressCallback) }
         }
+
         waitUnits(latch)
         return sortedResults()
     }
@@ -1143,21 +1125,18 @@ class CodeHealthAnalyzer(private val project: Project) {
         val issues = mutableListOf<HealthIssue>()
         if (obj.has("diagnostics")) {
             obj.getAsJsonArray("diagnostics").forEach { el ->
-                parseDiagnostic(el.asJsonObject)?.let { issues.add(it.copy(verified = true, verificationReason = "Verified through ${unit.type} analysis")) }
-            }
-        } else if (obj.has("issues")) {
-            obj.getAsJsonArray("issues").take(3).forEach { el ->
-                parseIssueCompat(el.asJsonObject)?.let { issues.add(it.copy(verified = true, verificationReason = "Verified through ${unit.type} analysis")) }
+                parseDiagnostic(el.asJsonObject)?.let {
+                    issues.add(it.copy(verified = true, verificationReason = "Verified through ${unit.type} analysis"))
+                }
             }
         }
 
         val methodCtx = extractMethodContextFromUnit(unit, context, fqn)
         if (methodCtx.isBlank()) return null
-
         val annotated = buildAnnotatedFromDiagnostics(methodCtx, issues)
         logCodeFieldDebug(fqn, methodCtx, annotated)
-
         if (issues.isEmpty() && healthScore < 80) return null
+
         return MethodHealthResult(
             fqn = fqn,
             issues = issues,
@@ -1229,18 +1208,16 @@ class CodeHealthAnalyzer(private val project: Project) {
         obj: JsonObject,
         actualModel: String
     ): MethodHealthResult? {
-        val regionId = obj.optString("regionId", "") ?: return null
+        val regionId = obj.optString("regionId", "")
         val summary = obj.optString("summary", "Analysis completed")
         val healthScore = obj.optInt("healthScore", 85)
 
         val issues = mutableListOf<HealthIssue>()
         if (obj.has("diagnostics")) {
             obj.getAsJsonArray("diagnostics").forEach { el ->
-                parseDiagnostic(el.asJsonObject)?.let { issues.add(it.copy(verified = true, verificationReason = "Verified through region analysis")) }
-            }
-        } else if (obj.has("issues")) {
-            obj.getAsJsonArray("issues").take(3).forEach { el ->
-                parseIssueCompat(el.asJsonObject)?.let { issues.add(it.copy(verified = true, verificationReason = "Verified through region analysis")) }
+                parseDiagnostic(el.asJsonObject)?.let {
+                    issues.add(it.copy(verified = true, verificationReason = "Verified through region analysis"))
+                }
             }
         }
 
@@ -1266,6 +1243,7 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     private fun buildAnnotatedFromDiagnostics(code: String, issues: List<HealthIssue>): String {
         val lines = code.lines().toMutableList()
+
         fun sevEmoji(sev: Int) = when {
             sev >= 4 -> "🔴 CRITICAL"
             sev >= 3 -> "🟠 WARNING"
@@ -1303,11 +1281,11 @@ class CodeHealthAnalyzer(private val project: Project) {
                 lines[i] = lines[i] + tailComment
             }
         }
+
         return lines.joinToString("\n")
     }
 
     fun dispose() {
-        analysisQueue.shutdown()
         llmRateLimiter.shutdown()
     }
 
@@ -1328,46 +1306,13 @@ class CodeHealthAnalyzer(private val project: Project) {
         if (this.has(key) && !this.get(key).isJsonNull) runCatching { this.get(key).asBoolean }.getOrElse { default } else default
 }
 
-// Unchanged utility classes
-class SimpleAnalysisQueue(private val delayMs: Long = 100L) {
-    private val scheduler = Executors.newSingleThreadScheduledExecutor()
-    private val taskCount = AtomicInteger(0)
-    fun submit(task: () -> Unit) {
-        val id = taskCount.incrementAndGet()
-        println("[SimpleAnalysisQueue] Submitting task #$id")
-        scheduler.execute { runTask(id, task) }
-    }
-    private fun runTask(id: Int, task: () -> Unit) {
-        try {
-            println("[SimpleAnalysisQueue] Executing task #$id")
-            task()
-            println("[SimpleAnalysisQueue] Completed task #$id")
-            sleepDelay()
-        } catch (e: Exception) {
-            println("[SimpleAnalysisQueue] ERROR in task #$id: ${e.message}")
-            e.printStackTrace()
-        }
-    }
-    private fun sleepDelay() {
-        if (delayMs <= 0) return
-        try {
-            Thread.sleep(delayMs)
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-        }
-    }
-    fun shutdown() {
-        println("[SimpleAnalysisQueue] Shutting down queue")
-        scheduler.shutdown()
-    }
-}
-
 class RateLimiter(private val delayMs: Long) {
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
     private val semaphore = Semaphore(1)
     private val recentErrors = AtomicInteger(0)
     private val circuitBreakerThreshold = 5
     private var circuitOpenUntil = AtomicLong(0)
+
     fun acquire() {
         val now = System.currentTimeMillis()
         if (circuitOpenUntil.get() > now) {
@@ -1378,6 +1323,7 @@ class RateLimiter(private val delayMs: Long) {
         semaphore.acquire()
         scheduler.schedule({ semaphore.release() }, delayMs, TimeUnit.MILLISECONDS)
     }
+
     fun recordError() {
         val errors = recentErrors.incrementAndGet()
         if (errors >= circuitBreakerThreshold) {
@@ -1386,9 +1332,11 @@ class RateLimiter(private val delayMs: Long) {
             recentErrors.set(0)
         }
     }
+
     fun recordSuccess() {
         recentErrors.updateAndGet { (it - 1).coerceAtLeast(0) }
     }
+
     fun shutdown() {
         scheduler.shutdown()
     }

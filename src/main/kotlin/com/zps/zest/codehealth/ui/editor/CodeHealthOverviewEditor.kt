@@ -2,31 +2,27 @@ package com.zps.zest.codehealth.ui.editor
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorLocation
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorState
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task as ProgressTask
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
+import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.zps.zest.codehealth.BackgroundHealthReviewer
 import com.zps.zest.codehealth.CodeHealthAnalyzer
 import com.zps.zest.codehealth.CodeHealthReportStorage
 import com.zps.zest.codehealth.ProjectChangesTracker
-import com.zps.zest.codehealth.BackgroundHealthReviewer
-import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.Task as ProgressTask
-import com.intellij.openapi.progress.ProgressIndicator
-import javax.swing.table.DefaultTableModel
-import com.intellij.ui.components.JBCheckBox
-import com.intellij.ui.table.JBTable
-import java.util.concurrent.CompletableFuture
 import com.zps.zest.codehealth.ui.CodeHealthIssueDetailDialog
 import java.awt.*
 import java.beans.PropertyChangeListener
@@ -35,868 +31,535 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import javax.swing.*
 import javax.swing.border.EmptyBorder
+import javax.swing.table.DefaultTableModel
 
-/**
- * Overview editor for project-wide Code Health dashboard
- */
 class CodeHealthOverviewEditor(
     private val project: Project,
     private val virtualFile: CodeHealthOverviewVirtualFile
 ) : UserDataHolderBase(), FileEditor {
-    
+
     private val storage = CodeHealthReportStorage.getInstance(project)
-    private val component: JPanel
+    private val component = JPanel(BorderLayout())
     private var currentData: List<CodeHealthAnalyzer.MethodHealthResult>? = null
-    
-    // UI components that need updating when data changes
+
     private var summaryPanel: JPanel? = null
-    private var criticalIssuesPanel: JPanel? = null
-    private var fileHealthPanel: JPanel? = null
-    private var tabbedPane: JBTabbedPane? = null
     private var trackedMethodsPanel: JPanel? = null
-    private var trackedMethodsTable: JBTable? = null
+    private var criticalIssuesPanel: JPanel? = null
+    private var lessIssuesPanel: JPanel? = null
     private var recentChangesPanel: JPanel? = null
-    
+
+    private var trackedMethodsTable: JBTable? = null
+    private var tabbedPane: JBTabbedPane? = null
+    private var recentScroll: JBScrollPane? = null
+    private var criticalScroll: JBScrollPane? = null
+    private var lessScroll: JBScrollPane? = null
+
+    private val staticTabsCount = 3
+    private val maxIssueTabs = 20
+
     init {
-        component = JPanel(BorderLayout())
         component.background = UIUtil.getPanelBackground()
-        setupUI()
+        initUI()
         loadRecentData()
-        updateDataDependentComponents()
+        refreshUI()
     }
-    
+
     override fun getComponent(): JComponent = component
-    
     override fun getPreferredFocusedComponent(): JComponent? = component
-    
     override fun getName(): String = "Code Health Overview"
-    
     override fun isValid(): Boolean = true
-    
     override fun isModified(): Boolean = false
-    
     override fun addPropertyChangeListener(listener: PropertyChangeListener) {}
-    
     override fun removePropertyChangeListener(listener: PropertyChangeListener) {}
-    
     override fun getCurrentLocation(): FileEditorLocation? = null
-    
     override fun dispose() {}
-    
-    override fun setState(state: FileEditorState) {
-        // No-op for overview editor
-    }
-    
+    override fun setState(state: FileEditorState) {}
     override fun getFile(): com.intellij.openapi.vfs.VirtualFile = virtualFile
-    
-    private fun createToolbar(): JComponent {
-        val actionGroup = DefaultActionGroup()
-        
-        // Refresh data action
-        actionGroup.add(object : AnAction("Refresh Data", "Reload Code Health data", AllIcons.Actions.Refresh) {
-            override fun actionPerformed(e: AnActionEvent) {
-                refreshData()
-            }
-        })
-        
-        // Run new analysis action  
-        actionGroup.add(object : AnAction("Run Analysis", "Start new Code Health analysis", AllIcons.Actions.Execute) {
-            override fun actionPerformed(e: AnActionEvent) {
-                runNewAnalysis()
-            }
-        })
-        
-        // Review all pending methods
-        actionGroup.add(object : AnAction("Review All Pending", "Review all pending methods immediately", AllIcons.Actions.StartDebugger) {
-            override fun actionPerformed(e: AnActionEvent) {
-                reviewAllPending()
-            }
-        })
-        
-        // Clear tracking data
-        actionGroup.add(object : AnAction("Clear Tracking", "Clear all tracked methods", AllIcons.Actions.GC) {
-            override fun actionPerformed(e: AnActionEvent) {
-                clearTracking()
-            }
-        })
-        
-        // Export report action
-        actionGroup.add(object : AnAction("Export Report", "Export health report to file", AllIcons.ToolbarDecorator.Export) {
-            override fun actionPerformed(e: AnActionEvent) {
-                exportReport()
-            }
-        })
-        
-        val toolbar = ActionManager.getInstance().createActionToolbar(
-            "CodeHealthOverviewEditor", 
-            actionGroup, 
-            true
-        )
-        toolbar.targetComponent = component
-        
-        return toolbar.component
-    }
-    
-    private fun setupUI() {
-        // Add toolbar at top
+
+    private fun initUI() {
         component.add(createToolbar(), BorderLayout.NORTH)
-        
-        // Create and store summary panel
-        summaryPanel = JPanel(GridBagLayout())
-        summaryPanel!!.background = UIUtil.getPanelBackground()
-        summaryPanel!!.border = EmptyBorder(20, 20, 20, 20)
-        
-        // Create tabbed pane
+        summaryPanel = buildSummaryPanel()
         tabbedPane = JBTabbedPane()
-        
-        // Add dashboard content
-        val splitter = JBSplitter(true, 0.25f)
-        splitter.firstComponent = summaryPanel
-        splitter.secondComponent = tabbedPane
-        
+        val splitter = JBSplitter(true, 0.25f).apply {
+            firstComponent = summaryPanel
+            secondComponent = tabbedPane
+        }
         component.add(splitter, BorderLayout.CENTER)
-        
-        // Setup tabs (empty initially)
-        setupTabs()
+        initTabs()
     }
-    
-    private fun setupTabs() {
-        criticalIssuesPanel = JPanel()
-        criticalIssuesPanel!!.layout = BoxLayout(criticalIssuesPanel, BoxLayout.Y_AXIS)
-        criticalIssuesPanel!!.background = UIUtil.getPanelBackground()
-        criticalIssuesPanel!!.border = EmptyBorder(15, 15, 15, 15)
-        
-        fileHealthPanel = JPanel()
-        fileHealthPanel!!.layout = BoxLayout(fileHealthPanel, BoxLayout.Y_AXIS)
-        fileHealthPanel!!.background = UIUtil.getPanelBackground()
-        fileHealthPanel!!.border = EmptyBorder(15, 15, 15, 15)
-        
-        recentChangesPanel = JPanel()
-        recentChangesPanel!!.layout = BoxLayout(recentChangesPanel, BoxLayout.Y_AXIS)
-        recentChangesPanel!!.background = UIUtil.getPanelBackground()
-        recentChangesPanel!!.border = EmptyBorder(15, 15, 15, 15)
-        
-        // Create tracked methods panel - it will set trackedMethodsPanel internally
-        val trackedPanel = createTrackedMethodsPanel()
-        
-        tabbedPane!!.addTab("📋 Tracked Methods", trackedPanel)
-        tabbedPane!!.addTab("🚨 Critical Issues", JBScrollPane(criticalIssuesPanel))
-        tabbedPane!!.addTab("📊 Health Trends", createHealthTrendsPanel())
-        tabbedPane!!.addTab("📂 By File", JBScrollPane(fileHealthPanel))
-        tabbedPane!!.addTab("👥 By Author", createAuthorHealthPanel())
-        tabbedPane!!.addTab("🔄 Recent Changes", JBScrollPane(recentChangesPanel))
+
+    private fun createToolbar(): JComponent {
+        val group = DefaultActionGroup().apply {
+            add(action("Refresh Data", AllIcons.Actions.Refresh) { refreshData() })
+            add(action("Run Analysis", AllIcons.Actions.Execute) { runNewAnalysis() })
+            add(action("Review All Pending", AllIcons.Actions.StartDebugger) { reviewAllPending() })
+            add(action("Clear Tracking", AllIcons.Actions.GC) { clearTracking() })
+            add(action("Export Report", AllIcons.ToolbarDecorator.Export) { exportReport() })
+        }
+        return ActionManager.getInstance()
+            .createActionToolbar("CodeHealthOverviewEditor", group, true)
+            .apply { targetComponent = component }.component
     }
-    
-    private fun updateDataDependentComponents() {
+
+    private fun action(text: String, icon: Icon, run: () -> Unit) =
+        object : AnAction(text, text, icon) { override fun actionPerformed(e: AnActionEvent) = run() }
+
+    private fun buildSummaryPanel(): JPanel {
+        return JPanel(GridBagLayout()).apply {
+            background = UIUtil.getPanelBackground()
+            border = EmptyBorder(20, 20, 20, 20)
+        }
+    }
+
+    private fun initTabs() {
+        val tracked = createTrackedMethodsPanel()
+        criticalIssuesPanel = panelVBox()
+        lessIssuesPanel = panelVBox()
+        recentChangesPanel = panelVBox()
+        criticalScroll = JBScrollPane(criticalIssuesPanel)
+        lessScroll = JBScrollPane(lessIssuesPanel)
+        recentScroll = JBScrollPane(recentChangesPanel)
+        tabbedPane?.addTab("📋 Tracked Methods", tracked)
+        tabbedPane?.addTab("🚨 Critical Issues", criticalScroll)
+        tabbedPane?.addTab("⚠️ Less-Critical Issues", lessScroll)
+        tabbedPane?.addTab("🔄 Recent Changes", recentScroll)
+    }
+
+    private fun panelVBox(): JPanel {
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            background = UIUtil.getPanelBackground()
+            border = EmptyBorder(15, 15, 15, 15)
+        }
+    }
+
+    private fun refreshUI() {
         SwingUtilities.invokeLater {
             updateSummaryPanel()
             updateCriticalIssuesPanel()
-            updateFileHealthPanel()
+            updateLessCriticalIssuesPanel()
             updateTrackedMethodsPanel()
             updateRecentChangesPanel()
+            rebuildIssueTabs()
             component.revalidate()
             component.repaint()
         }
     }
-    
+
     private fun updateSummaryPanel() {
-        summaryPanel?.removeAll()
-        
-        val gbc = GridBagConstraints()
-        gbc.insets = JBUI.insets(10)
-        gbc.fill = GridBagConstraints.HORIZONTAL
-        
-        // Title
-        gbc.gridx = 0
-        gbc.gridy = 0
-        gbc.gridwidth = 4
-        gbc.weightx = 1.0
-        val titleLabel = JBLabel("🛡️ Code Health Dashboard")
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 24f)
-        summaryPanel!!.add(titleLabel, gbc)
-        
-        // Summary metrics
-        gbc.gridy = 1
-        gbc.gridwidth = 1
-        gbc.weightx = 0.25
-        
-        val summaryData = calculateSummaryMetrics()
-        
-        // Overall health score
-        gbc.gridx = 0
-        summaryPanel!!.add(createMetricCard(
-            "🏆 Overall Health", 
-            "${summaryData.overallScore}/100",
-            getScoreColor(summaryData.overallScore)
-        ), gbc)
-        
-        // Methods analyzed
-        gbc.gridx = 1
-        summaryPanel!!.add(createMetricCard(
-            "🔍 Methods Analyzed", 
-            summaryData.methodsAnalyzed.toString(),
-            UIUtil.getLabelForeground()
-        ), gbc)
-        
-        // Issues found
-        gbc.gridx = 2
-        summaryPanel!!.add(createMetricCard(
-            "🎯 Issues Found", 
-            summaryData.issuesFound.toString(),
-            if (summaryData.issuesFound > 0) Color(255, 152, 0) else Color(76, 175, 80)
-        ), gbc)
-        
-        // Critical issues
-        gbc.gridx = 3
-        summaryPanel!!.add(createMetricCard(
-            "🚨 Critical Issues", 
-            summaryData.criticalIssues.toString(),
-            if (summaryData.criticalIssues > 0) Color(244, 67, 54) else Color(76, 175, 80)
-        ), gbc)
+        val panel = summaryPanel ?: return
+        panel.removeAll()
+        val gbc = GridBagConstraints().apply { insets = JBUI.insets(10); fill = GridBagConstraints.HORIZONTAL }
+        addSummaryTitle(panel, gbc)
+        addSummaryMetrics(panel, gbc, calculateSummaryMetrics())
     }
-    
-    private fun updateCriticalIssuesPanel() {
-        criticalIssuesPanel?.removeAll()
-        
-        val criticalIssues = getCriticalIssues()
-        
-        if (criticalIssues.isEmpty()) {
-            val noIssuesLabel = JBLabel("✨ No critical issues found - your code is in great shape!")
-            noIssuesLabel.font = noIssuesLabel.font.deriveFont(16f)
-            criticalIssuesPanel!!.add(noIssuesLabel)
-        } else {
-            criticalIssues.forEach { (method, issues) ->
-                val issueCard = createIssueCard(method, issues)
-                criticalIssuesPanel!!.add(issueCard)
-                criticalIssuesPanel!!.add(Box.createVerticalStrut(10))
-            }
+
+    private fun addSummaryTitle(panel: JPanel, gbc: GridBagConstraints) {
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 4; gbc.weightx = 1.0
+        panel.add(JBLabel("🛡️ Code Health Dashboard").apply {
+            font = font.deriveFont(Font.BOLD, 24f)
+        }, gbc)
+    }
+
+    private fun addSummaryMetrics(panel: JPanel, gbc: GridBagConstraints, s: SummaryMetrics) {
+        gbc.gridy = 1; gbc.gridwidth = 1; gbc.weightx = 0.25
+        panel.add(metric("🏆 Overall Health", "${s.overallScore}/100", getScoreColor(s.overallScore)), gbc.apply { gbc.gridx = 0 })
+        panel.add(metric("🔍 Methods Analyzed", "${s.methodsAnalyzed}", UIUtil.getLabelForeground()), gbc.apply { gbc.gridx = 1 })
+        panel.add(metric("🎯 Issues Found", "${s.issuesFound}", if (s.issuesFound > 0) Color(255, 152, 0) else Color(76, 175, 80)), gbc.apply { gbc.gridx = 2 })
+        panel.add(metric("🚨 Critical Issues", "${s.criticalIssues}", if (s.criticalIssues > 0) Color(244, 67, 54) else Color(76, 175, 80)), gbc.apply { gbc.gridx = 3 })
+    }
+
+    private fun metric(title: String, value: String, color: Color): JComponent {
+        val card = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            background = if (UIUtil.isUnderDarcula()) Color(60, 63, 65) else Color(245, 245, 245)
+            border = JBUI.Borders.compound(JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1), EmptyBorder(15, 15, 15, 15))
         }
-    }
-    
-    private fun updateFileHealthPanel() {
-        fileHealthPanel?.removeAll()
-        
-        val fileHealthData = getFileHealthData()
-        
-        fileHealthData.forEach { (fileName, healthScore, issueCount) ->
-            val fileCard = createFileHealthCard(fileName, healthScore, issueCount)
-            fileHealthPanel!!.add(fileCard)
-            fileHealthPanel!!.add(Box.createVerticalStrut(8))
-        }
-    }
-    
-    
-    private fun createMetricCard(title: String, value: String, valueColor: Color): JComponent {
-        val card = JPanel()
-        card.layout = BoxLayout(card, BoxLayout.Y_AXIS)
-        card.background = if (UIUtil.isUnderDarcula()) Color(60, 63, 65) else Color(245, 245, 245)
-        card.border = JBUI.Borders.compound(
-            JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1),
-            EmptyBorder(15, 15, 15, 15)
-        )
-        
-        val titleLabel = JBLabel(title)
-        titleLabel.font = titleLabel.font.deriveFont(12f)
-        titleLabel.alignmentX = Component.CENTER_ALIGNMENT
-        card.add(titleLabel)
-        
+        card.add(JBLabel(title).apply { font = font.deriveFont(12f); alignmentX = Component.CENTER_ALIGNMENT })
         card.add(Box.createVerticalStrut(5))
-        
-        val valueLabel = JBLabel(value)
-        valueLabel.font = valueLabel.font.deriveFont(Font.BOLD, 20f)
-        valueLabel.foreground = valueColor
-        valueLabel.alignmentX = Component.CENTER_ALIGNMENT
-        card.add(valueLabel)
-        
+        card.add(JBLabel(value).apply { font = font.deriveFont(Font.BOLD, 20f); foreground = color; alignmentX = Component.CENTER_ALIGNMENT })
         return card
     }
-    
-    
-    private fun createHealthTrendsPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = EmptyBorder(15, 15, 15, 15)
-        
-        val trendsLabel = JBLabel("📊 Health trends over time will be displayed here")
-        trendsLabel.font = trendsLabel.font.deriveFont(16f)
-        trendsLabel.horizontalAlignment = SwingConstants.CENTER
-        
-        panel.add(trendsLabel, BorderLayout.CENTER)
-        
-        // TODO: Implement actual trends chart
-        
-        return panel
+
+    private fun updateCriticalIssuesPanel() {
+        val panel = criticalIssuesPanel ?: return
+        panel.removeAll()
+        val items = getCriticalIssues()
+        if (items.isEmpty()) {
+            panel.add(JBLabel("✨ No critical issues found - great job!").apply { font = font.deriveFont(16f) })
+            return
+        }
+        items.forEach { (m, list) -> panel.add(issueCard(m, list, Color(244, 67, 54))); panel.add(Box.createVerticalStrut(10)) }
     }
-    
-    
-    private fun createAuthorHealthPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = EmptyBorder(15, 15, 15, 15)
-        
-        val authorLabel = JBLabel("👥 Code health metrics by author will be displayed here")
-        authorLabel.font = authorLabel.font.deriveFont(16f)
-        authorLabel.horizontalAlignment = SwingConstants.CENTER
-        
-        panel.add(authorLabel, BorderLayout.CENTER)
-        
-        // TODO: Implement author-based health metrics
-        
-        return panel
+
+    private fun updateLessCriticalIssuesPanel() {
+        val panel = lessIssuesPanel ?: return
+        panel.removeAll()
+        val items = getLessCriticalIssues()
+        if (items.isEmpty()) {
+            panel.add(JBLabel("No less-critical issues. Keep it up!").apply { font = font.deriveFont(16f) })
+            return
+        }
+        items.forEach { (m, list) -> panel.add(issueCard(m, list, Color(255, 152, 0))); panel.add(Box.createVerticalStrut(10)) }
     }
-    
+
+    private fun issueCard(
+        method: CodeHealthAnalyzer.MethodHealthResult,
+        issues: List<CodeHealthAnalyzer.HealthIssue>,
+        accent: Color
+    ): JComponent {
+        val card = coloredCard(accent)
+        card.add(issueLeft(method, issues, accent), BorderLayout.WEST)
+        card.add(issueButtons(method, issues), BorderLayout.EAST)
+        return card
+    }
+
+    private fun issueLeft(
+        method: CodeHealthAnalyzer.MethodHealthResult,
+        issues: List<CodeHealthAnalyzer.HealthIssue>,
+        accent: Color
+    ): JComponent {
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS); background = bgForCards()
+            add(JBLabel(formatMethodName(method.fqn)).apply { font = Font(Font.MONOSPACED, Font.BOLD, 14) })
+            add(JBLabel("${issues.size} issue(s)").apply { font = font.deriveFont(12f); foreground = accent })
+        }
+    }
+
+    private fun issueButtons(
+        method: CodeHealthAnalyzer.MethodHealthResult,
+        issues: List<CodeHealthAnalyzer.HealthIssue>
+    ): JComponent {
+        return JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+            background = bgForCards()
+            add(JButton("View Details").apply { addActionListener { openIssueInEditor(method, issues) } })
+        }
+    }
+
     private fun createTrackedMethodsPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = EmptyBorder(15, 15, 15, 15)
-        
-        // Add header with summary
-        val headerPanel = JPanel(FlowLayout(FlowLayout.LEFT))
-        headerPanel.background = UIUtil.getPanelBackground()
-        val headerLabel = JBLabel("📋 Currently Tracked Methods")
-        headerLabel.font = headerLabel.font.deriveFont(Font.BOLD, 16f)
-        headerPanel.add(headerLabel)
-        panel.add(headerPanel, BorderLayout.NORTH)
-        
-        // Create table
-        val columns = arrayOf("Method", "Modifications", "Last Modified", "Review Status", "Select")
-        val tableModel = object : DefaultTableModel(columns, 0) {
-            override fun getColumnClass(columnIndex: Int): Class<*> {
-                return if (columnIndex == 4) Boolean::class.java else String::class.java
-            }
-            
-            override fun isCellEditable(row: Int, column: Int): Boolean {
-                return column == 4 // Only checkbox column is editable
-            }
+        val panel = JPanel(BorderLayout()).apply {
+            background = UIUtil.getPanelBackground(); border = EmptyBorder(15, 15, 15, 15)
         }
-        
-        trackedMethodsTable = JBTable(tableModel)
-        trackedMethodsTable!!.setShowGrid(true)
-        trackedMethodsTable!!.gridColor = UIUtil.getBoundsColor()
-        trackedMethodsTable!!.rowHeight = 25
-        
-        // Set column widths
-        trackedMethodsTable!!.columnModel.getColumn(0).preferredWidth = 400
-        trackedMethodsTable!!.columnModel.getColumn(1).preferredWidth = 100
-        trackedMethodsTable!!.columnModel.getColumn(2).preferredWidth = 150
-        trackedMethodsTable!!.columnModel.getColumn(3).preferredWidth = 120
-        trackedMethodsTable!!.columnModel.getColumn(4).preferredWidth = 60
-        
-        val scrollPane = JBScrollPane(trackedMethodsTable)
-        panel.add(scrollPane, BorderLayout.CENTER)
-        
-        // Add action buttons at bottom
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
-        buttonPanel.background = UIUtil.getPanelBackground()
-        
-        val reviewSelectedBtn = JButton("Review Selected")
-        reviewSelectedBtn.addActionListener {
-            reviewSelectedMethods()
-        }
-        buttonPanel.add(reviewSelectedBtn)
-        
-        val selectAllBtn = JButton("Select All")
-        selectAllBtn.addActionListener {
-            selectAllMethods(true)
-        }
-        buttonPanel.add(selectAllBtn)
-        
-        val deselectAllBtn = JButton("Deselect All")
-        deselectAllBtn.addActionListener {
-            selectAllMethods(false)
-        }
-        buttonPanel.add(deselectAllBtn)
-        
-        panel.add(buttonPanel, BorderLayout.SOUTH)
-        
-        // Store the panel reference
+        panel.add(trackedHeader(), BorderLayout.NORTH)
+        trackedMethodsTable = buildTrackedTable()
+        panel.add(JBScrollPane(trackedMethodsTable), BorderLayout.CENTER)
+        panel.add(trackedButtons(), BorderLayout.SOUTH)
         trackedMethodsPanel = panel
-        
-        // Don't populate here - will be done in updateDataDependentComponents
-        
         return panel
     }
-    
+
+    private fun trackedHeader(): JComponent {
+        return JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+            background = UIUtil.getPanelBackground()
+            add(JBLabel("📋 Currently Tracked Methods").apply { font = font.deriveFont(Font.BOLD, 16f) })
+        }
+    }
+
+    private fun buildTrackedTable(): JBTable {
+        val cols = arrayOf("Method", "Modifications", "Last Modified", "Review Status")
+        val model = object : DefaultTableModel(cols, 0) {
+            override fun getColumnClass(i: Int) = String::class.java
+            override fun isCellEditable(r: Int, c: Int) = false
+        }
+        val apply = JBTable(model).apply {
+            setShowGrid(true); gridColor = UIUtil.getBoundsColor(); rowHeight = 25
+            columnModel.getColumn(0).preferredWidth = 420
+            columnModel.getColumn(1).preferredWidth = 110
+            columnModel.getColumn(2).preferredWidth = 160
+            columnModel.getColumn(3).preferredWidth = 130
+        }
+        apply.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+        return apply
+    }
+
+    private fun trackedButtons(): JComponent {
+        return JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+            background = UIUtil.getPanelBackground()
+            add(JButton("Review All Tracked").apply { addActionListener { runNewAnalysis() } })
+            add(JButton("Add Tracked Method...").apply { addActionListener { addTrackedMethodDialog() } })
+            add(JButton("Untrack Selected").apply { addActionListener { untrackSelectedMethod() } })
+            add(JButton("Clear All").apply { addActionListener { clearTracking() } })
+        }
+    }
+
     private fun updateTrackedMethodsPanel() {
-        if (trackedMethodsTable == null) return
-        
-        val tableModel = trackedMethodsTable!!.model as DefaultTableModel
-        tableModel.rowCount = 0
-        
-        val tracker = ProjectChangesTracker.getInstance(project)
-        val trackedMethods = tracker.getTrackedMethods()
+        val table = trackedMethodsTable ?: return
+        val model = table.model as DefaultTableModel
+        model.rowCount = 0
         val reviewer = BackgroundHealthReviewer.getInstance(project)
-        val pendingReviews = reviewer.getPendingReviews()
-        val reviewedMethods = reviewer.getReviewedMethods()
-        
-        val dateFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
-        
-        trackedMethods.forEach { (fqn, method) ->
+        val tracked = ProjectChangesTracker.getInstance(project).getTrackedMethods()
+        val dtf = DateTimeFormatter.ofPattern("HH:mm:ss")
+        tracked.forEach { (fqn, meta) ->
             val status = when {
-                reviewedMethods.containsKey(fqn) -> "✅ Reviewed"
-                pendingReviews.containsKey(fqn) -> "⏳ Pending"
+                reviewer.getReviewedMethods().containsKey(fqn) -> "✅ Reviewed"
+                reviewer.getPendingReviews().containsKey(fqn) -> "⏳ Pending"
                 else -> "📝 Tracking"
             }
-            
-            val lastModified = LocalDateTime.ofInstant(
-                java.time.Instant.ofEpochMilli(method.lastModified),
-                java.time.ZoneId.systemDefault()
-            ).format(dateFormatter)
-            
-            tableModel.addRow(arrayOf(
-                formatMethodName(fqn),
-                method.modificationCount.toString(),
-                lastModified,
-                status,
-                false // checkbox
-            ))
+            val last = LocalDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(meta.lastModified), java.time.ZoneId.systemDefault()
+            ).format(dtf)
+            model.addRow(arrayOf(formatMethodName(fqn), "${meta.modificationCount}", last, status))
         }
-        
-        // Update header with count - safely check if components exist
-        if (trackedMethodsPanel != null && trackedMethodsPanel!!.componentCount > 0) {
-            val firstComponent = trackedMethodsPanel!!.getComponent(0)
-            if (firstComponent is JPanel && firstComponent.componentCount > 0) {
-                val headerLabel = firstComponent.getComponent(0) as? JBLabel
-                headerLabel?.text = "📋 Currently Tracked Methods (${trackedMethods.size} total)"
-            }
-        }
+        updateTrackedHeaderCount(tracked.size)
     }
-    
-    private fun reviewSelectedMethods() {
-        val tableModel = trackedMethodsTable?.model as? DefaultTableModel ?: return
-        val selectedMethods = mutableListOf<String>()
-        val tracker = ProjectChangesTracker.getInstance(project)
-        val trackedMethods = tracker.getTrackedMethods()
-        
-        for (row in 0 until tableModel.rowCount) {
-            val isSelected = tableModel.getValueAt(row, 4) as Boolean
-            if (isSelected) {
-                val methodName = tableModel.getValueAt(row, 0) as String
-                // Find the full FQN from the tracked methods
-                trackedMethods.keys.find { formatMethodName(it) == methodName }?.let {
-                    selectedMethods.add(it)
-                }
-            }
-        }
-        
-        if (selectedMethods.isEmpty()) {
-            Messages.showInfoMessage(
-                project,
-                "Please select at least one method to review.",
-                "No Methods Selected"
-            )
+
+    private fun updateTrackedHeaderCount(count: Int) {
+        val headerPanel = (trackedMethodsPanel?.getComponent(0) as? JPanel) ?: return
+        val title = headerPanel.getComponent(0) as? JBLabel ?: return
+        title.text = "📋 Currently Tracked Methods ($count total)"
+    }
+
+    private fun untrackSelectedMethod() {
+        val table = trackedMethodsTable ?: return
+        val row = table.selectedRow
+        if (row < 0) {
+            Messages.showInfoMessage(project, "Select a method row to untrack.", "No Row Selected")
             return
         }
-        
-        ProgressManager.getInstance().run(object : ProgressTask.Backgroundable(
-            project,
-            "Reviewing Selected Methods",
-            true
-        ) {
-            override fun run(indicator: ProgressIndicator) {
-                indicator.text = "Reviewing ${selectedMethods.size} selected methods..."
-                
-                val reviewer = BackgroundHealthReviewer.getInstance(project)
-                val future = reviewer.triggerImmediateReview(selectedMethods) { progressMsg ->
-                    indicator.text = progressMsg
-                }
-                
-                try {
-                    val results = future.get()
-                    ApplicationManager.getApplication().invokeLater {
-                        currentData = results
-                        updateDataDependentComponents()
-                        Messages.showInfoMessage(
-                            project,
-                            "Review complete!\n${results.size} methods reviewed\n${results.sumOf { it.issues.size }} issues found",
-                            "Review Complete"
-                        )
-                    }
-                } catch (e: Exception) {
-                    ApplicationManager.getApplication().invokeLater {
-                        Messages.showErrorDialog(
-                            project,
-                            "Review failed: ${e.message}",
-                            "Review Error"
-                        )
-                    }
-                }
-            }
-        })
-    }
-    
-    private fun selectAllMethods(select: Boolean) {
-        val tableModel = trackedMethodsTable?.model as? DefaultTableModel ?: return
-        for (row in 0 until tableModel.rowCount) {
-            tableModel.setValueAt(select, row, 4)
-        }
-    }
-    
-    private fun updateRecentChangesPanel() {
-        recentChangesPanel?.removeAll()
-        
+        val name = (table.model as DefaultTableModel).getValueAt(row, 0) as String
         val tracker = ProjectChangesTracker.getInstance(project)
-        val trackedMethods = tracker.getTrackedMethods()
-            .values
-            .sortedByDescending { it.lastModified }
-            .take(20) // Show last 20 changes
-        
-        if (trackedMethods.isEmpty()) {
-            val noChangesLabel = JBLabel("No recent changes tracked")
-            noChangesLabel.font = noChangesLabel.font.deriveFont(14f)
-            recentChangesPanel!!.add(noChangesLabel)
-        } else {
-            val dateFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
-            
-            trackedMethods.forEach { method ->
-                val changeCard = JPanel(BorderLayout())
-                changeCard.background = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
-                changeCard.border = JBUI.Borders.compound(
-                    JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1),
-                    EmptyBorder(8, 12, 8, 12)
-                )
-                
-                val leftPanel = JPanel()
-                leftPanel.layout = BoxLayout(leftPanel, BoxLayout.Y_AXIS)
-                leftPanel.background = changeCard.background
-                
-                val methodLabel = JBLabel(formatMethodName(method.fqn))
-                methodLabel.font = Font(Font.MONOSPACED, Font.BOLD, 12)
-                leftPanel.add(methodLabel)
-                
-                val lastModified = LocalDateTime.ofInstant(
-                    java.time.Instant.ofEpochMilli(method.lastModified),
-                    java.time.ZoneId.systemDefault()
-                ).format(dateFormatter)
-                
-                val detailsLabel = JBLabel("Modified ${method.modificationCount} times | Last: $lastModified")
-                detailsLabel.font = detailsLabel.font.deriveFont(10f)
-                detailsLabel.foreground = UIUtil.getInactiveTextColor()
-                leftPanel.add(detailsLabel)
-                
-                changeCard.add(leftPanel, BorderLayout.WEST)
-                
-                recentChangesPanel!!.add(changeCard)
-                recentChangesPanel!!.add(Box.createVerticalStrut(5))
-            }
+        val fqn = tracker.getTrackedMethods().keys.find { formatMethodName(it) == name }
+        if (fqn == null) {
+            Messages.showErrorDialog(project, "Unable to resolve selected method.", "Untrack Failed")
+            return
         }
+        tracker.untrackMethod(fqn)
+        refreshUI()
+        Messages.showInfoMessage(project, "Stopped tracking $name", "Untracked")
     }
-    
-    private fun createRecentChangesPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = EmptyBorder(15, 15, 15, 15)
-        
-        val changesLabel = JBLabel("🔄 Recent changes and their health impact will be displayed here")
-        changesLabel.font = changesLabel.font.deriveFont(16f)
-        changesLabel.horizontalAlignment = SwingConstants.CENTER
-        
-        panel.add(changesLabel, BorderLayout.CENTER)
-        
-        // TODO: Implement recent changes tracking
-        
-        return panel
-    }
-    
-    private fun createIssueCard(method: CodeHealthAnalyzer.MethodHealthResult, issues: List<CodeHealthAnalyzer.HealthIssue>): JComponent {
-        val card = JPanel(BorderLayout())
-        card.background = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
-        card.border = JBUI.Borders.compound(
-            JBUI.Borders.customLine(Color(244, 67, 54), 3, 0, 0, 0),
-            EmptyBorder(10, 15, 10, 15)
-        )
-        
-        val leftPanel = JPanel()
-        leftPanel.layout = BoxLayout(leftPanel, BoxLayout.Y_AXIS)
-        leftPanel.background = card.background
-        
-        // Method name
-        val methodLabel = JBLabel(formatMethodName(method.fqn))
-        methodLabel.font = Font(Font.MONOSPACED, Font.BOLD, 14)
-        leftPanel.add(methodLabel)
-        
-        // Issues summary
-        val issuesLabel = JBLabel("${issues.size} critical issue(s)")
-        issuesLabel.font = issuesLabel.font.deriveFont(12f)
-        issuesLabel.foreground = Color(244, 67, 54)
-        leftPanel.add(issuesLabel)
-        
-        card.add(leftPanel, BorderLayout.WEST)
-        
-        // Action buttons
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
-        buttonPanel.background = card.background
-        
-        val viewButton = JButton("View Details")
-        viewButton.addActionListener {
-            openIssueInEditor(method, issues.first())
+
+    private fun addTrackedMethodDialog() {
+        val fqn = Messages.showInputDialog(
+            project,
+            "Enter fully-qualified method identifier (e.g., com.example.Foo.bar or file.ts:123):",
+            "Add Tracked Method",
+            null
+        ) ?: return
+        val trimmed = fqn.trim()
+        if (trimmed.isEmpty()) {
+            Messages.showInfoMessage(project, "Method identifier cannot be empty.", "Invalid Input")
+            return
         }
-        buttonPanel.add(viewButton)
-        
-        card.add(buttonPanel, BorderLayout.EAST)
-        
+        val tracker = ProjectChangesTracker.getInstance(project)
+        if (tracker.getTrackedMethods().containsKey(trimmed)) {
+            Messages.showInfoMessage(project, "Already tracking this method.", "Duplicate")
+            return
+        }
+        tracker.trackMethodModification(trimmed)
+        refreshUI()
+        Messages.showInfoMessage(project, "Now tracking $trimmed", "Added")
+    }
+
+    private fun updateRecentChangesPanel() {
+        val panel = recentChangesPanel ?: return
+        panel.removeAll()
+        val changes = ProjectChangesTracker.getInstance(project)
+            .getTrackedMethods().values.sortedByDescending { it.lastModified }.take(20)
+        if (changes.isEmpty()) {
+            panel.add(JBLabel("No recent changes tracked").apply { font = font.deriveFont(14f) })
+            return
+        }
+        changes.forEach { panel.add(changeCard(it)); panel.add(Box.createVerticalStrut(5)) }
+    }
+
+    private fun changeCard(method: ProjectChangesTracker.ModifiedMethod): JComponent {
+        val card = coloredCard(getScoreColor(70))
+        val dtf = DateTimeFormatter.ofPattern("HH:mm:ss")
+        val left = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS); background = card.background
+        }
+        left.add(JBLabel(formatMethodName(method.fqn)).apply { font = Font(Font.MONOSPACED, Font.BOLD, 12) })
+        left.add(JBLabel("Modified ${method.modificationCount} times | Last: ${
+            LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(method.lastModified),
+                java.time.ZoneId.systemDefault()).format(dtf)
+        }").apply { font = font.deriveFont(10f); foreground = UIUtil.getInactiveTextColor() })
+        card.add(left, BorderLayout.WEST)
         return card
     }
-    
-    private fun createFileHealthCard(fileName: String, healthScore: Int, issueCount: Int): JComponent {
-        val card = JPanel(BorderLayout())
-        card.background = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
-        card.border = JBUI.Borders.compound(
-            JBUI.Borders.customLine(getScoreColor(healthScore), 3, 0, 0, 0),
-            EmptyBorder(8, 12, 8, 12)
-        )
-        
-        val leftPanel = JPanel()
-        leftPanel.layout = BoxLayout(leftPanel, BoxLayout.Y_AXIS)
-        leftPanel.background = card.background
-        
-        val fileLabel = JBLabel(fileName)
-        fileLabel.font = fileLabel.font.deriveFont(Font.BOLD, 12f)
-        leftPanel.add(fileLabel)
-        
-        val statsLabel = JBLabel("Health: $healthScore/100 | Issues: $issueCount")
-        statsLabel.font = statsLabel.font.deriveFont(10f)
-        statsLabel.foreground = UIUtil.getInactiveTextColor()
-        leftPanel.add(statsLabel)
-        
-        card.add(leftPanel, BorderLayout.WEST)
-        
-        return card
+
+    private fun coloredCard(lineColor: Color): JPanel {
+        return JPanel(BorderLayout()).apply {
+            background = bgForCards()
+            border = JBUI.Borders.compound(JBUI.Borders.customLine(lineColor, 3, 0, 0, 0), EmptyBorder(8, 12, 8, 12))
+        }
     }
-    
+
+    private fun bgForCards(): Color = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
+
+    private fun rebuildIssueTabs() {
+        val tp = tabbedPane ?: return
+        if (tp.tabCount < 4) return
+        removeExistingIssueTabs(tp)
+        val issues = getAllIssues().take(maxIssueTabs)
+        val insertIndex = tp.indexOfComponent(recentScroll) // before last tab
+        issues.forEach { (m, i) ->
+//            tp.insertTab(issueTabTitle(m, i), null, createIssueTab(m, i), null, insertIndex)
+        }
+    }
+
+    private fun removeExistingIssueTabs(tp: JBTabbedPane) {
+        val last = tp.tabCount - 1
+        for (i in last - 1 downTo staticTabsCount) tp.removeTabAt(i)
+    }
+
     private fun calculateSummaryMetrics(): SummaryMetrics {
         val data = currentData ?: return SummaryMetrics(0, 0, 0, 0)
-        
-        val overallScore = if (data.isNotEmpty()) data.map { it.healthScore }.average().toInt() else 0
-        val methodsAnalyzed = data.size
-        val allIssues = data.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
-        val issuesFound = allIssues.size
-        val criticalIssues = allIssues.count { it.severity >= 4 }
-        
-        return SummaryMetrics(overallScore, methodsAnalyzed, issuesFound, criticalIssues)
+        val overall = if (data.isNotEmpty()) data.map { it.healthScore }.average().toInt() else 0
+        val verified = data.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
+        return SummaryMetrics(overall, data.size, verified.size, verified.count { it.severity >= 4 })
     }
-    
-    private fun getCriticalIssues(): List<Pair<CodeHealthAnalyzer.MethodHealthResult, List<CodeHealthAnalyzer.HealthIssue>>> {
+
+    private fun getAllIssues(): List<Pair<CodeHealthAnalyzer.MethodHealthResult, CodeHealthAnalyzer.HealthIssue>> {
         val data = currentData ?: return emptyList()
-        
-        return data.mapNotNull { method ->
-            val criticalIssues = method.issues.filter { it.severity >= 4 && it.verified && !it.falsePositive }
-            if (criticalIssues.isNotEmpty()) method to criticalIssues else null
-        }.take(10) // Show top 10 critical issues
-    }
-    
-    private fun getFileHealthData(): List<Triple<String, Int, Int>> {
-        val data = currentData ?: return emptyList()
-        
-        return data.groupBy { extractFileName(it.fqn) }
-            .map { (fileName, methods) ->
-                val avgHealth = methods.map { it.healthScore }.average().toInt()
-                val issueCount = methods.flatMap { it.issues }.count { it.verified && !it.falsePositive }
-                Triple(fileName, avgHealth, issueCount)
-            }
-            .sortedBy { it.second } // Sort by health score (worst first)
-    }
-    
-    private fun extractFileName(fqn: String): String {
-        return if (fqn.contains(":")) {
-            // JS/TS file
-            fqn.substringBefore(":").substringAfterLast("/").substringAfterLast("\\")
-        } else {
-            // Java class
-            fqn.substringBeforeLast(".") + ".java"
+        return data.flatMap { m ->
+            m.issues.filter { it.verified && !it.falsePositive }
+                .sortedByDescending { it.severity }.map { m to it }
         }
     }
-    
-    private fun formatMethodName(fqn: String): String {
-        return if (fqn.contains(":")) {
-            // JS/TS file with line numbers
-            val colonIndex = fqn.lastIndexOf(":")
-            val filePath = fqn.substring(0, colonIndex)
-            val fileName = filePath.substringAfterLast("/").substringAfterLast("\\")
-            val lineInfo = fqn.substring(colonIndex)
-            fileName + lineInfo
-        } else {
-            // Java method FQN
-            fqn
-        }
+
+    private fun getCriticalIssues():
+            List<Pair<CodeHealthAnalyzer.MethodHealthResult, List<CodeHealthAnalyzer.HealthIssue>>> {
+        val data = currentData ?: return emptyList()
+        return data.mapNotNull { m ->
+            val list = m.issues.filter { it.severity >= 4 && it.verified && !it.falsePositive }
+            if (list.isNotEmpty()) m to list else null
+        }.take(10)
     }
-    
+
+    private fun getLessCriticalIssues():
+            List<Pair<CodeHealthAnalyzer.MethodHealthResult, List<CodeHealthAnalyzer.HealthIssue>>> {
+        val data = currentData ?: return emptyList()
+        return data.mapNotNull { m ->
+            val list = m.issues.filter { it.severity in 1..3 && it.verified && !it.falsePositive }
+            if (list.isNotEmpty()) m to list else null
+        }.take(20)
+    }
+
     private fun getScoreColor(score: Int): Color {
         return when {
-            score >= 80 -> Color(76, 175, 80)  // Green
-            score >= 60 -> Color(255, 152, 0)   // Orange
-            else -> Color(244, 67, 54)          // Red
+            score >= 80 -> Color(76, 175, 80)
+            score >= 60 -> Color(255, 152, 0)
+            else -> Color(244, 67, 54)
         }
     }
-    
-    private fun openIssueInEditor(method: CodeHealthAnalyzer.MethodHealthResult, issue: CodeHealthAnalyzer.HealthIssue) {
-        // Use the new dialog instead of opening a separate editor
-        val dialog = CodeHealthIssueDetailDialog(project, method, issue)
-        dialog.show()
+
+    private fun formatMethodName(fqn: String): String {
+        if (":" in fqn) {
+            val idx = fqn.lastIndexOf(":")
+            val file = fqn.substring(0, idx).substringAfterLast("/").substringAfterLast("\\")
+            return file + fqn.substring(idx)
+        }
+        return fqn
     }
-    
+
+    private fun openIssueInEditor(
+        method: CodeHealthAnalyzer.MethodHealthResult,
+        issue: List<CodeHealthAnalyzer.HealthIssue>
+    ) {
+        CodeHealthIssueDetailDialog(project, method, issue).show()
+    }
+
     private fun loadRecentData() {
-        // First check for immediate review results (highest priority)
         currentData = storage.getImmediateReviewResults()
-        
-        // If no immediate review, check for Git-triggered report
-        if (currentData == null) {
-            currentData = storage.getGitTriggeredReport()
-        }
-        
-        // If no Git-triggered report, try to load the most recent daily data
-        if (currentData == null) {
-            // Get the most recent report date from storage
-            val mostRecentDate = storage.getMostRecentReportDate()
-            if (mostRecentDate != null) {
-                currentData = storage.getReportForDate(mostRecentDate)
-            } else {
-                // Fallback: try last 7 days
-                val today = LocalDate.now()
-                for (i in 0..6) {
-                    currentData = storage.getReportForDate(today.minusDays(i.toLong()))
-                    if (currentData != null) break
-                }
-            }
-        }
+        if (currentData != null) return
+        currentData = storage.getGitTriggeredReport()
+        if (currentData != null) return
+        currentData = loadMostRecentDaily() ?: loadFallbackLast7Days()
     }
-    
+
+    private fun loadMostRecentDaily(): List<CodeHealthAnalyzer.MethodHealthResult>? {
+        val date = storage.getMostRecentReportDate() ?: return null
+        return storage.getReportForDate(date)
+    }
+
+    private fun loadFallbackLast7Days(): List<CodeHealthAnalyzer.MethodHealthResult>? {
+        val today = LocalDate.now()
+        for (i in 0..6) storage.getReportForDate(today.minusDays(i.toLong()))?.let { return it }
+        return null
+    }
+
     private fun refreshData() {
         loadRecentData()
-        updateDataDependentComponents()
+        refreshUI()
         Messages.showInfoMessage(project, "Code Health data refreshed", "Data Refreshed")
     }
-    
+
     private fun runNewAnalysis() {
-        val tracker = ProjectChangesTracker.getInstance(project)
-        val trackedMethods = tracker.getTrackedMethods()
-        
-        if (trackedMethods.isEmpty()) {
-            Messages.showInfoMessage(
-                project,
-                "No methods are currently being tracked.\nEdit some code to start tracking methods.",
-                "No Methods to Analyze"
-            )
+        val tracked = ProjectChangesTracker.getInstance(project).getTrackedMethods()
+        if (tracked.isEmpty()) {
+            Messages.showInfoMessage(project, "No methods are tracked. Add some to start.", "No Methods to Analyze")
             return
         }
-        
-        ProgressManager.getInstance().run(object : ProgressTask.Backgroundable(
-            project,
-            "Running Code Health Analysis",
-            true
-        ) {
-            override fun run(indicator: ProgressIndicator) {
-                indicator.text = "Analyzing ${trackedMethods.size} tracked methods..."
-                
-                val reviewer = BackgroundHealthReviewer.getInstance(project)
-                val future = reviewer.triggerImmediateReview(
-                    trackedMethods.keys.toList()
-                ) { progressMsg ->
-                    indicator.text = progressMsg
-                }
-                
-                try {
-                    val results = future.get()
-                    ApplicationManager.getApplication().invokeLater {
-                        currentData = results
-                        updateDataDependentComponents()
-                        Messages.showInfoMessage(
-                            project,
-                            "Analysis complete!\n${results.size} methods analyzed\n${results.sumOf { it.issues.size }} issues found",
-                            "Analysis Complete"
-                        )
-                    }
-                } catch (e: Exception) {
-                    ApplicationManager.getApplication().invokeLater {
-                        Messages.showErrorDialog(
-                            project,
-                            "Analysis failed: ${e.message}",
-                            "Analysis Error"
-                        )
-                    }
-                }
-            }
-        })
+        runReviewTask(
+            title = "Running Code Health Analysis",
+            future = BackgroundHealthReviewer.getInstance(project)
+                .triggerImmediateReview(tracked.keys.toList()) {
+                    ProgressManager.getInstance().progressIndicator?.text = it
+                },
+            successTitle = "Analysis Complete"
+        )
     }
-    
+
     private fun reviewAllPending() {
         val reviewer = BackgroundHealthReviewer.getInstance(project)
-        val pendingReviews = reviewer.getPendingReviews()
-        
-        if (pendingReviews.isEmpty()) {
-            Messages.showInfoMessage(
-                project,
-                "No methods are pending review.",
-                "No Pending Reviews"
-            )
+        if (reviewer.getPendingReviews().isEmpty()) {
+            Messages.showInfoMessage(project, "No methods are pending review.", "No Pending Reviews")
             return
         }
-        
-        ProgressManager.getInstance().run(object : ProgressTask.Backgroundable(
-            project,
-            "Reviewing Pending Methods",
-            true
-        ) {
+        runReviewTask(
+            title = "Reviewing Pending Methods",
+            future = reviewer.triggerImmediateReviewAll {
+                ProgressManager.getInstance().progressIndicator?.text = it
+            },
+            successTitle = "Review Complete"
+        )
+    }
+
+    private fun runReviewTask(
+        title: String,
+        future: java.util.concurrent.Future<List<CodeHealthAnalyzer.MethodHealthResult>>,
+        successTitle: String
+    ) {
+        ProgressManager.getInstance().run(object : ProgressTask.Backgroundable(project, title, true) {
             override fun run(indicator: ProgressIndicator) {
-                indicator.text = "Reviewing ${pendingReviews.size} pending methods..."
-                
-                val future = reviewer.triggerImmediateReviewAll { progressMsg ->
-                    indicator.text = progressMsg
-                }
-                
                 try {
+                    indicator.text = title
                     val results = future.get()
                     ApplicationManager.getApplication().invokeLater {
                         currentData = results
-                        updateDataDependentComponents()
+                        refreshUI()
                         Messages.showInfoMessage(
                             project,
-                            "Review complete!\n${results.size} methods reviewed\n${results.sumOf { it.issues.size }} issues found",
-                            "Review Complete"
+                            "${results.size} methods processed\n${results.sumOf { it.issues.size }} issues found",
+                            successTitle
                         )
                     }
                 } catch (e: Exception) {
                     ApplicationManager.getApplication().invokeLater {
-                        Messages.showErrorDialog(
-                            project,
-                            "Review failed: ${e.message}",
-                            "Review Error"
-                        )
+                        Messages.showErrorDialog(project, "Operation failed: ${e.message}", "Error")
                     }
                 }
             }
         })
     }
-    
+
     private fun clearTracking() {
-        val result = Messages.showYesNoDialog(
+        val ok = Messages.showYesNoDialog(
             project,
             "This will clear all tracked methods and pending reviews.\nAre you sure?",
             "Clear Tracking Data",
             Messages.getQuestionIcon()
         )
-        
-        if (result == Messages.YES) {
-            val tracker = ProjectChangesTracker.getInstance(project)
-            tracker.clearAllTracking()
-            updateDataDependentComponents()
-            Messages.showInfoMessage(
-                project,
-                "All tracking data has been cleared.",
-                "Tracking Cleared"
-            )
-        }
+        if (ok != Messages.YES) return
+        ProjectChangesTracker.getInstance(project).clearAllTracking()
+        refreshUI()
+        Messages.showInfoMessage(project, "All tracking data has been cleared.", "Tracking Cleared")
     }
-    
+
     private fun exportReport() {
-        Messages.showInfoMessage(
-            project,
-            "Export functionality will be implemented in a future update.",
-            "Feature Coming Soon"
-        )
-        // TODO: Implement report export
+        Messages.showInfoMessage(project, "Export functionality will be implemented in a future update.", "Feature Coming Soon")
     }
-    
+
     data class SummaryMetrics(
         val overallScore: Int,
         val methodsAnalyzed: Int,

@@ -686,6 +686,10 @@ class ProjectChangesTracker(private val project: Project) :
             Thread.currentThread().interrupt()
         }
     }
+
+    fun untrackMethod(fqn: String) {
+        this.methodModifications.remove(fqn)
+    }
 }
 
 /**

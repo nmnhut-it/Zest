@@ -275,6 +275,7 @@ Please provide:
 - **Recommendations**: Concrete suggestions with code examples
 - **Priority**: Which issues to address first
 - **Summary**: Brief overall assessment
+
 Be thorough but concise. Focus on actionable feedback.
 
             """.trimIndent())

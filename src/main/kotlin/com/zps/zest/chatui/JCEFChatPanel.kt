@@ -561,7 +561,8 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                                     isProcessing: false,
                                     lastChunkTime: Date.now(),
                                     chunkInterval: 2000, // Start with 2 second default
-                                    adaptiveSpeed: 500    // Current display speed
+                                    adaptiveSpeed: 500,   // Current display speed
+                                    lastScrollTime: 0     // Throttle scrolling
                                 };
                             }
                             
@@ -605,6 +606,16 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                             if (!state.isProcessing) {
                                 this.processWordQueue(messageId);
                             }
+                            
+                            // Also scroll to message when new chunks arrive (throttled)
+                            if (currentTime - state.lastScrollTime > 300) { // Throttle chunk scrolling to every 300ms
+                                state.lastScrollTime = currentTime;
+                                messageElement.scrollIntoView({ 
+                                    behavior: 'smooth', 
+                                    block: 'end',
+                                    inline: 'nearest' 
+                                });
+                            }
                         },
                         
                         processWordQueue: function(messageId) {
@@ -627,6 +638,17 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                             
                             // Update display with plain text
                             contentDiv.innerHTML = '<pre style="white-space: pre-wrap; font-family: inherit; margin: 0; background: none; border: none; padding: 0;">' + this.escapeHtml(state.displayedContent) + '<span class="streaming-cursor">▎</span></pre>';
+                            
+                            // Auto-scroll to keep the streaming message visible (throttled)
+                            const now = Date.now();
+                            if (now - state.lastScrollTime > 500) { // Throttle scrolling to every 500ms
+                                state.lastScrollTime = now;
+                                messageElement.scrollIntoView({ 
+                                    behavior: 'smooth', 
+                                    block: 'end',    // Keep bottom of message visible
+                                    inline: 'nearest' 
+                                });
+                            }
                             
                             // Use adaptive speed based on chunk arrival rate
                             const isSpace = /^\s+$/.test(nextWord);
@@ -662,6 +684,15 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                                     // Re-apply interactive features
                                     makeCodeBlocksCollapsible();
                                 }
+                                
+                                // Final scroll to ensure the complete message is visible
+                                setTimeout(() => {
+                                    messageElement.scrollIntoView({ 
+                                        behavior: 'smooth', 
+                                        block: 'end',
+                                        inline: 'nearest' 
+                                    });
+                                }, 100); // Small delay to ensure DOM is updated
                             }
                         },
                         

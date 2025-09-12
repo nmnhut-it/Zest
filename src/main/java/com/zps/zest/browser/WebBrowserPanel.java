@@ -323,6 +323,8 @@ public class WebBrowserPanel implements Disposable {
      * Sets the active browser mode.
      */
     private void setMode(BrowserMode mode) {
+        if (mode == null)
+            return;;
         boolean wasAgentMode = currentMode != null && currentMode.getName().equals("Agent Mode");
         boolean isAgentMode = mode.getName().equals("Agent Mode");
         

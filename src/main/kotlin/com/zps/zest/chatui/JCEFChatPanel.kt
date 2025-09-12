@@ -110,39 +110,352 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     /**
-     * Generate complete HTML for the chat
+     * Generate complete HTML for the chat using client-side markdown rendering
      */
     private fun generateChatHtml(): String {
-        val messagesHtml = conversationMessages.mapIndexed { index, message ->
-            val messageMarkdown = """
-                ## ${message.header} `(${message.timestamp})`
-                
-                ${message.content}
-            """.trimIndent()
-            
-            val messageHtml = MarkdownRenderer.markdownToJCEFHtml(messageMarkdown)
-                .substringAfter("<body>")
-                .substringBefore("</body>")
-            
-            val separator = if (index > 0) """<div class="message-separator"></div>""" else ""
-            
+        // Prepare message data for client-side processing
+        val messagesData = conversationMessages.mapIndexed { index, message ->
             """
-            $separator
-            <div id="${message.id}" class="chat-message">
-                $messageHtml
-            </div>
+            {
+                "id": "${message.id}",
+                "header": "${escapeJsonString(message.header)}",
+                "content": "${escapeJsonString(message.content)}",
+                "timestamp": "${message.timestamp}",
+                "showSeparator": ${index > 0}
+            }
             """
-        }.joinToString("\n")
+        }.joinToString(",\n")
         
-        return MarkdownRenderer.markdownToJCEFHtml("").replace(
-            "<body>",
-            """
+        return generateBaseChatHtml(messagesData)
+    }
+    
+    /**
+     * Generate base HTML template with client-side markdown processing
+     */
+    private fun generateBaseChatHtml(messagesData: String): String {
+        val isDarkTheme = com.intellij.util.ui.UIUtil.isUnderDarcula()
+        val markedJs = loadResource("js/marked.min.js") ?: ""
+        val highlightJs = loadResource("js/highlight.min.js") ?: ""
+        val highlightCss = loadResource("js/${if (isDarkTheme) "github-dark" else "github"}.css") ?: ""
+        
+        return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Zest Chat</title>
+                <style>
+                    $highlightCss
+                    
+                    body { 
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        font-size: 14px;
+                        margin: 0;
+                        padding: 16px;
+                        line-height: 1.6;
+                        background: ${if (isDarkTheme) "#1e1e1e" else "#ffffff"};
+                        color: ${if (isDarkTheme) "#d4d4d4" else "#333333"};
+                    }
+                    
+                    .chat-message {
+                        margin-bottom: 24px;
+                    }
+                    
+                    .message-header {
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: ${if (isDarkTheme) "#6366f1" else "#4f46e5"};
+                        margin-bottom: 12px;
+                        border-bottom: 1px solid ${if (isDarkTheme) "#464647" else "#e1e4e8"};
+                        padding-bottom: 8px;
+                    }
+                    
+                    .message-content {
+                        margin-left: 0;
+                    }
+                    
+                    pre { 
+                        background: ${if (isDarkTheme) "#2d2d30" else "#f6f8fa"};
+                        border: 1px solid ${if (isDarkTheme) "#3a3d40" else "#d0d7de"};
+                        border-radius: 6px;
+                        padding: 12px;
+                        font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+                        font-size: 13px;
+                        line-height: 1.4;
+                        overflow-x: auto;
+                        position: relative;
+                    }
+                    
+                    code {
+                        background: ${if (isDarkTheme) "#3c3f41" else "#f3f4f6"};
+                        border-radius: 3px;
+                        padding: 2px 4px;
+                        font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+                        font-size: 13px;
+                    }
+                    
+                    pre code {
+                        background: transparent;
+                        padding: 0;
+                        border-radius: 0;
+                    }
+                    
+                    .copy-button {
+                        position: absolute;
+                        top: 8px;
+                        right: 8px;
+                        background: ${if (isDarkTheme) "#464647" else "#e1e4e8"};
+                        border: none;
+                        border-radius: 4px;
+                        padding: 4px 8px;
+                        font-size: 12px;
+                        cursor: pointer;
+                        color: ${if (isDarkTheme) "#d4d4d4" else "#333333"};
+                        opacity: 0.7;
+                        transition: opacity 0.2s;
+                    }
+                    
+                    .copy-button:hover {
+                        opacity: 1;
+                        background: ${if (isDarkTheme) "#5a5d5e" else "#d0d7de"};
+                    }
+                    
+                    blockquote {
+                        border-left: 4px solid ${if (isDarkTheme) "#6366f1" else "#4f46e5"};
+                        margin: 16px 0;
+                        padding-left: 16px;
+                        color: ${if (isDarkTheme) "#aaaaaa" else "#666666"};
+                        font-style: italic;
+                    }
+                    
+                    h1, h2, h3, h4, h5, h6 {
+                        font-weight: 600;
+                        margin: 24px 0 16px 0;
+                        line-height: 1.25;
+                    }
+                    
+                    h1 { font-size: 24px; }
+                    h2 { font-size: 20px; }
+                    h3 { font-size: 16px; }
+                    
+                    ul, ol {
+                        margin: 16px 0;
+                        padding-left: 32px;
+                    }
+                    
+                    li {
+                        margin: 4px 0;
+                    }
+                    
+                    table {
+                        border-collapse: collapse;
+                        margin: 16px 0;
+                        width: 100%;
+                    }
+                    
+                    th, td {
+                        border: 1px solid ${if (isDarkTheme) "#464647" else "#e1e4e8"};
+                        padding: 8px 12px;
+                        text-align: left;
+                    }
+                    
+                    th {
+                        background: ${if (isDarkTheme) "#3c3f41" else "#f9fafb"};
+                        font-weight: 600;
+                    }
+                    
+                    p {
+                        margin: 12px 0;
+                    }
+                    
+                    hr {
+                        border: none;
+                        border-top: 1px solid ${if (isDarkTheme) "#464647" else "#e1e4e8"};
+                        margin: 24px 0;
+                    }
+                    
+                    /* Message separators */
+                    .message-separator {
+                        height: 2px;
+                        background: linear-gradient(to right, 
+                            transparent, 
+                            ${if (isDarkTheme) "#464647" else "#e1e4e8"}, 
+                            transparent);
+                        margin: 32px 0;
+                        opacity: 0.6;
+                    }
+                    
+                    /* Collapsible code blocks */
+                    .collapse-button {
+                        position: absolute;
+                        top: 8px;
+                        left: 8px;
+                        background: ${if (isDarkTheme) "#464647" else "#e1e4e8"};
+                        border: none;
+                        border-radius: 4px;
+                        padding: 4px 8px;
+                        font-size: 11px;
+                        cursor: pointer;
+                        color: ${if (isDarkTheme) "#d4d4d4" else "#333333"};
+                        opacity: 0.8;
+                        transition: all 0.2s;
+                        z-index: 10;
+                    }
+                    
+                    .collapse-button:hover {
+                        opacity: 1;
+                        background: ${if (isDarkTheme) "#5a5d5e" else "#d0d7de"};
+                    }
+                    
+                    .line-info {
+                        position: absolute;
+                        top: 8px;
+                        left: 100px;
+                        background: ${if (isDarkTheme) "#464647" else "#e1e4e8"};
+                        border-radius: 4px;
+                        padding: 4px 8px;
+                        font-size: 10px;
+                        color: ${if (isDarkTheme) "#aaaaaa" else "#666666"};
+                        opacity: 0.7;
+                        pointer-events: none;
+                    }
+                    
+                    /* Collapsed state */
+                    pre.collapsed {
+                        max-height: 120px;
+                        overflow: hidden;
+                        transition: max-height 0.3s ease;
+                    }
+                    
+                    /* Expanded state (default) */
+                    pre:not(.collapsed) {
+                        max-height: none;
+                        transition: max-height 0.3s ease;
+                    }
+                </style>
+            </head>
             <body>
-                <div id="chat-container">
-                    $messagesHtml
-                </div>
+                <div id="chat-container"></div>
                 
                 <script>
+                    $markedJs
+                    $highlightJs
+                    
+                    // Message data from Kotlin
+                    const messages = [$messagesData];
+                    
+                    document.addEventListener('DOMContentLoaded', function() {
+                        renderMessages();
+                        
+                        // Initialize highlight.js
+                        if (typeof hljs !== 'undefined') {
+                            hljs.highlightAll();
+                            // Temporarily removed: addCopyButtons();
+                            makeCodeBlocksCollapsible();
+                        }
+                    });
+                    
+                    function renderMessages() {
+                        const container = document.getElementById('chat-container');
+                        container.innerHTML = '';
+                        
+                        messages.forEach(function(message) {
+                            // Add separator if needed
+                            if (message.showSeparator) {
+                                const separator = document.createElement('div');
+                                separator.className = 'message-separator';
+                                container.appendChild(separator);
+                            }
+                            
+                            // Create message container
+                            const messageDiv = document.createElement('div');
+                            messageDiv.id = message.id;
+                            messageDiv.className = 'chat-message';
+                            
+                            // Create header
+                            const headerDiv = document.createElement('div');
+                            headerDiv.className = 'message-header';
+                            headerDiv.textContent = message.header + ' - (' + message.timestamp + ')';
+                            messageDiv.appendChild(headerDiv);
+                            
+                            // Create content and render markdown
+                            const contentDiv = document.createElement('div');
+                            contentDiv.className = 'message-content';
+                            
+                            // Use marked.js to render markdown
+                            if (typeof marked !== 'undefined') {
+                                contentDiv.innerHTML = marked.parse(message.content);
+                            } else {
+                                // Fallback to plain text
+                                contentDiv.textContent = message.content;
+                            }
+                            
+                            messageDiv.appendChild(contentDiv);
+                            container.appendChild(messageDiv);
+                        });
+                    }
+                    
+                    function addCopyButtons() {
+                        document.querySelectorAll('pre code').forEach(function(block) {
+                            const pre = block.parentNode;
+                            if (pre.querySelector('.copy-button')) return; // Already has button
+                            
+                            const button = document.createElement('button');
+                            button.className = 'copy-button';
+                            button.textContent = 'Copy';
+                            button.onclick = function() {
+                                navigator.clipboard.writeText(block.textContent).then(function() {
+                                    button.textContent = 'Copied!';
+                                    setTimeout(function() {
+                                        button.textContent = 'Copy';
+                                    }, 2000);
+                                });
+                            };
+                            
+                            pre.style.position = 'relative';
+                            pre.appendChild(button);
+                        });
+                    }
+                    
+                    function makeCodeBlocksCollapsible() {
+                        document.querySelectorAll('pre code').forEach(function(codeElement) {
+                            const pre = codeElement.parentNode;
+                            if (pre.querySelector('.collapse-button')) return; // Already has collapse button
+                            
+                            const codeText = codeElement.textContent || '';
+                            const lineCount = codeText.split('\\n').length;
+                            
+                            // Make ALL code blocks collapsible (no line count discrimination)
+                            const collapseButton = document.createElement('button');
+                            collapseButton.className = 'collapse-button';
+                            collapseButton.textContent = '▶ Expand';
+                            
+                            // Position button similar to copy button
+                            pre.style.position = 'relative';
+                            pre.appendChild(collapseButton);
+                            
+                            // Add line count info
+                            const lineInfo = document.createElement('span');
+                            lineInfo.className = 'line-info';
+                            lineInfo.textContent = lineCount + ' lines';
+                            pre.appendChild(lineInfo);
+                            
+                            // Start collapsed by default
+                            pre.classList.add('collapsed');
+                            
+                            // Toggle collapse state
+                            collapseButton.onclick = function() {
+                                if (pre.classList.contains('collapsed')) {
+                                    pre.classList.remove('collapsed');
+                                    collapseButton.textContent = '▼ Collapse';
+                                } else {
+                                    pre.classList.add('collapsed');
+                                    collapseButton.textContent = '▶ Expand';
+                                }
+                            };
+                        });
+                    }
+                    
                     // Enhanced chat functions
                     window.chatFunctions = {
                         scrollToMessage: function(messageId) {
@@ -160,10 +473,11 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                             messageDiv.innerHTML = html;
                             container.appendChild(messageDiv);
                             
-                            // Re-highlight and add copy buttons
+                            // Re-highlight and add interactive features
                             if (typeof hljs !== 'undefined') {
                                 hljs.highlightAll();
-                                addCopyButtons();
+                                // Temporarily removed: addCopyButtons();
+                                makeCodeBlocksCollapsible();
                             }
                             
                             this.scrollToMessage(messageId);
@@ -185,8 +499,39 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                         window.intellijBridge.callAction('chat-ready', '');
                     }
                 </script>
-            """
-        ).replace("</body>", "</div></body>")
+            </body>
+            </html>
+        """.trimIndent()
+    }
+    
+    /**
+     * Escape JSON string values to prevent injection
+     */
+    private fun escapeJsonString(str: String): String {
+        return str
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+    }
+    
+    /**
+     * Load a resource file as a string
+     */
+    private fun loadResource(path: String): String? {
+        return try {
+            val resourceStream = this::class.java.classLoader.getResourceAsStream(path)
+            if (resourceStream != null) {
+                resourceStream.bufferedReader().use { it.readText() }
+            } else {
+                LOG.warn("Resource not found: $path")
+                null
+            }
+        } catch (e: Exception) {
+            LOG.error("Error loading resource: $path", e)
+            null
+        }
     }
     
     /**

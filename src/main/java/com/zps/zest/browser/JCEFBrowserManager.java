@@ -51,6 +51,8 @@ public class JCEFBrowserManager implements Disposable {
      */
     public JCEFBrowserManager(Project project) {
         this.project = project;
+        LOG.info("Creating JCEFBrowserManager for project: " + project.getName() + 
+                 " (This should be reused when possible to avoid resource waste)");
 
         // Ensure JCEF is initialized with proper cache settings
         JCEFInitializer.initialize();
@@ -566,7 +568,7 @@ public class JCEFBrowserManager implements Disposable {
      * Disposes of browser resources.
      */
     public void dispose() {
-        LOG.info("Disposing JCEFBrowserManager");
+        LOG.info("Disposing JCEFBrowserManager for project: " + project.getName());
 
         // Save browser state before disposing
         saveBrowserState();

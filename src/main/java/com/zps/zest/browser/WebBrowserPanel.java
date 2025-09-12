@@ -85,6 +85,13 @@ public class WebBrowserPanel implements Disposable {
      * Creates a new web browser panel.
      */
     public WebBrowserPanel(Project project) {
+        this(project, true); // Default: include navigation panel
+    }
+    
+    /**
+     * Creates a new web browser panel with optional navigation panel.
+     */
+    public WebBrowserPanel(Project project, boolean includeNavigation) {
         this.project = project;
         this.mainPanel = new JPanel(new BorderLayout());
 
@@ -95,17 +102,23 @@ public class WebBrowserPanel implements Disposable {
         // Initialize browser modes
         initBrowserModes();
 
-        // Create navigation panel
-        JPanel navigationPanel = createNavigationPanel();
-        navigationPanel.setName("navigationPanel");
-        mainPanel.add(navigationPanel, BorderLayout.NORTH);
+        if (includeNavigation) {
+            // Create navigation panel
+            JPanel navigationPanel = createNavigationPanel();
+            navigationPanel.setName("navigationPanel");
+            mainPanel.add(navigationPanel, BorderLayout.NORTH);
+
+            // Get UI references
+            this.urlField = (JBTextField) navigationPanel.getComponent(1);
+            this.modeButton = (JButton) ((JPanel) navigationPanel.getComponent(0)).getComponent(1);
+        } else {
+            // No navigation panel - set references to null
+            this.urlField = null;
+            this.modeButton = null;
+        }
 
         // Add browser component
         mainPanel.add(browserManager.getComponent(), BorderLayout.CENTER);
-
-        // Get UI references
-        this.urlField = (JBTextField) navigationPanel.getComponent(1);
-        this.modeButton = (JButton) ((JPanel) navigationPanel.getComponent(0)).getComponent(1);
 
         // Set default mode to Agent Mode (index 3)
         setMode(browserModes.get(3)); // Agent Mode
@@ -247,7 +260,7 @@ public class WebBrowserPanel implements Disposable {
     /**
      * Opens the Git UI in the browser
      */
-    private void openGitUI() {
+    public void openGitUI() {
         try {
             // Load the Git UI HTML content and convert to data URL to avoid jar:file:// restrictions
             java.io.InputStream is = getClass().getResourceAsStream("/html/git-ui.html");
@@ -315,9 +328,13 @@ public class WebBrowserPanel implements Disposable {
         boolean isAgentMode = mode.getName().equals("Agent Mode");
         
         this.currentMode = mode;
-        modeButton.setText(mode.getName());
-        modeButton.setIcon(mode.getIcon());
-        modeButton.setToolTipText(mode.getTooltip());
+        
+        // Only update mode button if navigation panel exists
+        if (modeButton != null) {
+            modeButton.setText(mode.getName());
+            modeButton.setIcon(mode.getIcon());
+            modeButton.setToolTipText(mode.getTooltip());
+        }
 
         String prompt = mode.getPrompt(project);
         if (prompt != null) {
@@ -397,7 +414,11 @@ public class WebBrowserPanel implements Disposable {
         }
 
         browserManager.loadURL(url);
-        urlField.setText(url);
+        
+        // Only update URL field if navigation panel exists
+        if (urlField != null) {
+            urlField.setText(url);
+        }
     }
 
     /**

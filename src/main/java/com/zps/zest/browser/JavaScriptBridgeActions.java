@@ -134,8 +134,19 @@ public class JavaScriptBridgeActions {
             LOG.info("Handling action: " + action);
 
             // Check if we're in agent mode for actions that require it
-            WebBrowserPanel.BrowserMode currentMode = WebBrowserService.getInstance(project).getBrowserPanel().getCurrentMode();
-            boolean isNotAgentMode = !"Agent Mode".equals(currentMode.getName());
+            WebBrowserPanel browserPanel = WebBrowserService.getInstance(project).getBrowserPanel();
+            WebBrowserPanel.BrowserMode currentMode = null;
+            boolean isNotAgentMode = false;
+            
+            if (browserPanel != null) {
+                currentMode = browserPanel.getCurrentMode();
+                isNotAgentMode = !"Agent Mode".equals(currentMode.getName());
+                LOG.debug("Browser panel found, current mode: " + currentMode.getName());
+            } else {
+                // Fallback behavior when WebBrowserPanel is not available (e.g., in chat UI)
+                LOG.info("WebBrowserPanel not available, defaulting to Agent Mode behavior for compatibility");
+                isNotAgentMode = false; // Default to allowing actions (Agent Mode behavior)
+            }
 
             // Check if panel is ready for actions that require it
             boolean panelNotReady = requiresPanelLoaded(action) && !isPanelReady();

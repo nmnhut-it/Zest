@@ -216,9 +216,9 @@
 
         <action id="Zest.GitCommitMessageGeneratorAction"
                 class="com.zps.zest.GitCommitMessageGeneratorAction"
-                text="Generate Commit Message (Chat)"
+                text="Git Commit &amp; Push"
                 icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
-                description="Tạo commit message tự động từ thay đổi code">
+                description="Open Git UI with auto-selected changes and AI-generated commit message">
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 

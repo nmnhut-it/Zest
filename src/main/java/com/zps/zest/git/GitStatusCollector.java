@@ -10,9 +10,16 @@ public class GitStatusCollector {
     private static final Logger LOG = Logger.getInstance(GitStatusCollector.class);
     
     private final String projectPath;
+    private final GitService gitService;
     
     public GitStatusCollector(String projectPath) {
         this.projectPath = projectPath;
+        this.gitService = null; // For backward compatibility
+    }
+    
+    public GitStatusCollector(String projectPath, GitService gitService) {
+        this.projectPath = projectPath;
+        this.gitService = gitService;
     }
     
     /**
@@ -203,6 +210,77 @@ public class GitStatusCollector {
         }
         
         return result.toString();
+    }
+    
+    /**
+     * Collects all changed files with their actual diff content.
+     * This provides rich information for commit message generation.
+     * Requires GitService instance to be provided in constructor.
+     */
+    public String collectAllChangesWithDiffs() throws Exception {
+        if (gitService == null) {
+            throw new IllegalStateException("GitService is required for collecting diff content. Use constructor with GitService parameter.");
+        }
+        
+        LOG.info("Collecting git changes with diff content...");
+        
+        // First get the list of changed files
+        String fileList = collectAllChanges();
+        if (fileList == null || fileList.trim().isEmpty()) {
+            LOG.warn("No changed files found");
+            return "";
+        }
+        
+        StringBuilder richResult = new StringBuilder();
+        String[] lines = fileList.split("\n");
+        
+        for (String line : lines) {
+            if (line.trim().isEmpty()) continue;
+            
+            // Parse status and filename from line (format: "STATUS\tfilename")
+            String[] parts = line.split("\t", 2);
+            if (parts.length < 2) continue;
+            
+            String status = parts[0].trim();
+            String filePath = parts[1].trim();
+            
+            richResult.append("File: ").append(filePath).append("\n");
+            richResult.append("Status: ").append(getStatusDescription(status)).append("\n");
+            richResult.append("Changes:\n");
+            
+            try {
+                // Get actual diff content for this file
+                String diffContent = gitService.getFileDiffContent(filePath, status);
+                if (diffContent != null && !diffContent.trim().isEmpty()) {
+                    richResult.append(diffContent);
+                } else {
+                    richResult.append("(No diff content available)");
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to get diff for file " + filePath + ": " + e.getMessage());
+                richResult.append("(Error getting diff: ").append(e.getMessage()).append(")");
+            }
+            
+            richResult.append("\n\n");
+        }
+        
+        return richResult.toString();
+    }
+    
+    /**
+     * Converts status character to human-readable description.
+     */
+    private String getStatusDescription(String status) {
+        switch (status) {
+            case "A": return "A (Added)";
+            case "M": return "M (Modified)";
+            case "D": return "D (Deleted)";
+            case "R": return "R (Renamed)";
+            case "C": return "C (Copied)";
+            case "U": return "U (Unmerged)";
+            case "T": return "T (Type changed)";
+            default: return status + " (Unknown)";
+        }
     }
     
     /**

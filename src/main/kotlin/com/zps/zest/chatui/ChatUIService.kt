@@ -3,6 +3,7 @@ package com.zps.zest.chatui
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.Disposable
 import com.zps.zest.browser.utils.ChatboxUtilities
 import com.zps.zest.langchain4j.ZestChatLanguageModel
 import com.zps.zest.langchain4j.util.LLMService
@@ -30,7 +31,7 @@ import java.time.temporal.ChronoUnit
  * Uses ZestChatLanguageModel and MessageWindowChatMemory for proper LangChain4j integration.
  */
 @Service(Service.Level.PROJECT)
-class ChatUIService(private val project: Project) {
+class ChatUIService(private val project: Project) : Disposable {
     
     companion object {
         private val LOG = Logger.getInstance(ChatUIService::class.java)
@@ -126,11 +127,16 @@ class ChatUIService(private val project: Project) {
      * Open the chat dialog
      */
     fun openChat(): JCEFChatDialog {
-        if (currentDialog == null || !currentDialog!!.isVisible) {
+        if (currentDialog == null || currentDialog!!.isDisposed) {
+            LOG.info("Creating new JCEFChatDialog for project: ${project.name}")
             currentDialog = JCEFChatDialog(project)
+            currentDialog!!.show()
+        } else if (!currentDialog!!.isVisible) {
+            LOG.info("Reusing existing JCEFChatDialog, making it visible")
             currentDialog!!.show()
         } else {
             // Bring existing dialog to front
+            LOG.debug("Bringing existing JCEFChatDialog to front")
             currentDialog!!.toFront()
         }
         return currentDialog!!
@@ -149,7 +155,8 @@ class ChatUIService(private val project: Project) {
      */
     fun closeChat() {
         currentDialog?.close(0)
-        currentDialog = null
+        // Don't set currentDialog = null to allow reuse of the dialog and its JCEF components
+        LOG.debug("Chat dialog closed but kept for potential reuse")
     }
     
     /**
@@ -192,21 +199,22 @@ class ChatUIService(private val project: Project) {
         
         if (getMessages().isEmpty()) {
             addSystemMessage("""
-                You are an expert code reviewer and software development assistant. Your role is to:
-                
-                1. **Code Review**: Analyze code for bugs, performance issues, security vulnerabilities, and best practices
-                2. **Code Quality**: Suggest improvements for readability, maintainability, and architecture
-                3. **Best Practices**: Recommend industry-standard patterns and conventions
-                4. **Security**: Identify potential security issues and suggest fixes
-                5. **Performance**: Point out performance bottlenecks and optimization opportunities
-                
-                Please provide:
-                - **Summary**: Brief overall assessment
-                - **Issues**: Specific problems with line numbers when possible
-                - **Recommendations**: Concrete suggestions with code examples
-                - **Priority**: Which issues to address first
-                
-                Be thorough but concise. Focus on actionable feedback.
+You are an expert code reviewer and software development assistant. Your role is to:
+
+1. **Code Review**: Analyze code for bugs, performance issues, security vulnerabilities, and best practices
+2. **Code Quality**: Suggest improvements for readability, maintainability, and architecture
+3. **Best Practices**: Recommend industry-standard patterns and conventions
+4. **Security**: Identify potential security issues and suggest fixes
+5. **Performance**: Point out performance bottlenecks and optimization opportunities
+
+Please provide:
+
+- **Summary**: Brief overall assessment
+- **Issues**: Specific problems with line numbers when possible
+- **Recommendations**: Concrete suggestions with code examples
+- **Priority**: Which issues to address first
+Be thorough but concise. Focus on actionable feedback.
+
             """.trimIndent())
         }
     }
@@ -220,21 +228,20 @@ class ChatUIService(private val project: Project) {
         
         if (getMessages().isEmpty()) {
             addSystemMessage("""
-                You are a Git commit message specialist. Your role is to create clear, conventional commit messages.
-                
-                Follow these guidelines:
-                1. **Format**: Use conventional commits (feat:, fix:, docs:, style:, refactor:, test:, chore:)
-                2. **Summary**: Keep first line under 50 characters
-                3. **Description**: Explain what and why, not how
-                4. **Body**: Add details if needed, wrapped at 72 characters
-                5. **Breaking**: Note breaking changes with BREAKING CHANGE:
-                
-                Examples:
-                - feat: add user authentication system
-                - fix: resolve null pointer exception in UserService
-                - refactor: extract common validation logic
-                
-                Be concise but descriptive.
+You are a Git commit message specialist. Your role is to create clear, conventional commit messages.
+
+Follow these guidelines:
+1. **Format**: Use conventional commits (feat:, fix:, docs:, style:, refactor:, test:, chore:)
+2. **Summary**: Keep first line under 50 characters
+3. **Description**: Explain what and why, not how
+4. **Body**: Add details if needed, wrapped at 72 characters
+5. **Breaking**: Note breaking changes with BREAKING CHANGE:
+
+Examples:
+- feat: add user authentication system
+- fix: resolve null pointer exception in UserService
+- refactor: extract common validation logic
+Be concise but descriptive.
             """.trimIndent())
         }
     }
@@ -511,6 +518,34 @@ class ChatUIService(private val project: Project) {
         val aiMessages: Int,
         val hasActiveConversation: Boolean
     )
+    
+    /**
+     * Dispose method to properly clean up JCEF components when service is disposed
+     */
+    override fun dispose() {
+        LOG.info("Disposing ChatUIService for project: ${project.name}")
+        try {
+            // Properly dispose of the dialog and its JCEF components
+            currentDialog?.let { dialog ->
+                if (!dialog.isDisposed) {
+                    LOG.info("Disposing JCEFChatDialog and its JCEF components")
+                    dialog.close(0)
+                    // The dialog itself will be disposed through IntelliJ's disposal mechanism
+                }
+            }
+            currentDialog = null
+            
+            // Clear chat memory to free up resources
+            chatMemory.clear()
+            
+            // Clear tool-enabled assistant to free up resources
+            toolEnabledAssistant = null
+            
+            LOG.info("ChatUIService disposed successfully")
+        } catch (e: Exception) {
+            LOG.error("Error during ChatUIService disposal", e)
+        }
+    }
 }
 
 /**

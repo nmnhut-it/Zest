@@ -38,8 +38,12 @@ public final class WebBrowserService {
      * Registers a browser panel with this service.
      */
     public void registerPanel(WebBrowserPanel panel) {
+        if (this.browserPanel != null) {
+            LOG.warn("Replacing existing browser panel with new one for project: " + project.getName());
+        }
         this.browserPanel = panel;
-        LOG.info("Browser panel registered with service");
+        LOG.info("Browser panel registered with service for project: " + project.getName() + 
+                 " (Panel class: " + panel.getClass().getSimpleName() + ")");
     }
     
     /**
@@ -103,6 +107,13 @@ public final class WebBrowserService {
      * Gets the browser panel.
      */
     public WebBrowserPanel getBrowserPanel() {
+        if (browserPanel == null) {
+            LOG.debug("getBrowserPanel() returning null - no panel registered for project: " + project.getName() + 
+                     " (This may be normal if using JCEFChatPanel instead of WebBrowserPanel)");
+        } else {
+            LOG.debug("getBrowserPanel() returning panel of type: " + browserPanel.getClass().getSimpleName() + 
+                     " for project: " + project.getName());
+        }
         return browserPanel;
     }
     

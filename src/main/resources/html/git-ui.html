@@ -202,21 +202,50 @@
             margin-bottom: 20px;
         }
         
-        .commit-message {
-            flex: 1;
+        .commit-summary {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        
+        .commit-summary:focus {
+            border-color: #3b82f6;
+        }
+        
+        .commit-summary.streaming {
+            border-color: #3b82f6;
+            background: linear-gradient(90deg, 
+                rgba(59, 130, 246, 0.05) 0%, 
+                rgba(59, 130, 246, 0.1) 50%, 
+                rgba(59, 130, 246, 0.05) 100%);
+            background-size: 200% 100%;
+            animation: streaming 2s ease-in-out infinite;
+        }
+        
+        .commit-description {
             width: 100%;
             padding: 12px;
             border: 2px solid #e5e7eb;
             border-radius: 8px;
             font-family: 'Monaco', 'Consolas', monospace;
             font-size: 14px;
-            resize: none;
+            resize: vertical;
             outline: none;
             transition: border-color 0.2s;
-            min-height: 100px;
+            min-height: 80px;
+            max-height: 200px;
         }
         
-        .commit-message.streaming {
+        .commit-description:focus {
+            border-color: #3b82f6;
+        }
+        
+        .commit-description.streaming {
             border-color: #3b82f6;
             background: linear-gradient(90deg, 
                 rgba(59, 130, 246, 0.05) 0%, 
@@ -231,14 +260,20 @@
             100% { background-position: -200% 0; }
         }
         
-        .dark .commit-message {
+        .dark .commit-summary,
+        .dark .commit-description {
             background: #1e1e1e;
             border-color: #4b5563;
             color: #d4d4d4;
         }
         
-        .commit-message:focus {
-            border-color: #3b82f6;
+        .optional-text {
+            font-weight: 400;
+            color: #666;
+        }
+        
+        .dark .optional-text {
+            color: #999;
         }
         
         .status-bar {
@@ -394,9 +429,16 @@
                 </div>
                 
                 <div class="commit-message-area">
-                    <label style="font-weight: 500; margin-bottom: 8px;">Commit Message</label>
-                    <textarea id="commit-message" class="commit-message" 
-                              placeholder="Enter your commit message..."></textarea>
+                    <div style="margin-bottom: 12px;">
+                        <label style="font-weight: 500; margin-bottom: 6px; display: block;">Summary</label>
+                        <input type="text" id="commit-summary" class="commit-summary" 
+                               placeholder="Brief description of changes" maxlength="72">
+                    </div>
+                    <div>
+                        <label style="font-weight: 500; margin-bottom: 6px; display: block;">Description <span class="optional-text">(optional)</span></label>
+                        <textarea id="commit-description" class="commit-description" 
+                                  placeholder="Detailed explanation of what and why..."></textarea>
+                    </div>
                 </div>
                 
                 <div style="display: flex; gap: 10px;">
@@ -522,6 +564,7 @@
             // Git UI object
             window.GitUI = {
             files: [],
+            isGenerating: false, // Add flag to prevent duplicate generation requests
             
             init: function() {
                 // Notify IntelliJ that Git UI is ready
@@ -701,7 +744,7 @@
                 
                 // Enable/disable buttons
                 const hasSelection = selectedCount > 0;
-                document.getElementById('generate-btn').disabled = !hasSelection;
+                document.getElementById('generate-btn').disabled = !hasSelection || this.isGenerating;
                 document.getElementById('commit-btn').disabled = !hasSelection;
                 document.getElementById('push-btn').disabled = !hasSelection;
                 document.getElementById('review-btn').disabled = !hasSelection;
@@ -719,16 +762,27 @@
             },
             
             generateMessage: function() {
+                // Prevent duplicate calls
+                if (this.isGenerating) {
+                    console.log('Generate already in progress, ignoring duplicate call');
+                    return;
+                }
+                
                 const selectedFiles = this.getSelectedFiles();
                 if (selectedFiles.length === 0) {
                     this.showMessage('Please select files first', 'error');
                     return;
                 }
                 
-                this.showMessage('Generating commit message...', 'info');
+                // Set flag and disable button immediately
+                this.isGenerating = true;
                 document.getElementById('generate-btn').disabled = true;
-                const messageTextarea = document.getElementById('commit-message');
-                messageTextarea.value = ''; // Clear existing message
+                
+                this.showMessage('Generating commit message...', 'info');
+                const summaryInput = document.getElementById('commit-summary');
+                const descriptionTextarea = document.getElementById('commit-description');
+                summaryInput.value = ''; // Clear existing summary
+                descriptionTextarea.value = ''; // Clear existing description
                 
                 // Start streaming session
                 if (window.intellijBridge && window.intellijBridge.callIDE) {
@@ -740,26 +794,52 @@
                             this.streamCommitMessage(response.sessionId);
                         } else {
                             this.showMessage('Failed to start generation: ' + (response.error || 'Unknown error'), 'error');
+                            this.isGenerating = false;
                             document.getElementById('generate-btn').disabled = false;
                         }
                     }).catch(error => {
                         this.showMessage('Error: ' + error.message, 'error');
+                        this.isGenerating = false;
                         document.getElementById('generate-btn').disabled = false;
                     });
                 }
             },
             
             streamCommitMessage: function(sessionId) {
-                const messageTextarea = document.getElementById('commit-message');
+                const summaryInput = document.getElementById('commit-summary');
+                const descriptionTextarea = document.getElementById('commit-description');
                 let streamingText = '';
                 
-                // Add streaming visual effect
-                messageTextarea.classList.add('streaming');
+                // Add streaming visual effect to both fields
+                summaryInput.classList.add('streaming');
+                descriptionTextarea.classList.add('streaming');
                 
                 // Helper function to clean markdown code blocks
                 const cleanMarkdownCodeBlocks = (text) => {
                     // Remove code block markers (```language or just ```)
                     return text.replace(/^```[\w]*\n?/gm, '').replace(/\n?```$/gm, '');
+                };
+                
+                // Helper function to split message into summary and description
+                const splitCommitMessage = (fullMessage) => {
+                    const lines = fullMessage.split('\n');
+                    const summary = lines[0] || '';
+                    // Find first non-empty line after the summary as start of description
+                    let description = '';
+                    let foundDescription = false;
+                    for (let i = 1; i < lines.length; i++) {
+                        const line = lines[i];
+                        if (!foundDescription && line.trim() === '') {
+                            continue; // Skip empty lines before description
+                        }
+                        if (!foundDescription) {
+                            foundDescription = true;
+                        }
+                        if (foundDescription) {
+                            description += (description ? '\n' : '') + line;
+                        }
+                    }
+                    return { summary: summary.slice(0, 72), description: description.trim() };
                 };
                 
                 const pollForChunks = () => {
@@ -769,33 +849,46 @@
                         }).then(response => {
                             if (response && response.success) {
                                 if (response.done) {
-                                    // Streaming complete - clean the final message
-                                    const finalMessage = response.fullMessage || streamingText;
-                                    messageTextarea.value = cleanMarkdownCodeBlocks(finalMessage);
-                                    messageTextarea.classList.remove('streaming');
+                                    // Streaming complete - clean and split the final message
+                                    const finalMessage = cleanMarkdownCodeBlocks(response.fullMessage || streamingText);
+                                    const { summary, description } = splitCommitMessage(finalMessage);
+                                    
+                                    summaryInput.value = summary;
+                                    descriptionTextarea.value = description;
+                                    
+                                    summaryInput.classList.remove('streaming');
+                                    descriptionTextarea.classList.remove('streaming');
+                                    
                                     this.showMessage('Commit message generated successfully!', 'success');
+                                    this.isGenerating = false;
                                     document.getElementById('generate-btn').disabled = false;
                                 } else {
                                     // Append chunk if available
                                     if (response.chunk) {
                                         streamingText += response.chunk;
-                                        // Show raw text while streaming, clean at the end
-                                        messageTextarea.value = streamingText;
-                                        // Auto-resize textarea
-                                        messageTextarea.style.height = 'auto';
-                                        messageTextarea.style.height = messageTextarea.scrollHeight + 'px';
+                                        // Show raw text in summary while streaming (will be split at the end)
+                                        const currentSplit = splitCommitMessage(streamingText);
+                                        summaryInput.value = currentSplit.summary;
+                                        descriptionTextarea.value = currentSplit.description;
+                                        // Auto-resize description textarea
+                                        descriptionTextarea.style.height = 'auto';
+                                        descriptionTextarea.style.height = Math.min(descriptionTextarea.scrollHeight, 200) + 'px';
                                     }
                                     // Continue polling
                                     setTimeout(pollForChunks, 100);
                                 }
                             } else {
-                                messageTextarea.classList.remove('streaming');
+                                summaryInput.classList.remove('streaming');
+                                descriptionTextarea.classList.remove('streaming');
                                 this.showMessage('Streaming error: ' + (response.error || 'Unknown error'), 'error');
+                                this.isGenerating = false;
                                 document.getElementById('generate-btn').disabled = false;
                             }
                         }).catch(error => {
-                            messageTextarea.classList.remove('streaming');
+                            summaryInput.classList.remove('streaming');
+                            descriptionTextarea.classList.remove('streaming');
                             this.showMessage('Polling error: ' + error.message, 'error');
+                            this.isGenerating = false;
                             document.getElementById('generate-btn').disabled = false;
                         });
                     }
@@ -806,11 +899,16 @@
             },
             
             commit: function(shouldPush) {
-                const message = document.getElementById('commit-message').value.trim();
-                if (!message) {
-                    this.showMessage('Please enter a commit message', 'error');
+                const summary = document.getElementById('commit-summary').value.trim();
+                const description = document.getElementById('commit-description').value.trim();
+                
+                if (!summary) {
+                    this.showMessage('Please enter a commit summary', 'error');
                     return;
                 }
+                
+                // Combine summary and description into a single commit message
+                const message = description ? `${summary}\n\n${description}` : summary;
                 
                 const selectedFiles = this.getSelectedFiles();
                 if (selectedFiles.length === 0) {
@@ -840,7 +938,8 @@
                     }).then(response => {
                         if (response && response.success) {
                             this.showMessage(shouldPush ? 'Committed and pushed successfully!' : 'Committed successfully!', 'success');
-                            document.getElementById('commit-message').value = '';
+                            document.getElementById('commit-summary').value = '';
+                            document.getElementById('commit-description').value = '';
                             
                             // Filter for code files only
                             const codeFiles = selectedFiles.filter(file => {

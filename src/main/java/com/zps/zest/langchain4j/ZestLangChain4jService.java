@@ -119,10 +119,10 @@ public final class ZestLangChain4jService {
         LOG.info("Integrated with ProjectChangesTracker for auto-updating index");
         
         // Index the codebase on startup
-        indexCodebaseAsync();
+//        indexCodebaseAsync();
         
         // Set up periodic incremental indexing based on changes
-        setupIncrementalIndexing();
+//        setupIncrementalIndexing();
     }
     
     /**

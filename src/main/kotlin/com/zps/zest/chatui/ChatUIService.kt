@@ -14,7 +14,8 @@ import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.memory.chat.MessageWindowChatMemory
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.chat.response.ChatResponse
-import dev.langchain4j.agentic.AgenticServices
+import dev.langchain4j.service.AiServices
+import dev.langchain4j.service.TokenStream
 import com.zps.zest.testgen.tools.ReadFileTool
 import com.zps.zest.explanation.tools.RipgrepCodeTool
 import com.google.gson.Gson
@@ -66,62 +67,43 @@ class ChatUIService(private val project: Project) : Disposable {
     private val readFileTool = ReadFileTool(project, readFiles)
     private val searchTool = RipgrepCodeTool(project, mutableSetOf(), searchResults)
     private var toolEnabledAssistant: ChatAssistant? = null
+    private var streamingToolEnabledAssistant: StreamingChatAssistant? = null
     
     // Dialog management
     private var currentDialog: JCEFChatDialog? = null
-    
+
     /**
-     * Send a message to the AI and get a response with tool support (synchronous)
-     */
-    fun sendMessage(userMessage: String): String {
-        LOG.info("Sending message to AI: ${userMessage.take(100)}...")
-        
-        try {
-            // Initialize tool-enabled assistant if not already done
-            if (toolEnabledAssistant == null) {
-                toolEnabledAssistant = createToolEnabledAssistant()
-            }
-            
-            // Use the tool-enabled assistant
-            val response = toolEnabledAssistant!!.chat(userMessage)
-            
-            LOG.info("Received AI response: ${response.take(100)}...")
-            return response
-            
-        } catch (e: Exception) {
-            LOG.error("Failed to send message to AI", e)
-            val errorMessage = "Sorry, I encountered an error: ${e.message}"
-            return errorMessage
-        }
-    }
-    
-    /**
-     * Send a message to the AI with streaming response support
+     * Send a message to the AI with streaming response support and tool integration using AiServices
      * 
      * @param userMessage The message to send
      * @param onToken Callback for each streaming token
      * @param onComplete Callback when streaming is complete
      * @param onError Callback for errors
+     * @param onToolCall Callback when a tool is called (toolName, toolArgs, toolCallId)
+     * @param onToolResult Callback when a tool completes (toolCallId, result)
      */
     fun sendMessageStreaming(
         userMessage: String,
         onToken: (String) -> Unit,
         onComplete: (String) -> Unit,
-        onError: (Throwable) -> Unit
+        onError: (Throwable) -> Unit,
+        onToolCall: ((String, String, String) -> Unit)? = null,
+        onToolResult: ((String, String) -> Unit)? = null
     ) {
         LOG.info("Sending streaming message to AI: ${userMessage.take(100)}...")
         
         try {
-            // Add user message to memory
-            chatMemory.add(UserMessage.from(userMessage))
+            // Initialize streaming tool-enabled assistant if not already done
+            if (streamingToolEnabledAssistant == null) {
+                streamingToolEnabledAssistant = createStreamingToolEnabledAssistant()
+            }
             
             val responseBuilder = StringBuilder()
             
             // Token batching for better performance
             val tokenBatch = StringBuilder()
             var lastBatchTime = System.currentTimeMillis()
-            val batchInterval = 200L // Send batch every 200ms
-            val batchTimer = java.util.Timer(true)
+            val batchInterval = 200L
             
             val sendBatch = {
                 if (tokenBatch.isNotEmpty()) {
@@ -133,9 +115,14 @@ class ChatUIService(private val project: Project) : Disposable {
                 }
             }
             
-            // Create streaming response handler with batching
-            val handler = object : StreamingChatResponseHandler {
-                override fun onPartialResponse(partialResponse: String) {
+            // Use AiServices streaming with TokenStream
+            val tokenStream = streamingToolEnabledAssistant!!.chat(userMessage)
+            
+            // Store tool call IDs for UI updates
+            val toolCallIds = mutableMapOf<String, String>()
+            
+            tokenStream
+                .onPartialResponse { partialResponse ->
                     responseBuilder.append(partialResponse)
                     tokenBatch.append(partialResponse)
                     
@@ -145,38 +132,49 @@ class ChatUIService(private val project: Project) : Disposable {
                         lastBatchTime = currentTime
                     }
                 }
-                
-                override fun onCompleteResponse(response: ChatResponse) {
+                .beforeToolExecution { beforeToolExecution ->
+                    // Show tool call in UI
+                    val toolRequest = beforeToolExecution.request()
+                    val toolName = toolRequest.name()
+                    val toolArgs = toolRequest.arguments()
+                    val toolCallId = "tool-${toolRequest.id()}-${System.currentTimeMillis()}"
+                    
+                    // Store mapping for later updates
+                    toolCallIds[toolRequest.id()] = toolCallId
+                    
+                    ApplicationManager.getApplication().invokeLater {
+                        onToolCall?.invoke(toolName, toolArgs, toolCallId)
+                    }
+                    LOG.info("Tool execution starting: $toolName with args: $toolArgs")
+                }
+                .onToolExecuted { toolExecution ->
+                    // Show tool result in UI
+                    val toolRequest = toolExecution.request()
+                    val toolResult = toolExecution.result()
+                    val toolCallId = toolCallIds[toolRequest.id()] ?: "tool-${toolRequest.id()}"
+                    
+                    ApplicationManager.getApplication().invokeLater {
+                        onToolResult?.invoke(toolCallId, toolResult)
+                    }
+                    LOG.info("Tool execution completed: ${toolRequest.name()} -> ${toolResult.take(100)}...")
+                }
+                .onCompleteResponse { response ->
                     // Send final batch if any
                     sendBatch()
-                    batchTimer.cancel()
                     
                     val fullResponse = responseBuilder.toString()
-                    
-                    // Add AI response to memory
-                    if (response.aiMessage() != null) {
-                        chatMemory.add(response.aiMessage())
-                    } else {
-                        // Fallback: create AiMessage from the streamed content
-                        chatMemory.add(AiMessage.from(fullResponse))
+                    LOG.info("Received streaming AI response with tools: ${fullResponse.take(100)}...")
+                    ApplicationManager.getApplication().invokeLater {
+                        onComplete(fullResponse)
                     }
-                    
-                    LOG.info("Received streaming AI response: ${fullResponse.take(100)}...")
-                    onComplete(fullResponse)
                 }
-                
-                override fun onError(error: Throwable) {
-                    batchTimer.cancel()
+                .onError { error ->
                     LOG.error("Streaming failed", error)
-                    onError(error)
+                    ApplicationManager.getApplication().invokeLater {
+                        onError(error)
+                    }
                 }
-            }
-            
-            // Get all messages for context
-            val messages = chatMemory.messages()
-            
-            // Send to streaming model
-            streamingChatModel.chat(messages, handler)
+                .start()
             
         } catch (e: Exception) {
             LOG.error("Failed to start streaming message", e)
@@ -184,13 +182,26 @@ class ChatUIService(private val project: Project) : Disposable {
         }
     }
     
+    
     /**
      * Create a tool-enabled assistant with file reading and search capabilities
      */
     private fun createToolEnabledAssistant(): ChatAssistant {
-        return AgenticServices.agentBuilder(ChatAssistant::class.java)
+        return AiServices.builder(ChatAssistant::class.java)
             .chatModel(chatModel)
             .chatMemory(chatMemory)
+            .tools(readFileTool, searchTool)
+            .build()
+    }
+    
+    /**
+     * Create a streaming tool-enabled assistant with file reading and search capabilities
+     */
+    private fun createStreamingToolEnabledAssistant(): StreamingChatAssistant {
+        return AiServices.builder(StreamingChatAssistant::class.java)
+            .streamingChatModel(streamingChatModel)
+            .chatMemory(chatMemory)
+            .maxSequentialToolsInvocations(3)
             .tools(readFileTool, searchTool)
             .build()
     }
@@ -268,9 +279,13 @@ You are an expert code reviewer and software development assistant. Your role is
 5. **Performance**: Point out performance bottlenecks and optimization opportunities
 6. **Test-ability**: Point out flaws that make the code hard to be unit-tested or integration-tested
 
+## Tool Usage Limits
+
+**IMPORTANT**: You are limited to a maximum of 3 tool calls per conversation. Use them wisely and strategically.
+
+Only use tools when you need specific information from the codebase. Do not use tools for general advice or when the user's question can be answered without examining code.
+
 Please provide:
-
-
 - **Issues**: Specific problems with line numbers when possible
 - **Recommendations**: Concrete suggestions with code examples
 - **Priority**: Which issues to address first
@@ -300,6 +315,26 @@ Follow these guidelines:
 4. **Body**: Add details if needed, wrapped at 72 characters
 5. **Breaking**: Note breaking changes with BREAKING CHANGE:
 
+## Tool Usage for Commit Messages
+
+Use tools sparingly for commit message context:
+
+**When to Use Tools:**
+✅ User mentions "review this commit" → `readFile()` on specific changed files
+✅ Need to understand complex changes → `searchCode()` to see related patterns
+✅ Large refactoring commits → `findFiles()` to understand scope
+
+**When NOT to Use Tools:**
+❌ Simple commits with clear context already provided
+❌ User just wants message format help
+❌ Commit diff is already sufficient
+❌ Standard feature additions without complexity
+
+**Tool Examples:**
+• `readFile("src/main/java/UserService.java")` → When commit touches complex business logic
+• `searchCode("UserService", "*.java", null)` → When refactoring affects multiple files
+• `findFiles("**/test/**")` → When commit adds extensive test coverage
+
 Examples:
 - feat: add user authentication system
 - fix: resolve null pointer exception in UserService
@@ -318,6 +353,9 @@ Be concise but descriptive.
             currentUsage = usage
             chatModel = createChatModel(usage)
             streamingChatModel = createStreamingChatModel(usage)
+            // Reset assistants to use new models
+            toolEnabledAssistant = null
+            streamingToolEnabledAssistant = null
         }
     }
     
@@ -575,6 +613,9 @@ Be concise but descriptive.
             // Recreate both chat models with new settings
             chatModel = createChatModel(currentUsage)
             streamingChatModel = createStreamingChatModel(currentUsage)
+            // Reset assistants to use new models
+            toolEnabledAssistant = null
+            streamingToolEnabledAssistant = null
         }
     }
     
@@ -621,9 +662,12 @@ Be concise but descriptive.
 }
 
 /**
- * LangChain4j agent class for tool-enabled chat
+ * LangChain4j service interfaces for tool-enabled chat
  */
 interface ChatAssistant {
-    @dev.langchain4j.agentic.Agent
     fun chat(userMessage: String): String
+}
+
+interface StreamingChatAssistant {
+    fun chat(userMessage: String): TokenStream
 }

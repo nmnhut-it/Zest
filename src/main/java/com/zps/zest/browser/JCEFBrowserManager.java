@@ -41,8 +41,6 @@ public class JCEFBrowserManager implements Disposable {
     private final Project project;
     private final JavaScriptBridge jsBridge;
     private JBCefJSQuery jsQuery;
-    private JBCefBrowser devToolsBrowser;
-    private boolean devToolsVisible = false;
 
     /**
      * Creates a new browser manager with the specified project.
@@ -510,52 +508,7 @@ public class JCEFBrowserManager implements Disposable {
         }
     }
 
-    /**
-     * Opens the Chrome Developer Tools in a separate window.
-     */
-    public boolean openDevTools() {
-        try {
-            if (!devToolsVisible) {
-                LOG.info("Opening Developer Tools");
-                browser.openDevtools();
-                devToolsVisible = true;
-            }
-            return true;
-        } catch (Exception e) {
-            LOG.error("Error opening developer tools", e);
-            return false;
-        }
-    }
 
-    /**
-     * Toggles the visibility of developer tools.
-     */
-    public boolean toggleDevTools() {
-        if (devToolsVisible) {
-            closeDevTools();
-            return false;
-        } else {
-            return openDevTools();
-        }
-    }
-
-    /**
-     * Closes the Developer Tools window.
-     */
-    public boolean closeDevTools() {
-        try {
-            if (devToolsVisible && devToolsBrowser != null) {
-                LOG.info("Closing Developer Tools");
-                SwingUtilities.getWindowAncestor(devToolsBrowser.getComponent()).dispose();
-                devToolsBrowser = null;
-                devToolsVisible = false;
-            }
-            return true;
-        } catch (Exception e) {
-            LOG.error("Error closing developer tools", e);
-            return false;
-        }
-    }
 
     /**
      * Gets the underlying JBCefBrowser instance.
@@ -583,9 +536,7 @@ public class JCEFBrowserManager implements Disposable {
             jsQuery = null;
         }
 
-        // Close dev tools if open
-        closeDevTools();
-        
+
         // Dispose the browser properly using IntelliJ's disposal mechanism
         if (browser != null) {
             try {

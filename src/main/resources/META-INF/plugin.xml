@@ -103,6 +103,9 @@
         <!-- Chat UI Service -->
         <projectService serviceImplementation="com.zps.zest.chatui.ChatUIService"/>
         
+        <!-- Browser Services -->
+        <projectService serviceImplementation="com.zps.zest.browser.JCEFBrowserService"/>
+        
         <!-- Inline Completion Services -->
         <projectService serviceImplementation="com.zps.zest.completion.ZestInlineCompletionService"/>
     </extensions>

@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.zps.zest.browser.JCEFBrowserManager
+import com.zps.zest.browser.JCEFBrowserService
 import com.zps.zest.browser.jcef.JCEFResourceManager
 import dev.langchain4j.data.message.*
 import java.awt.BorderLayout
@@ -21,15 +22,14 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
         private val LOG = Logger.getInstance(JCEFChatPanel::class.java)
     }
     
-    private val browserManager: JCEFBrowserManager = JCEFBrowserManager(project)
+    private val browserManager: JCEFBrowserManager = JCEFBrowserService.getInstance(project).getBrowserManager()
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
     private val conversationMessages = mutableListOf<ChatMessageData>()
     private var messageCounter = 0
     
     init {
-        // Register for proper disposal
-        Disposer.register(project, browserManager)
-        JCEFResourceManager.getInstance().registerBrowser(browserManager.browser, project)
+        // Browser manager disposal is now handled by JCEFBrowserService
+        // Resource registration is handled by JCEFBrowserManager itself
         
         // Initialize browser with empty chat
         initializeBrowser()
@@ -382,6 +382,73 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                     @keyframes blink {
                         0%, 50% { opacity: 1; }
                         51%, 100% { opacity: 0; }
+                    }
+                    
+                    .tool-call {
+                        margin: 12px 0;
+                        padding: 12px;
+                        background: ${if (isDarkTheme) "#2a2d30" else "#f8f9fa"};
+                        border: 1px solid ${if (isDarkTheme) "#404448" else "#dee2e6"};
+                        border-radius: 8px;
+                        border-left: 4px solid #3b82f6;
+                    }
+                    
+                    .tool-header {
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                        font-weight: 500;
+                        margin-bottom: 8px;
+                    }
+                    
+                    .tool-icon {
+                        font-size: 16px;
+                    }
+                    
+                    .tool-name {
+                        color: #3b82f6;
+                        font-family: 'JetBrains Mono', Consolas, monospace;
+                    }
+                    
+                    .tool-status {
+                        color: ${if (isDarkTheme) "#9ca3af" else "#6b7280"};
+                        font-size: 12px;
+                        margin-left: auto;
+                    }
+                    
+                    .tool-args {
+                        margin: 4px 0;
+                    }
+                    
+                    .tool-args code {
+                        background: ${if (isDarkTheme) "#1e1e1e" else "#ffffff"};
+                        padding: 4px 8px;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        border: 1px solid ${if (isDarkTheme) "#404448" else "#e5e7eb"};
+                    }
+                    
+                    .tool-result {
+                        margin-top: 8px;
+                        padding-top: 8px;
+                        border-top: 1px solid ${if (isDarkTheme) "#404448" else "#e5e7eb"};
+                    }
+                    
+                    .tool-result-header {
+                        font-weight: 500;
+                        color: ${if (isDarkTheme) "#9ca3af" else "#6b7280"};
+                        font-size: 12px;
+                        margin-bottom: 4px;
+                    }
+                    
+                    .tool-result-content {
+                        background: ${if (isDarkTheme) "#1e1e1e" else "#ffffff"};
+                        padding: 8px;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        max-height: 200px;
+                        overflow-y: auto;
+                        border: 1px solid ${if (isDarkTheme) "#404448" else "#e5e7eb"};
                     }
                 </style>
             </head>
@@ -743,20 +810,76 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                             return div.innerHTML;
                         },
                         
+                        addToolCall: function(messageId, toolName, toolArgs, status, toolCallId) {
+                            const messageElement = document.getElementById(messageId);
+                            if (!messageElement) return;
+                            
+                            const contentDiv = messageElement.querySelector('.message-content');
+                            if (!contentDiv) return;
+                            
+                            // Create tool call element 
+                            const statusIcon = status === 'executing' ? '⏳' : status === 'complete' ? '✅' : '❌';
+                            const statusText = status === 'executing' ? 'Executing...' : status === 'complete' ? 'Complete' : 'Error';
+                            
+                            const toolCallHtml = 
+                                '<div class="tool-call" id="' + toolCallId + '">' +
+                                    '<div class="tool-header">' +
+                                        '<span class="tool-icon">' + statusIcon + '</span>' +
+                                        '<span class="tool-name">' + this.escapeHtml(toolName) + '</span>' +
+                                        '<span class="tool-status">' + statusText + '</span>' +
+                                    '</div>' +
+                                    '<div class="tool-args">' +
+                                        '<code>' + this.escapeHtml(toolArgs || '...') + '</code>' +
+                                    '</div>' +
+                                '</div>';
+                            
+                            // Add to the end of current content
+                            const currentContent = contentDiv.innerHTML;
+                            contentDiv.innerHTML = currentContent + toolCallHtml;
+                             
+                        },
+                        
+                        updateToolCall: function(toolCallId, status, result) {
+                            const toolElement = document.getElementById(toolCallId);
+                            if (!toolElement) {
+                            console.log('Element for tool call id not found', toolCallId); 
+                            return;
+                            }
+                            
+                            const statusIcon = status === 'complete' ? '✅' : '❌';
+                            const statusText = status === 'complete' ? 'Complete' : 'Error';
+                            
+                            const statusSpan = toolElement.querySelector('.tool-status');
+                            const iconSpan = toolElement.querySelector('.tool-icon');
+                            
+                            if (statusSpan) statusSpan.textContent = statusText;
+                            if (iconSpan) iconSpan.textContent = statusIcon;
+                            
+                            // Add result section if provided
+                            if (result && status === 'complete') {
+                                const resultHtml = 
+                                    '<div class="tool-result">' +
+                                        '<div class="tool-result-header">📄 Result:</div>' +
+                                        '<pre class="tool-result-content">' + this.escapeHtml(result) + '</pre>' +
+                                    '</div>';
+                                toolElement.innerHTML += resultHtml;
+                            }
+                        },
+                        
                         clearMessages: function() {
                             document.getElementById('chat-container').innerHTML = '';
                         },
                         
                         notifyJava: function(action, data) {
                             if (window.intellijBridge) {
-                                window.intellijBridge.callAction(action, data || '');
+                                window.intellijBridge.callIDE(action, data || '');
                             }
                         }
                     };
                     
                     // Notify Java that chat is ready
                     if (window.intellijBridge) {
-                        window.intellijBridge.callAction('chat-ready', '');
+                        window.intellijBridge.callIDE('chat-ready', '');
                     }
                 </script>
             </body>

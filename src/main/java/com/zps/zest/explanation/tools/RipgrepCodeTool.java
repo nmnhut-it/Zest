@@ -1,6 +1,7 @@
 package com.zps.zest.explanation.tools;
 
 import com.intellij.openapi.project.Project;
+import dev.langchain4j.agent.tool.Tool;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,6 +46,20 @@ public class RipgrepCodeTool {
     /**
      * Search for code patterns across the project using native ripgrep.
      */
+    @Tool("""
+        Search for code patterns across the entire project using high-performance ripgrep.
+        Perfect for finding function calls, class definitions, imports, or any text patterns.
+        
+        Parameters:
+        - query: The search pattern (supports regex)
+        - filePattern: Optional glob pattern to filter files (e.g., "*.java", "**/*.kt")
+        - excludePattern: Optional pattern to exclude files (e.g., "test", "*.min.js")
+        
+        Examples:
+        - searchCode("getUserById", "*.java", null) - Find getUserById in Java files
+        - searchCode("import.*React", "*.tsx", null) - Find React imports in TypeScript
+        - searchCode("@Override", null, "test") - Find @Override excluding test files
+        """)
     public String searchCode(String query, @Nullable String filePattern, @Nullable String excludePattern) {
         return searchWithRipgrep(query, filePattern, excludePattern, 0, 0, false);
     }
@@ -52,6 +67,18 @@ public class RipgrepCodeTool {
     /**
      * Find files matching a glob pattern (no content search, just file listing).
      */
+    @Tool("""
+        Find files in the project that match a specific glob pattern.
+        This is perfect for exploring project structure or finding specific file types.
+        
+        Parameters:
+        - globPattern: Glob pattern to match files (e.g., "*.java", "**/*.ts", "src/**/*.properties")
+        
+        Examples:
+        - findFiles("*.java") - Find all Java files in project root
+        - findFiles("**/*.kt") - Find all Kotlin files recursively
+        - findFiles("src/**/application*.yml") - Find application config files
+        """)
     public String findFiles(String globPattern) {
         return findFilesWithRipgrep(globPattern);
     }
@@ -59,6 +86,20 @@ public class RipgrepCodeTool {
     /**
      * Search with context lines (like rg -C)
      */
+    @Tool("""
+        Search for code patterns with surrounding context lines for better understanding.
+        Shows lines before and after each match to provide context.
+        
+        Parameters:
+        - query: The search pattern (supports regex)
+        - filePattern: Optional glob pattern to filter files
+        - excludePattern: Optional pattern to exclude files  
+        - contextLines: Number of lines to show before and after each match (default: 3)
+        
+        Examples:
+        - searchCodeWithContext("public class", "*.java", null, 2) - Find class definitions with 2 lines context
+        - searchCodeWithContext("TODO", null, "test", 1) - Find TODOs with 1 line context, exclude tests
+        """)
     public String searchCodeWithContext(String query, @Nullable String filePattern, @Nullable String excludePattern, int contextLines) {
         return searchWithRipgrep(query, filePattern, excludePattern, contextLines, contextLines, false);
     }
@@ -66,6 +107,18 @@ public class RipgrepCodeTool {
     /**
      * Search with before context (like rg -B)
      */
+    @Tool("""
+        Search for code patterns showing only lines BEFORE each match.
+        Useful for understanding what comes before specific code patterns.
+        
+        Parameters:
+        - query: The search pattern (supports regex)
+        - filePattern: Optional glob pattern to filter files
+        - excludePattern: Optional pattern to exclude files
+        - beforeLines: Number of lines to show before each match
+        
+        Example: searchWithBeforeContext("return", "*.java", null, 3) - See what leads to return statements
+        """)
     public String searchWithBeforeContext(String query, @Nullable String filePattern, @Nullable String excludePattern, int beforeLines) {
         return searchWithRipgrep(query, filePattern, excludePattern, beforeLines, 0, false);
     }
@@ -73,6 +126,18 @@ public class RipgrepCodeTool {
     /**
      * Search with after context (like rg -A)  
      */
+    @Tool("""
+        Search for code patterns showing only lines AFTER each match.
+        Useful for understanding what follows specific code patterns.
+        
+        Parameters:
+        - query: The search pattern (supports regex)
+        - filePattern: Optional glob pattern to filter files
+        - excludePattern: Optional pattern to exclude files
+        - afterLines: Number of lines to show after each match
+        
+        Example: searchWithAfterContext("if.*null", "*.java", null, 2) - See what happens after null checks
+        """)
     public String searchWithAfterContext(String query, @Nullable String filePattern, @Nullable String excludePattern, int afterLines) {
         return searchWithRipgrep(query, filePattern, excludePattern, 0, afterLines, false);
     }

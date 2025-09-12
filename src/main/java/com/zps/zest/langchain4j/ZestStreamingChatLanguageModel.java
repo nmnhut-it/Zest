@@ -14,6 +14,7 @@ import dev.langchain4j.model.chat.response. StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.service.AiServices;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Duration;
@@ -207,7 +208,6 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         metadata.put("usage", usage.name());
         metadata.put("tool", "Zest");
         metadata.put("service", "ZestStreamingChatLanguageModel");
-
         // Use plugin classloader to avoid Jackson ServiceLoader conflicts
         return executeWithPluginClassLoader(() -> {
             OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder = OpenAiStreamingChatModel.builder()

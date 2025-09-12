@@ -256,7 +256,7 @@ public class ZestChatLanguageModel implements ChatModel {
                 .baseUrl(finalApiUrl)
                 .apiKey(finalApiKey)
                 .modelName(finalModelName)
-                .parallelToolCalls(true)
+                .parallelToolCalls(false)
                 .user(username != null && !username.isEmpty() ? username : null)
                 .logRequests(true)
                 .logResponses(true)

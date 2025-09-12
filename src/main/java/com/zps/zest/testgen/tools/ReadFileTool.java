@@ -32,36 +32,34 @@ public class ReadFileTool {
     }
 
     @Tool("""
-        Read the complete content of any file in the project (configs, scripts, data files, etc.).
-        This tool is essential for understanding configuration, resources, and non-Java files.
+        Read the complete content of any text-based file in the project.
+        Use this tool to examine source code, documentation, scripts, configuration, or any other files.
         
         Parameters:
-        - filePath: The path to the file. Can be:
-          * Absolute path: "/full/path/to/file.xml"
-          * Relative path from project: "src/main/resources/application.properties"
-          * Package-style resource path: "com.example.config.settings" (will try common extensions)
-          * Path with ~ for home: "~/config/file.conf"
+        - filePath: The path to the file. Supports multiple formats:
+          * Relative from project root: "src/main/java/MyClass.java"
+          * Absolute path: "/full/path/to/file.txt"
+          * Package-style path: "com.example.MyClass" (will try common extensions)
+          * Home directory: "~/documents/notes.md"
         
-        Returns: The complete file content or a preview for large files, with the content 
-                automatically stored for inclusion in test context.
+        Returns: The complete file content, or a preview for very large files.
         
         Supported file types:
-        - Configuration: .properties, .xml, .json, .yml, .yaml, .conf
-        - Scripts: .sh, .bat, .py, .js, .sql
-        - Data: .csv, .txt, .md
-        - Templates: .ftl, .vm, .html
+        - Source code: .java, .kt, .py, .js, .ts, .cpp, .c, .go, .rs, .rb, .php
+        - Configuration: .properties, .xml, .json, .yml, .yaml, .conf, .toml
+        - Documentation: .md, .txt, .rst, .adoc
+        - Scripts: .sh, .bat, .ps1, .sql
+        - Web: .html, .css, .scss, .jsx, .tsx, .vue
+        - Data: .csv, .log, .env
+        - Templates: .ftl, .vm, .mustache
         - Any other text-based file
         
-        Notes:
-        - Files larger than 1MB will show a preview with option to read in chunks
-        - Binary files are not supported
-        - File content is automatically captured for test generation context
-        
         Example usage:
-        - readFile("src/main/resources/application.properties")
-        - readFile("config/database.yml")
-        - readFile("com.example.templates.email")  // Will try .ftl, .vm, etc.
-        - readFile("scripts/setup.sh")
+        - readFile("src/main/java/UserService.java") - Read Java source code
+        - readFile("README.md") - Read project documentation  
+        - readFile("package.json") - Read Node.js dependencies
+        - readFile("src/test/java/UserTest.java") - Read test files
+        - readFile("scripts/deploy.sh") - Read deployment scripts
         """)
     public String readFile(String filePath) {
         return ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {

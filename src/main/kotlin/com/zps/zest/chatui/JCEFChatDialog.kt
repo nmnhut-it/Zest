@@ -227,7 +227,7 @@ class JCEFChatDialog(
         
         val responseBuilder = StringBuilder()
         
-        // Send to AI with streaming
+        // Send to AI with streaming and tool support
         chatService.sendMessageStreaming(
             userMessage,
             onToken = { chunk ->
@@ -264,6 +264,26 @@ class JCEFChatDialog(
                     sendButton.text = "Send"
                     sendButton.isEnabled = true
                 }
+            },
+            onToolCall = { toolName, toolArgs, toolCallId ->
+                // Show tool call in UI
+                val escapedToolName = escapeJavaScriptString(toolName)
+                val escapedToolArgs = escapeJavaScriptString(toolArgs)
+                chatPanel.getBrowserManager().executeJavaScript("""
+                    if (window.chatFunctions && window.chatFunctions.addToolCall) {
+                        window.chatFunctions.addToolCall('$aiMessageId', '$escapedToolName', '$escapedToolArgs', 'executing', '$toolCallId');
+                    }
+                """)
+            },
+            onToolResult = { toolCallId, result ->
+                // Update tool call with result
+                val escapedResult = escapeJavaScriptString(result)
+                val status = if (result.startsWith("❌")) "error" else "complete"
+                chatPanel.getBrowserManager().executeJavaScript("""
+                    if (window.chatFunctions && window.chatFunctions.updateToolCall) {
+                        window.chatFunctions.updateToolCall('$toolCallId', '$status', '$escapedResult');
+                    }
+                """)
             }
         )
     }
@@ -362,8 +382,37 @@ class JCEFChatDialog(
             messages.forEach { message ->
                 when (message) {
                     is UserMessage -> chatPanel.addMessage("👤 **You**", message.singleText())
-                    is AiMessage -> chatPanel.addMessage("🤖 **AI**", message.text() ?: "")
+                    is AiMessage -> {
+                        val aiText = message.text() ?: ""
+                        val toolRequests = message.toolExecutionRequests()
+                        
+                        if (toolRequests.isNullOrEmpty()) {
+                            // Regular AI message without tools
+                            chatPanel.addMessage("🤖 **AI**", aiText)
+                        } else {
+                            // AI message with tool requests - show both text and tool calls
+                            val fullContent = buildString {
+                                if (aiText.isNotBlank()) {
+                                    appendLine(aiText)
+                                    appendLine()
+                                }
+                                toolRequests.forEach { toolRequest ->
+                                    appendLine("🔧 **Tool Call: ${toolRequest.name()}**")
+                                    appendLine("```")
+                                    appendLine(toolRequest.arguments())
+                                    appendLine("```")
+                                    appendLine()
+                                }
+                            }
+                            chatPanel.addMessage("🤖 **AI**", fullContent.trim())
+                        }
+                    }
                     is dev.langchain4j.data.message.SystemMessage -> chatPanel.addMessage("⚙️ **System**", message.text())
+                    is dev.langchain4j.data.message.ToolExecutionResultMessage -> {
+                        // Display tool execution result as a proper tool call result
+                        val toolResultContent = "**Tool: ${message.toolName()}**\n\n```\n${message.text()}\n```"
+                        chatPanel.addMessage("🔧 **Tool Result**", toolResultContent)
+                    }
                     else -> chatPanel.addMessage("💬 **Message**", message.toString())
                 }
             }

@@ -95,9 +95,8 @@ public class WebBrowserPanel implements Disposable {
         this.project = project;
         this.mainPanel = new JPanel(new BorderLayout());
 
-        // Create browser manager and register it as a child disposable
-        this.browserManager = new JCEFBrowserManager(project);
-        Disposer.register(this, browserManager);
+        // Get browser manager from service (creates if needed)
+        this.browserManager = JCEFBrowserService.getInstance(project).getBrowserManager();
 
         // Initialize browser modes
         initBrowserModes();
@@ -452,7 +451,8 @@ public class WebBrowserPanel implements Disposable {
      * @return true if developer tools are now visible, false otherwise
      */
     public boolean toggleDevTools() {
-        return browserManager.toggleDevTools();
+        browserManager.getBrowser().openDevtools();
+        return false;
     }
 
     /**
@@ -491,8 +491,8 @@ public class WebBrowserPanel implements Disposable {
     public void dispose() {
         LOG.info("Disposing WebBrowserPanel");
         
-        // Browser manager will be disposed automatically as it's registered as a child
-        // but we can do additional cleanup here if needed
+        // Browser manager disposal is now handled by JCEFBrowserService
+        // We only need to clean up local references
         
         // Clear references
         browserModes.clear();

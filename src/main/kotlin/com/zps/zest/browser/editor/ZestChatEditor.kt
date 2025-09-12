@@ -7,18 +7,15 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorLocation
 import com.intellij.openapi.fileEditor.FileEditorState
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.UserDataHolderBase
-import com.intellij.ui.components.JBTextField
-import com.intellij.util.ui.JBUI
-import com.zps.zest.browser.JCEFBrowserManager
+import com.intellij.openapi.vfs.VirtualFile
+import com.zps.zest.ConfigurationManager
 import com.zps.zest.browser.WebBrowserPanel
 import com.zps.zest.browser.WebBrowserService
 import java.awt.BorderLayout
 import java.beans.PropertyChangeListener
-import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 
@@ -132,9 +129,11 @@ class ZestChatEditor(
     private fun refreshChat() {
         ApplicationManager.getApplication().invokeLater {
             // Reload current URL to refresh chat
-            val currentUrl = browserPanel.currentUrl
-            if (currentUrl.isNotEmpty()) {
-                browserPanel.loadUrl(currentUrl)
+
+            // Set the initial URL with cookie persistence flag
+            val initialUrl = ConfigurationManager.getInstance(project).getApiUrl().replace("/api/chat/completions", "")
+            if (initialUrl.isNotEmpty()) {
+                browserPanel.loadUrl(initialUrl)
             }
             LOG.info("Chat refreshed for session: $sessionId")
         }

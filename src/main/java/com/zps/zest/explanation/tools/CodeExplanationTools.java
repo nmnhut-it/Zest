@@ -32,7 +32,7 @@ public class CodeExplanationTools {
     private final List<String> usagePatterns = new ArrayList<>();
     
     // Individual tool instances
-    private final KeywordExtractionTool keywordExtractionTool;
+//    private final KeywordExtractionTool keywordExtractionTool;
     private final RipgrepCodeTool ripgrepCodeTool;
     private final ReadFileTool readFileTool;
     private final TakeExplanationNoteTool takeNoteTool;
@@ -48,7 +48,7 @@ public class CodeExplanationTools {
         
         // Initialize tools with shared data
         ZestLangChain4jService langChainService = project.getService(ZestLangChain4jService.class);
-        this.keywordExtractionTool = new KeywordExtractionTool(project, langChainService, extractedKeywords);
+//        this.keywordExtractionTool = new KeywordExtractionTool(project, langChainService, extractedKeywords);
         this.ripgrepCodeTool = new RipgrepCodeTool(project, relatedFiles, usagePatterns);
         this.readFileTool = new ReadFileTool(project, readFiles);
         this.takeNoteTool = new TakeExplanationNoteTool(explanationNotes);
@@ -108,39 +108,6 @@ public class CodeExplanationTools {
             SwingUtilities.invokeLater(() -> 
                 progressNotifier.accept("Using " + toolName + "..."));
         }
-    }
-
-    @Tool("Extract important keywords from code that can be used to search for related components")
-    public String extractKeywords(String code, String language) {
-        notifyTool("extractKeywords", "code snippet, language: " + (language != null ? language : "auto"));
-        String result = keywordExtractionTool.extractKeywords(code, language);
-        
-        // Parse the result to extract actual keywords and add them to our list
-        try {
-            // The tool returns formatted text, we need to extract the actual keywords
-            // Look for patterns like "keyword1, keyword2, keyword3" in the result
-            String[] lines = result.split("\n");
-            for (String line : lines) {
-                if (line.contains("Keywords:") || line.contains("Methods/Functions:") || line.contains("Other Keywords:")) {
-                    String keywordsPart = line.substring(line.indexOf(":") + 1).trim();
-                    if (!keywordsPart.isEmpty() && !keywordsPart.equals("(none)")) {
-                        String[] keywords = keywordsPart.split(",\\s*");
-                        for (String keyword : keywords) {
-                            keyword = keyword.trim();
-                            if (!keyword.isEmpty() && keyword.length() > 1) {
-                                extractedKeywords.add(keyword);
-                            }
-                        }
-                    }
-                }
-            }
-            System.out.println("[DEBUG] Extracted " + extractedKeywords.size() + " keywords: " + extractedKeywords);
-        } catch (Exception e) {
-            System.out.println("[DEBUG] Failed to parse keywords, adding fallback");
-            extractedKeywords.add("Error parsing keywords");
-        }
-        
-        return result;
     }
 
     @Tool("Search for code patterns, text, or keywords across the entire project using grep-like functionality")

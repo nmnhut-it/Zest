@@ -2,7 +2,6 @@ package com.zps.zest.settings;
 
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.ui.TitledSeparator;
 import com.intellij.ui.components.*;
@@ -11,7 +10,6 @@ import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.validation.CommitTemplateValidator;
-import com.zps.zest.git.CommitTemplateExamples;
 import com.zps.zest.langchain4j.agent.network.ProjectProxyManager;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
@@ -273,9 +271,9 @@ public class ZestSettingsConfigurable implements Configurable {
         ));
         
         // Commit Template Tab
-        commitPromptTemplateArea = createPromptTextArea();
-        commitPromptTemplateArea.setText(config.getCommitPromptTemplate());
-        promptTabs.addTab("Commit", createCommitTemplatePanel());
+//        commitPromptTemplateArea = createPromptTextArea();
+//        commitPromptTemplateArea.setText(config.getCommitPromptTemplate());
+//        promptTabs.addTab("Commit", createCommitTemplatePanel());
         
         panel.add(promptTabs, BorderLayout.CENTER);
         return panel;
@@ -303,76 +301,7 @@ public class ZestSettingsConfigurable implements Configurable {
         
         return panel;
     }
-    
-    private JPanel createCommitTemplatePanel() {
-        JPanel panel = new JPanel(new BorderLayout(0, 5));
-        panel.setBorder(JBUI.Borders.empty(10));
-        
-        // Instructions
-        JPanel topPanel = new JPanel(new BorderLayout());
-        JBLabel instructions = new JBLabel(
-            "<html>Required: <code>{FILES_LIST}</code>, <code>{DIFFS}</code><br>" +
-            "Optional: <code>{PROJECT_NAME}</code>, <code>{BRANCH_NAME}</code>, etc.</html>"
-        );
-        instructions.setForeground(UIUtil.getContextHelpForeground());
-        topPanel.add(instructions, BorderLayout.NORTH);
-        
-        // Template selector
-        JPanel selectorPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        selectorPanel.add(new JLabel("Examples:"));
-        
-        JComboBox<CommitTemplateExamples.TemplateExample> templateSelector = new JComboBox<>();
-        templateSelector.addItem(new CommitTemplateExamples.TemplateExample("Current", ""));
-        for (CommitTemplateExamples.TemplateExample example : CommitTemplateExamples.getAllTemplates()) {
-            templateSelector.addItem(example);
-        }
-        templateSelector.addActionListener(e -> {
-            CommitTemplateExamples.TemplateExample selected = 
-                (CommitTemplateExamples.TemplateExample) templateSelector.getSelectedItem();
-            if (selected != null && !selected.name.equals("Current")) {
-                commitPromptTemplateArea.setText(selected.template);
-            }
-        });
-        selectorPanel.add(templateSelector);
-        
-        topPanel.add(selectorPanel, BorderLayout.SOUTH);
-        panel.add(topPanel, BorderLayout.NORTH);
-        
-        // Template editor
-        JBScrollPane scrollPane = new JBScrollPane(commitPromptTemplateArea);
-        panel.add(scrollPane, BorderLayout.CENTER);
-        
-        // Buttons
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        
-        JButton validateBtn = new JButton("Validate");
-        validateBtn.addActionListener(e -> validateCommitTemplate());
-        buttonPanel.add(validateBtn);
-        
-        JButton resetBtn = new JButton("Reset");
-        resetBtn.addActionListener(e -> {
-            commitPromptTemplateArea.setText(ConfigurationManager.DEFAULT_COMMIT_PROMPT_TEMPLATE);
-        });
-        buttonPanel.add(resetBtn);
-        
-        JButton migrateBtn = new JButton("Update All Prompts");
-        migrateBtn.setToolTipText("Update all prompts to latest concise versions");
-        migrateBtn.addActionListener(e -> migrateAllPrompts());
-        buttonPanel.add(migrateBtn);
-        
-        JButton previewBtn = new JButton("Preview");
-        previewBtn.addActionListener(e -> previewCommitTemplate());
-        buttonPanel.add(previewBtn);
-        
-        JButton helpBtn = new JButton("Help");
-        helpBtn.addActionListener(e -> showCommitTemplateHelp());
-        buttonPanel.add(helpBtn);
-        
-        panel.add(buttonPanel, BorderLayout.SOUTH);
-        
-        return panel;
-    }
-    
+
     private JBTextArea createPromptTextArea() {
         JBTextArea textArea = new JBTextArea();
         textArea.setRows(15);
@@ -535,123 +464,7 @@ public class ZestSettingsConfigurable implements Configurable {
             customPromptsArea.setText(getDefaultCustomPromptsContent());
         }
     }
-    
-    private void validateCommitTemplate() {
-        String template = commitPromptTemplateArea.getText();
-        CommitTemplateValidator.ValidationResult result = 
-            CommitTemplateValidator.validate(template);
-        
-        if (result.isValid) {
-            Messages.showInfoMessage(project, "Template is valid!", "Validation Success");
-        } else {
-            Messages.showErrorDialog(project, result.errorMessage, "Validation Failed");
-        }
-    }
-    
-    private void previewCommitTemplate() {
-        String template = commitPromptTemplateArea.getText();
-        
-        // Sample data
-        String sampleFilesList = "### Modified files:\n" +
-            "- src/main/java/com/example/UserService.java\n" +
-            "- src/test/java/com/example/UserServiceTest.java\n\n" +
-            "### Added files:\n" +
-            "- src/main/java/com/example/UserDto.java";
-        
-        String sampleDiffs = "### src/main/java/com/example/UserService.java\n" +
-            "```diff\n" +
-            "@@ -15,6 +15,10 @@\n" +
-            "     public User findById(Long id) {\n" +
-            "-        return userRepository.findById(id).orElse(null);\n" +
-            "+        return userRepository.findById(id)\n" +
-            "+            .orElseThrow(() -> new UserNotFoundException(id));\n" +
-            "     }\n" +
-            "```";
-        
-        // Replace placeholders
-        String preview = template
-            .replace("{FILES_LIST}", sampleFilesList)
-            .replace("{DIFFS}", sampleDiffs)
-            .replace("{PROJECT_NAME}", project.getName())
-            .replace("{BRANCH_NAME}", "feature/user-improvements")
-            .replace("{DATE}", "2024-01-15")
-            .replace("{USER_NAME}", System.getProperty("user.name", "developer"));
-        
-        // Show preview in a dialog
-        JTextArea previewArea = new JTextArea(preview);
-        previewArea.setEditable(false);
-        previewArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
-        previewArea.setCaretPosition(0);
-        
-        JScrollPane scrollPane = new JScrollPane(previewArea);
-        scrollPane.setPreferredSize(new Dimension(700, 500));
-        
-        DialogWrapper previewDialog = new DialogWrapper(project, false) {
-            {
-                setTitle("Commit Template Preview");
-                init();
-            }
-            
-            @Nullable
-            @Override
-            protected JComponent createCenterPanel() {
-                return scrollPane;
-            }
-            
-            @Override
-            protected Action[] createActions() {
-                return new Action[]{getOKAction()};
-            }
-        };
-        
-        previewDialog.show();
-    }
-    
-    private void showCommitTemplateHelp() {
-        String helpText = 
-            "The commit template is used to generate AI-powered commit messages.\n\n" +
-            "Required Placeholders:\n" +
-            "• {FILES_LIST} - List of changed files with their status\n" +
-            "• {DIFFS} - The actual code changes\n\n" +
-            "Optional Placeholders:\n" +
-            "• {PROJECT_NAME} - Current project name\n" +
-            "• {BRANCH_NAME} - Current git branch\n" +
-            "• {DATE} - Current date\n" +
-            "• {USER_NAME} - System username\n\n" +
-            "Tips:\n" +
-            "• Be specific about the format you want\n" +
-            "• Include examples in your template\n" +
-            "• Test with the Preview button\n" +
-            "• Use conventional commit format for consistency";
-        
-        Messages.showInfoMessage(project, helpText, "Commit Template Help");
-    }
-    
-    private void migrateAllPrompts() {
-        int result = Messages.showYesNoDialog(
-            project,
-            "This will update all prompts to the latest concise versions.\n" +
-            "Your current prompts will be replaced.\n\n" +
-            "Do you want to continue?",
-            "Update Prompts",
-            Messages.getQuestionIcon()
-        );
-        
-        if (result == Messages.YES) {
-            // Update all prompts to latest defaults
-            systemPromptArea.setText(ConfigurationManager.DEFAULT_SYSTEM_PROMPT);
-            codeSystemPromptArea.setText(ConfigurationManager.DEFAULT_CODE_SYSTEM_PROMPT);
-            commitPromptTemplateArea.setText(ConfigurationManager.DEFAULT_COMMIT_PROMPT_TEMPLATE);
-            
-            Messages.showInfoMessage(
-                project,
-                "All prompts have been updated to the latest concise versions.\n" +
-                "Click Apply to save the changes.",
-                "Prompts Updated"
-            );
-        }
-    }
-    
+
     private JPanel createProjectPanel() {
         JPanel panel = new JPanel(new BorderLayout());
         

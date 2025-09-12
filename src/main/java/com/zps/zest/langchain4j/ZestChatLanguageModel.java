@@ -221,6 +221,8 @@ public class ZestChatLanguageModel implements ChatModel {
         } else {
             LOG.info("Outside office hours: using original configured URL for ZestChatLanguageModel");
             // Keep original apiUrl and apiKey from configuration
+            if (modelName.equals("local-model"))
+                modelName = "local-model-mini";
         }
 
 //         Ensure the URL ends with /v1 for OpenAI compatibility

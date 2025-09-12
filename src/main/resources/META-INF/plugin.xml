@@ -348,10 +348,7 @@
                     text="Toggle Browser DevTools"
                     description="Toggle developer tools for the chat browser"/>
                     
-            <action id="Zest.TestEmbeddingRetrieval"
-                    class="com.zps.zest.langchain4j.actions.TestEmbeddingRetrievalAction"
-                    text="Test Embedding &amp; Retrieval"
-                    description="Test the embedding service and context retrieval functionality"/>
+
         </group>
     </actions>
 </idea-plugin>

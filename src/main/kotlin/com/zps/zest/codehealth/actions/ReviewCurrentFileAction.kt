@@ -106,7 +106,7 @@ class ReviewCurrentFileAction : AnAction() {
                         showReviewNotification(project, file, results)
                         
                         // Clear all tracking after review completes
-                        tracker.clearAllTracking()
+//                        tracker.clearAllTracking()
                     }
                     
                 } catch (e: Exception) {

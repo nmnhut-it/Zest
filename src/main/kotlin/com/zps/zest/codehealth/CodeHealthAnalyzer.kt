@@ -44,7 +44,8 @@ class CodeHealthAnalyzer(private val project: Project) {
 
         // Detection prompt with line numbering (no echo)
         private val PROMPT_DETECTION_LINENUM_TEMPLATE = """
-            Phân tích method đã ĐÁNH SỐ DÒNG (mỗi dòng có prefix "L{n}| ") dưới đây và xác định TỐI ĐA 3 issues thật sự (severity ≥ 3), sắp xếp theo mức độ nghiêm trọng/ảnh hưởng thực tế.
+            Phân tích TỪNG method được cung cấp dưới đây. Với MỖI method, tìm tối đa 3 issues nghiêm trọng (severity ≥ 3) và sắp xếp theo mức độ nghiêm trọng.
+            QUAN TRỌNG: Phân tích TẤT CẢ methods được yêu cầu, không giới hạn số lượng methods.
             Method: {{FQN}}
             CODE (đã đánh số dòng):
             {{NUMBERED_CONTEXT}}
@@ -109,14 +110,15 @@ class CodeHealthAnalyzer(private val project: Project) {
 
         // Whole-file prompt -> diagnostics per method (no code echo)
         private val PROMPT_WHOLE_FILE_TEMPLATE = """
-            Phân tích Java file này và tìm tối đa 3 issues mỗi method, sắp xếp theo độ nghiêm trọng.
+            Phân tích TẤT CẢ methods trong Java file này. Với mỗi method, tìm tối đa 3 issues nghiêm trọng.
+            QUAN TRỌNG: Phân tích TOÀN BỘ danh sách methods được yêu cầu, không bỏ qua bất kỳ method nào.
             File: {{CLASS}}
             Modified methods: {{METHODS}}
             CODE:
             {{CONTEXT}}
             QUY TẮC:
             - KHÔNG được echo lại code trong JSON.
-            - Với mỗi method được phân tích, trả về tối đa 3 "diagnostics".
+            - Với MỖI method trong danh sách được phân tích, trả về tối đa 3 "diagnostics".
             - Dùng line số 1-based tương ứng với method body bạn thấy trong context.
             - Mỗi diagnostic có range (relativeTo="method") và ưu tiên có anchors.before/after (cụm ngắn).
             - Chỉ report issues severity ≥ 3, tập trung vào lỗi thực sự (crash, security, leak, performance nghiêm trọng).
@@ -163,7 +165,8 @@ class CodeHealthAnalyzer(private val project: Project) {
 
         // Method-group prompt -> diagnostics per method
         private val PROMPT_METHOD_GROUP_TEMPLATE = """
-            Phân tích các Java methods sau, tối đa 3 diagnostics mỗi method.
+            Phân tích TẤT CẢ Java methods trong danh sách. Với mỗi method, tìm tối đa 3 diagnostics nghiêm trọng.
+            QUAN TRỌNG: Phân tích TOÀN BỘ danh sách methods được yêu cầu, không bỏ qua method nào.
             Class: {{CLASS}}
             Methods: {{METHODS}}
             CODE:

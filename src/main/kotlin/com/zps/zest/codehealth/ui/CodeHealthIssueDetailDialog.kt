@@ -82,9 +82,9 @@ class CodeHealthIssueDetailDialog(
 
     private fun createHeaderActions(): JComponent {
         val p = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0)).apply { isOpaque = false }
-        p.add(createButton(AllIcons.Actions.EditSource, "Go to Method") { navigateToMethod() })
-        p.add(createButton(AllIcons.Actions.Copy, "Copy All Details") { copyDetailsToClipboard() })
-        p.add(createButton(AllIcons.Actions.Cancel, "Mark Selected as False Positive") { markAsFalsePositive() })
+        p.add(JButton("Go to Method").apply { addActionListener { navigateToMethod() } })
+        p.add(JButton("Copy All Details").apply { addActionListener { copyDetailsToClipboard() } })
+        p.add(JButton("Mark as False Positive").apply { addActionListener { markAsFalsePositive() } })
         return p
     }
 

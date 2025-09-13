@@ -126,30 +126,38 @@ class BackgroundHealthReviewer(private val project: Project) {
                 val reviewUnits = optimizer.optimizeReviewUnits(listOf(fqn))
                 
                 if (reviewUnits.isNotEmpty()) {
-                    val unit = reviewUnits.first()
-                    val unitId = unit.getIdentifier()
+                    // Process ALL review units, not just the first one
+                    val unitsToReview = reviewUnits.filter { unit ->
+                        val unitId = unit.getIdentifier()
+                        !hasReviewedUnit(unitId)
+                    }
                     
-                    // Check if this unit has already been reviewed
-                    if (hasReviewedUnit(unitId)) {
-//                        println("[BackgroundHealthReviewer] Unit $unitId already reviewed, skipping")
+                    if (unitsToReview.isEmpty()) {
+//                        println("[BackgroundHealthReviewer] All units already reviewed, skipping")
                         return@submit
                     }
                     
-//                    println("[BackgroundHealthReviewer] Reviewing as part of unit: ${unit.getDescription()}")
+//                    println("[BackgroundHealthReviewer] Reviewing ${unitsToReview.size} units")
                     
                     val analyzer = CodeHealthAnalyzer.getInstance(project)
-                    val results = analyzer.analyzeReviewUnitsAsync(listOf(unit), optimizer, null)
+                    val results = analyzer.analyzeReviewUnitsAsync(unitsToReview, optimizer, null)
                     
                     if (results.isNotEmpty()) {
-                        // Store results by unit
-                        storeReviewedUnit(unitId, results)
-                        
-                        // Remove all methods in this unit from pending
-                        unit.methods.forEach { methodName ->
-                            pendingReviews.remove("${unit.className}.$methodName")
+                        // Store results from all units
+                        unitsToReview.forEach { unit ->
+                            val unitId = unit.getIdentifier()
+                            val unitResults = results.filter { result ->
+                                result.fqn.startsWith("${unit.className}.")
+                            }
+                            storeReviewedUnit(unitId, unitResults)
+                            
+                            // Remove all methods in this unit from pending
+                            unit.methods.forEach { methodName ->
+                                pendingReviews.remove("${unit.className}.$methodName")
+                            }
                         }
                         
-//                        println("[BackgroundHealthReviewer] Completed review of unit $unitId: " +
+//                        println("[BackgroundHealthReviewer] Completed review of ${unitsToReview.size} units: " +
 //                                "${results.size} method results, " +
 //                                "${results.sumOf { it.issues.size }} total issues")
                         

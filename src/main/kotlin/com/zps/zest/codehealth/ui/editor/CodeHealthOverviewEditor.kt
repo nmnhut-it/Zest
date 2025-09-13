@@ -10,6 +10,7 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task as ProgressTask
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ui.componentsList.components.ScrollablePanel
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.ui.JBSplitter
@@ -132,7 +133,6 @@ class CodeHealthOverviewEditor(
             border = EmptyBorder(15, 15, 15, 15)
         }
     }
-
     private fun refreshUI() {
         SwingUtilities.invokeLater {
             updateSummaryPanel()
@@ -140,7 +140,6 @@ class CodeHealthOverviewEditor(
             updateLessCriticalIssuesPanel()
             updateTrackedMethodsPanel()
             updateRecentChangesPanel()
-            rebuildIssueTabs()
             component.revalidate()
             component.repaint()
         }
@@ -208,7 +207,7 @@ class CodeHealthOverviewEditor(
         issues: List<CodeHealthAnalyzer.HealthIssue>,
         accent: Color
     ): JComponent {
-        val card = coloredCard(accent)
+        val card = fixedHeightCard(accent)
         card.add(issueLeft(method, issues, accent), BorderLayout.WEST)
         card.add(issueButtons(method, issues), BorderLayout.EAST)
         return card
@@ -221,8 +220,11 @@ class CodeHealthOverviewEditor(
     ): JComponent {
         return JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS); background = bgForCards()
+            add(Box.createVerticalGlue())
             add(JBLabel(formatMethodName(method.fqn)).apply { font = Font(Font.MONOSPACED, Font.BOLD, 14) })
+            add(Box.createVerticalStrut(5))
             add(JBLabel("${issues.size} issue(s)").apply { font = font.deriveFont(12f); foreground = accent })
+            add(Box.createVerticalGlue())
         }
     }
 
@@ -363,16 +365,19 @@ class CodeHealthOverviewEditor(
     }
 
     private fun changeCard(method: ProjectChangesTracker.ModifiedMethod): JComponent {
-        val card = coloredCard(getScoreColor(70))
+        val card = fixedHeightCard(getScoreColor(70))
         val dtf = DateTimeFormatter.ofPattern("HH:mm:ss")
         val left = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS); background = card.background
         }
+        left.add(Box.createVerticalGlue())
         left.add(JBLabel(formatMethodName(method.fqn)).apply { font = Font(Font.MONOSPACED, Font.BOLD, 12) })
+        left.add(Box.createVerticalStrut(5))
         left.add(JBLabel("Modified ${method.modificationCount} times | Last: ${
             LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(method.lastModified),
                 java.time.ZoneId.systemDefault()).format(dtf)
         }").apply { font = font.deriveFont(10f); foreground = UIUtil.getInactiveTextColor() })
+        left.add(Box.createVerticalGlue())
         card.add(left, BorderLayout.WEST)
         return card
     }
@@ -384,18 +389,19 @@ class CodeHealthOverviewEditor(
         }
     }
 
-    private fun bgForCards(): Color = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
-
-    private fun rebuildIssueTabs() {
-        val tp = tabbedPane ?: return
-        if (tp.tabCount < 4) return
-        removeExistingIssueTabs(tp)
-        val issues = getAllIssues().take(maxIssueTabs)
-        val insertIndex = tp.indexOfComponent(recentScroll) // before last tab
-        issues.forEach { (m, i) ->
-//            tp.insertTab(issueTabTitle(m, i), null, createIssueTab(m, i), null, insertIndex)
+    private fun fixedHeightCard(lineColor: Color): JPanel {
+        return JPanel(BorderLayout()).apply {
+            background = bgForCards()
+            border = JBUI.Borders.compound(JBUI.Borders.customLine(lineColor, 3, 0, 0, 0), EmptyBorder(8, 12, 8, 12))
+            preferredSize = Dimension(0, 90)
+            minimumSize = Dimension(0, 90)
+            maximumSize = Dimension(Integer.MAX_VALUE, 90)
         }
     }
+
+    private fun bgForCards(): Color = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
+
+
 
     private fun removeExistingIssueTabs(tp: JBTabbedPane) {
         val last = tp.tabCount - 1

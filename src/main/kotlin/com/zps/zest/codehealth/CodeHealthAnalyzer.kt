@@ -42,6 +42,31 @@ class CodeHealthAnalyzer(private val project: Project) {
             "cs", "go", "rb", "php", "swift", "rs", "scala"
         )
 
+        // Common prompt components
+        private val CATEGORIES = "Resource|Security|Concurrency|Logic|Performance|API-Usage|Error-Handling|Other"
+        
+        private val COMMON_RULES = """
+            - KHÔNG được echo lại code trong JSON.
+            - Dùng line số 1-based tương ứng với method body bạn thấy trong context.
+            - Mỗi diagnostic có range (relativeTo="method") và ưu tiên có anchors.before/after (cụm ngắn).
+            - Chỉ report issues severity ≥ 3, tập trung vào lỗi thực sự (crash, security, leak, performance nghiêm trọng).
+            - Tối đa 3 issues per method, ưu tiên critical nhất trước.
+        """.trimIndent()
+        
+        private val DIAGNOSTIC_SCHEMA = """
+            {
+              "category": "$CATEGORIES",
+              "severity": 3,
+              "title": "Tiêu đề",
+              "message": "Mô tả",
+              "impact": "Hậu quả",
+              "suggestedFix": "Cách sửa",
+              "confidence": 0.9,
+              "range": { "relativeTo": "method", "start": {"line": 10,"col":1}, "end": {"line": 10,"col": 120} },
+              "anchors": { "before": "cụm-ngắn", "after": "cụm-ngắn" }
+            }
+        """.trimIndent()
+
         // Detection prompt with line numbering (no echo)
         private val PROMPT_DETECTION_LINENUM_TEMPLATE = """
             Phân tích TỪNG method được cung cấp dưới đây. Với MỖI method, tìm tối đa 3 issues nghiêm trọng (severity ≥ 3) và sắp xếp theo mức độ nghiêm trọng.
@@ -61,25 +86,7 @@ class CodeHealthAnalyzer(private val project: Project) {
               "summary": "1 câu ngắn",
               "healthScore": 85,
               "diagnostics": [
-                {
-                  "category": "Resource|Security|Concurrency|Logic|Performance|API-Usage|Error-Handling|Other",
-                  "severity": 3,
-                  "title": "Tiêu đề ngắn",
-                  "message": "Mô tả ngắn gọn vấn đề",
-                  "impact": "Hậu quả thực tế",
-                  "suggestedFix": "Cách sửa gọn",
-                  "confidence": 0.9,
-                  "range": {
-                    "relativeTo": "method",
-                    "start": { "line": 15, "col": 1 },
-                    "end":   { "line": 15, "col": 120 }
-                  },
-                  "anchors": {
-                    "before": "cụm ngắn gần vị trí trước",
-                    "after": "cụm ngắn gần vị trí sau"
-                  },
-                  "snippet": "đoạn ngắn liên quan (<=200 ký tự)"
-                }
+                $DIAGNOSTIC_SCHEMA
               ]
             }
         """.trimIndent()
@@ -117,11 +124,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             CODE:
             {{CONTEXT}}
             QUY TẮC:
-            - KHÔNG được echo lại code trong JSON.
-            - Với MỖI method trong danh sách được phân tích, trả về tối đa 3 "diagnostics".
-            - Dùng line số 1-based tương ứng với method body bạn thấy trong context.
-            - Mỗi diagnostic có range (relativeTo="method") và ưu tiên có anchors.before/after (cụm ngắn).
-            - Chỉ report issues severity ≥ 3, tập trung vào lỗi thực sự (crash, security, leak, performance nghiêm trọng).
+            $COMMON_RULES
             JSON TRẢ VỀ:
             {
               "methods": [
@@ -130,17 +133,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                   "summary": "ngắn gọn",
                   "healthScore": 85,
                   "diagnostics": [
-                    {
-                      "category": "Resource|Security|Concurrency|Logic|Performance|API-Usage|Error-Handling|Other",
-                      "severity": 3,
-                      "title": "Tiêu đề",
-                      "message": "Mô tả",
-                      "impact": "Hậu quả",
-                      "suggestedFix": "Cách sửa",
-                      "confidence": 0.9,
-                      "range": { "relativeTo": "method", "start": {"line": 10,"col":1}, "end": {"line": 10,"col": 120} },
-                      "anchors": { "before": "cụm-ngắn", "after": "cụm-ngắn" }
-                    }
+                    $DIAGNOSTIC_SCHEMA
                   ]
                 }
               ]
@@ -158,9 +151,20 @@ class CodeHealthAnalyzer(private val project: Project) {
             QUY TẮC:
             - KHÔNG echo code.
             - Chỉ report diagnostics cho methods hoàn chỉnh trong chunk.
-            - Mỗi diagnostic có range relativeTo="method", line 1-based theo method block bạn thấy.
-            - Severity ≥ 3, tối đa 3 per method.
-            JSON TRẢ VỀ: giống template WHOLE_FILE (field "methods" với "diagnostics")
+            $COMMON_RULES
+            JSON TRẢ VỀ:
+            {
+              "methods": [
+                {
+                  "fqn": "full.class.Name.methodName",
+                  "summary": "ngắn gọn",
+                  "healthScore": 85,
+                  "diagnostics": [
+                    $DIAGNOSTIC_SCHEMA
+                  ]
+                }
+              ]
+            }
         """.trimIndent()
 
         // Method-group prompt -> diagnostics per method
@@ -171,7 +175,21 @@ class CodeHealthAnalyzer(private val project: Project) {
             Methods: {{METHODS}}
             CODE:
             {{CONTEXT}}
-            QUY TẮC & JSON TRẢ VỀ: giống WHOLE_FILE (field "methods" với "diagnostics").
+            QUY TẮC:
+            $COMMON_RULES
+            JSON TRẢ VỀ:
+            {
+              "methods": [
+                {
+                  "fqn": "full.class.Name.methodName",
+                  "summary": "ngắn gọn",
+                  "healthScore": 85,
+                  "diagnostics": [
+                    $DIAGNOSTIC_SCHEMA
+                  ]
+                }
+              ]
+            }
         """.trimIndent()
 
         // JS/TS prompt -> diagnostics per region
@@ -183,10 +201,12 @@ class CodeHealthAnalyzer(private val project: Project) {
             CODE REGIONS:
             {{CONTEXT}}
             QUAN TRỌNG: bạn đang xem PARTIAL views (±20 dòng).
+            QUY TẮC:
             - KHÔNG flag missing imports hoặc undefined variables có thể tồn tại ở nơi khác.
             - Tập trung vào các vấn đề thấy rõ trong fragment.
             - KHÔNG echo lại code trong JSON.
             - Trả về diagnostics với range relativeTo="region" (1-based theo block region bạn thấy).
+            - Severity ≥ 3, tối đa 3 issues per region.
             JSON TRẢ VỀ:
             {
               "regions": [
@@ -196,7 +216,7 @@ class CodeHealthAnalyzer(private val project: Project) {
                   "healthScore": 85,
                   "diagnostics": [
                     {
-                      "category": "Category",
+                      "category": "$CATEGORIES",
                       "severity": 3,
                       "title": "Tiêu đề",
                       "message": "Mô tả",

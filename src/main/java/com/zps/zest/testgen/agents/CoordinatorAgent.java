@@ -254,7 +254,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             prompt.append("\nNo context analysis available - analyze the provided code to determine if scenarios need UNIT or INTEGRATION types\n");
         }
         
-        prompt.append("\nGenerate 8-15 comprehensive test scenarios covering all aspects of the SELECTED METHODS ONLY.");
+        prompt.append("\nGenerate 2-5 comprehensive test scenarios covering all aspects of the SELECTED METHODS ONLY.");
         prompt.append("\nDo NOT create scenarios for any methods that are not in the 'SELECTED METHODS TO TEST' list above.");
         prompt.append("\nUse the addTestScenarios tool to add all scenarios at once for the selected methods.");
         

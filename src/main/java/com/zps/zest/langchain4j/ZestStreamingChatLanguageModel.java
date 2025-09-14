@@ -141,45 +141,46 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         String envBaseUrl = EnvLoader.getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1");
 
         String apiUrl, apiKey, modelName;
-        
+
         if (envApiKey != null && !envApiKey.isEmpty()) {
-            // Use OpenAI configuration from .env
+            // Use OpenAI configuration from .env - no office hours logic applied
             apiUrl = envBaseUrl;
             apiKey = envApiKey;
-            // Prioritize selectedModel from UI, fallback to env model
-            modelName = (selectedModel != null && !selectedModel.isEmpty()) ? selectedModel : envModel;
-            LOG.info("Using OpenAI streaming configuration from .env file - Model: " + modelName + 
+            // When env exists, prioritize env model, only use selectedModel if it's not the default "local-model"
+            modelName = (selectedModel != null && !selectedModel.isEmpty() && !"local-model".equals(selectedModel)) ? selectedModel : envModel;
+            LOG.info("Using OpenAI streaming configuration from .env file - Model: " + modelName +
                     (selectedModel != null ? " (selected from UI)" : " (from env)"));
         } else {
-            // Fallback to existing configuration
-            apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
-            if (apiUrl.contains("chat.zingplay"))
-                apiUrl = "https://chat.zingplay.com/api";
-            if (apiUrl.contains("talk.zingplay"))
-                apiUrl = "https://talk.zingplay.com/api";
-            if (apiUrl.contains("openwebui.zingplay"))
-                apiUrl = "https://openwebui.zingplay.com/api";
+            // No env config - apply office hours logic
             apiKey = config.getAuthTokenNoPrompt(); // Use auth token as API key
             // Prioritize selectedModel from UI, fallback to local-model
             modelName = (selectedModel != null && !selectedModel.isEmpty()) ? selectedModel : "local-model";
-            LOG.info("Using fallback streaming configuration - Model: " + modelName + 
-                    (selectedModel != null ? " (selected from UI)" : " (fallback)"));
-        }
 
-        // Apply office hour policy for redirects
-        if (isWithinOfficeHours()) {
-            LOG.info("Office hours: redirecting to litellm for ZestStreamingChatLanguageModel");
-            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
-                apiUrl = "https://litellm.zingplay.com/v1";
-                apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+            if (!isWithinOfficeHours()) {
+                // Outside office hours: use chat/talk zingplay
+                apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
+                if (apiUrl.contains("chat.zingplay"))
+                    apiUrl = "https://chat.zingplay.com/api";
+                if (apiUrl.contains("talk.zingplay"))
+                    apiUrl = "https://talk.zingplay.com/api";
+                if (apiUrl.contains("openwebui.zingplay"))
+                    apiUrl = "https://openwebui.zingplay.com/api";
+                LOG.info("Outside office hours: using chat/talk zingplay - Model: " + modelName +
+                        (selectedModel != null ? " (selected from UI)" : " (fallback)"));
+            } else {
+                // Office hours: use litellm
+                apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
+                if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                    apiUrl = "https://litellm.zingplay.com/v1";
+                    apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+                }
+                if (apiUrl.contains("talk.zingplay")) {
+                    apiUrl = "https://litellm-internal.zingplay.com/v1";
+                    apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+                }
+                LOG.info("Office hours: using litellm - Model: " + modelName +
+                        (selectedModel != null ? " (selected from UI)" : " (fallback)"));
             }
-            if (apiUrl.contains("talk.zingplay")) {
-                apiUrl = "https://litellm-internal.zingplay.com/v1";
-                apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
-            }
-        } else {
-            LOG.info("Outside office hours: using original configured URL for ZestStreamingChatLanguageModel");
-            // Keep original apiUrl and apiKey from configuration
         }
 
         // Ensure the URL ends with /v1 for OpenAI compatibility
@@ -197,7 +198,7 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
 
         // Get username for tracking
         String username = config.getUsername();
-        
+
         // Create metadata map with both user and usage
         java.util.Map<String, String> metadata = new java.util.HashMap<>();
         if (username != null && !username.isEmpty()) {
@@ -206,6 +207,12 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         metadata.put("usage", usage.name());
         metadata.put("tool", "Zest");
         metadata.put("service", "ZestStreamingChatLanguageModel");
+
+        // Add custom_tool field for chat.zingplay/talk.zingplay requests
+        if (finalApiUrl.contains("chat.zingplay") || finalApiUrl.contains("talk.zingplay")) {
+            metadata.put("custom_tool", "Zest|" + usage.name());
+        }
+
         // Use plugin classloader to avoid Jackson ServiceLoader conflicts
         return executeWithPluginClassLoader(() -> {
             OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder = OpenAiStreamingChatModel.builder()
@@ -216,13 +223,12 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
                 .logRequests(true)
                 .logResponses(true)
                 .timeout(Duration.ofSeconds(1200));
-                
-            // Only add metadata for models that support it without store
-            // GPT-4.1 and GPT-4o-mini require 'store' to be enabled for metadata
-            if (!finalModelName.equals("gpt-4.1") && !finalModelName.equals("gpt-4o-mini")) {
+
+            // Add metadata for chat.zingplay/talk.zingplay APIs
+            if (finalApiUrl.contains("chat.zingplay") || finalApiUrl.contains("talk.zingplay")) {
                 builder.metadata(metadata);
             }
-            
+
             return builder.build();
         });
     }

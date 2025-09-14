@@ -6,6 +6,7 @@ import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
 import com.intellij.psi.search.GlobalSearchScope
 import com.zps.zest.ClassAnalyzer
+import com.zps.zest.ConfigurationManager
 import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
 
 /**
@@ -52,20 +53,36 @@ class ZestLeanPromptBuilder(private val project: Project) {
     }
 
     private fun buildEnhancedUserPrompt(context: ZestLeanContextCollectorPSI.LeanContext): String {
-        val contextInfo = buildContextInfo(context)
-        val relatedClasses = buildRelatedClassesSection(context)
-        val astPatterns = buildAstPatternSection(context)
-        val targetLine = extractLineWithCursor(context.markedContent, context.cursorOffset)
+        val config = ConfigurationManager.getInstance(project)
+        val contextInfo = if (config.isContextAnalysisSectionIncluded()) buildContextInfo(context) else ""
+        val relatedClasses = if (config.isRelatedClassesSectionIncluded()) buildRelatedClassesSection(context) else ""
+        val astPatterns = if (config.isAstPatternsSectionIncluded()) buildAstPatternSection(context) else ""
+        val targetLine = if (config.isTargetLineSectionIncluded()) extractLineWithCursor(context.markedContent, context.cursorOffset) else ""
 
         return buildString {
-            append(fileInfoSection(context))
-            append(frameworkSection(context))
-            append(contextAnalysisSection(contextInfo))
-            append(vcsSection())
+            if (config.isFileInfoSectionIncluded()) {
+                append(fileInfoSection(context))
+            }
+            if (config.isFrameworkSectionIncluded()) {
+                append(frameworkSection(context))
+            }
+            if (config.isContextAnalysisSectionIncluded()) {
+                append(contextAnalysisSection(contextInfo))
+            }
+            if (config.isVcsSectionIncluded()) {
+                append(vcsSection())
+            }
+            // Current file section is always included as it's essential
             append(currentFileSection(context))
-            append(relatedClassesSection(relatedClasses))
-            append(astPatternsSection(astPatterns))
-            append(targetLineSection(targetLine))
+            if (config.isRelatedClassesSectionIncluded()) {
+                append(relatedClassesSection(relatedClasses))
+            }
+            if (config.isAstPatternsSectionIncluded()) {
+                append(astPatternsSection(astPatterns))
+            }
+            if (config.isTargetLineSectionIncluded()) {
+                append(targetLineSection(targetLine))
+            }
             append("\n**Task:** Provide completion following the response format.")
         }
     }

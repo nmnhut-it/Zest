@@ -816,4 +816,62 @@ public class ConfigurationManager {
         }
         return false;
     }
+    
+    // Prompt Section Configuration Methods
+    
+    public boolean isFileInfoSectionIncluded() {
+        return globalSettings.includeFileInfoSection;
+    }
+    
+    public void setFileInfoSectionIncluded(boolean included) {
+        globalSettings.includeFileInfoSection = included;
+    }
+    
+    public boolean isFrameworkSectionIncluded() {
+        return globalSettings.includeFrameworkSection;
+    }
+    
+    public void setFrameworkSectionIncluded(boolean included) {
+        globalSettings.includeFrameworkSection = included;
+    }
+    
+    public boolean isContextAnalysisSectionIncluded() {
+        return globalSettings.includeContextAnalysisSection;
+    }
+    
+    public void setContextAnalysisSectionIncluded(boolean included) {
+        globalSettings.includeContextAnalysisSection = included;
+    }
+    
+    public boolean isVcsSectionIncluded() {
+        return globalSettings.includeVcsSection;
+    }
+    
+    public void setVcsSectionIncluded(boolean included) {
+        globalSettings.includeVcsSection = included;
+    }
+    
+    public boolean isRelatedClassesSectionIncluded() {
+        return globalSettings.includeRelatedClassesSection;
+    }
+    
+    public void setRelatedClassesSectionIncluded(boolean included) {
+        globalSettings.includeRelatedClassesSection = included;
+    }
+    
+    public boolean isAstPatternsSectionIncluded() {
+        return globalSettings.includeAstPatternsSection;
+    }
+    
+    public void setAstPatternsSectionIncluded(boolean included) {
+        globalSettings.includeAstPatternsSection = included;
+    }
+    
+    public boolean isTargetLineSectionIncluded() {
+        return globalSettings.includeTargetLineSection;
+    }
+    
+    public void setTargetLineSectionIncluded(boolean included) {
+        globalSettings.includeTargetLineSection = included;
+    }
 }

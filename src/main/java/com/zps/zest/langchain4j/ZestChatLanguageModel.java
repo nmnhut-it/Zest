@@ -170,58 +170,46 @@ public class ZestChatLanguageModel implements ChatModel {
         String envBaseUrl = EnvLoader.getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1");
 
         String apiUrl, apiKey, modelName;
-        
+
         if (envApiKey != null && !envApiKey.isEmpty()) {
-            // Use OpenAI configuration from .env
+            // Use OpenAI configuration from .env - no office hours logic applied
             apiUrl = envBaseUrl;
             apiKey = envApiKey;
-            // Prioritize selectedModel from UI, fallback to env model
-            modelName = (selectedModel != null && !selectedModel.isEmpty()) ? selectedModel : envModel;
-            LOG.info("Using OpenAI configuration from .env file - Model: " + modelName + 
+            // When env exists, prioritize env model, only use selectedModel if it's not the default "local-model"
+            modelName = (selectedModel != null && !selectedModel.isEmpty() && !"local-model".equals(selectedModel)) ? selectedModel : envModel;
+            LOG.info("Using OpenAI configuration from .env file - Model: " + modelName +
                     (selectedModel != null ? " (selected from UI)" : " (from env)"));
         } else {
-            // Fallback to existing configuration
-            apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
-            if (apiUrl.contains("chat.zingplay"))
-                apiUrl = "https://chat.zingplay.com/api";
-            if (apiUrl.contains("talk.zingplay"))
-                apiUrl = "https://talk.zingplay.com/api";
-            if (apiUrl.contains("openwebui.zingplay"))
-                apiUrl = "https://openwebui.zingplay.com/api";
+            // No env config - apply office hours logic
             apiKey = config.getAuthTokenNoPrompt(); // Use auth token as API key
             // Prioritize selectedModel from UI, fallback to local-model
             modelName = (selectedModel != null && !selectedModel.isEmpty()) ? selectedModel : "local-model";
-            LOG.info("Using fallback configuration - Model: " + modelName + 
-                    (selectedModel != null ? " (selected from UI)" : " (fallback)"));
-        }
 
-//        // Default values if not configured
-//        if (apiUrl == null || apiUrl.isEmpty()) {
-//            apiUrl = "http://localhost:11434"; // Default Ollama URL
-//        }
-//        if (apiKey == null || apiKey.isEmpty()) {
-//            apiKey = "dummy-key"; // Many local services don't need a real key
-//        }
-//        if (modelName == null || modelName.isEmpty()) {
-//            modelName = "llama3.2"; // Default model
-//        }
-
-        // Apply office hour policy for redirects
-        if (isWithinOfficeHours()) {
-            LOG.info("Office hours: redirecting to litellm for ZestChatLanguageModel");
-            if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
-                apiUrl = "https://litellm.zingplay.com/v1";
-                apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+            if (!isWithinOfficeHours()) {
+                // Outside office hours: use chat/talk zingplay
+                apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
+                if (apiUrl.contains("chat.zingplay"))
+                    apiUrl = "https://chat.zingplay.com/api";
+                if (apiUrl.contains("talk.zingplay"))
+                    apiUrl = "https://talk.zingplay.com/api";
+                if (apiUrl.contains("openwebui.zingplay"))
+                    apiUrl = "https://openwebui.zingplay.com/api";
+                LOG.info("Outside office hours: using chat/talk zingplay - Model: " + modelName +
+                        (selectedModel != null ? " (selected from UI)" : " (fallback)"));
+            } else {
+                // Office hours: use litellm
+                apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
+                if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
+                    apiUrl = "https://litellm.zingplay.com/v1";
+                    apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+                }
+                if (apiUrl.contains("talk.zingplay")) {
+                    apiUrl = "https://litellm-internal.zingplay.com/v1";
+                    apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
+                }
+                LOG.info("Office hours: using litellm - Model: " + modelName +
+                        (selectedModel != null ? " (selected from UI)" : " (fallback)"));
             }
-            if (apiUrl.contains("talk.zingplay")) {
-                apiUrl = "https://litellm-internal.zingplay.com/v1";
-                apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
-            }
-        } else {
-            LOG.info("Outside office hours: using original configured URL for ZestChatLanguageModel");
-            // Keep original apiUrl and apiKey from configuration
-            if (modelName.equals("local-model"))
-                modelName = "local-model-mini";
         }
 
 //         Ensure the URL ends with /v1 for OpenAI compatibility
@@ -241,7 +229,7 @@ public class ZestChatLanguageModel implements ChatModel {
 
         // Get username for tracking
         String username = config.getUsername();
-        
+
         // Create metadata map with both user and usage
         java.util.Map<String, String> metadata = new java.util.HashMap<>();
         if (username != null && !username.isEmpty()) {
@@ -250,6 +238,11 @@ public class ZestChatLanguageModel implements ChatModel {
         metadata.put("usage", usage.name());
         metadata.put("tool", "Zest");
         metadata.put("service", "ZestChatLanguageModel");
+
+        // Add custom_tool field for chat.zingplay/talk.zingplay requests
+        if (finalApiUrl.contains("chat.zingplay") || finalApiUrl.contains("talk.zingplay")) {
+            metadata.put("custom_tool", "Zest|" + usage.name());
+        }
 
         // Use plugin classloader to avoid Jackson ServiceLoader conflicts
         return executeWithPluginClassLoader(() -> {
@@ -262,13 +255,12 @@ public class ZestChatLanguageModel implements ChatModel {
                 .logRequests(true)
                 .logResponses(true)
                 .timeout(Duration.ofSeconds(1200));
-                
-            // Only add metadata for models that support it without store
-            // GPT-4.1 and GPT-4o-mini require 'store' to be enabled for metadata
-            if (!finalModelName.equals("gpt-4.1") && !finalModelName.equals("gpt-4o-mini")) {
+
+            // Add metadata for chat.zingplay/talk.zingplay APIs
+            if (finalApiUrl.contains("chat.zingplay") || finalApiUrl.contains("talk.zingplay")) {
                 builder.metadata(metadata);
             }
-            
+
             return builder.build();
         });
     }
@@ -276,8 +268,7 @@ public class ZestChatLanguageModel implements ChatModel {
 
     @Override
     public ChatResponse chat(ChatRequest chatRequest) {
-        applyRateLimit();
-        
+        applyRateLimit(); 
         try {
             return executeWithPluginClassLoader(() -> delegateModel.chat(chatRequest));
         } catch (Exception e) {

@@ -86,13 +86,59 @@ public class GitServiceHelper {
      */
     public static boolean isNewFile(String projectPath, String filePath) {
         try {
-            String result = executeGitCommand(projectPath, 
+            String result = executeGitCommand(projectPath,
                 "git ls-files -- " + GitCommandExecutor.escapeFilePath(filePath));
             return result.trim().isEmpty();
         } catch (Exception e) {
             LOG.warn("Error checking if file is new: " + e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Checks if a file is ignored by .gitignore using git check-ignore command.
+     *
+     * @param projectPath The root path of the git repository
+     * @param filePath The file path to check (relative to project root)
+     * @return true if the file is ignored, false otherwise
+     */
+    public static boolean isFileIgnored(String projectPath, String filePath) {
+        try {
+            // Use git check-ignore to test if file is ignored
+            // Exit code 0 means the file is ignored
+            // Exit code 1 means the file is not ignored
+            String result = executeGitCommand(projectPath,
+                "git check-ignore -- " + GitCommandExecutor.escapeFilePath(filePath));
+
+            // If command succeeds and returns the file path, it's ignored
+            return result != null && result.trim().equals(filePath.trim());
+
+        } catch (Exception e) {
+            // git check-ignore returns exit code 1 (exception) for non-ignored files
+            // This is the normal case for non-ignored files
+            String message = e.getMessage();
+            if (message != null && message.contains("exit code 1")) {
+                // Exit code 1 means file is not ignored - this is expected
+                return false;
+            }
+
+            // For other errors, log warning but assume not ignored to be safe
+            LOG.debug("Error checking if file is ignored (assuming not ignored): " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Filters out ignored files from a list of file paths.
+     *
+     * @param projectPath The root path of the git repository
+     * @param filePaths List of file paths to filter
+     * @return List of file paths that are not ignored
+     */
+    public static java.util.List<String> filterIgnoredFiles(String projectPath, java.util.List<String> filePaths) {
+        return filePaths.stream()
+            .filter(filePath -> !isFileIgnored(projectPath, filePath))
+            .collect(java.util.stream.Collectors.toList());
     }
     
     /**

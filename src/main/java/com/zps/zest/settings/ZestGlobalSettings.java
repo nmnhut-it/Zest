@@ -135,6 +135,15 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
             "BREAKING CHANGE: Password reset moved from /reset to /users/reset\n\n" +
             "Please provide ONLY the commit message, no additional explanation, no markdown formatting, no code blocks.";
     
+    // Prompt Section Configuration - control which sections to include in lean prompts
+    public boolean includeFileInfoSection = true;
+    public boolean includeFrameworkSection = true;  
+    public boolean includeContextAnalysisSection = true;
+    public boolean includeVcsSection = false;  // Currently empty, disabled by default
+    public boolean includeRelatedClassesSection = true;
+    public boolean includeAstPatternsSection = false;  // Currently empty, disabled by default
+    public boolean includeTargetLineSection = true;
+    
     // System Prompts (instance fields initialized with defaults)
     public String systemPrompt = DEFAULT_SYSTEM_PROMPT;
     public String codeSystemPrompt = DEFAULT_CODE_SYSTEM_PROMPT;

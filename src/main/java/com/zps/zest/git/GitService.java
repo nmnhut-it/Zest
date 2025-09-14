@@ -109,6 +109,12 @@ public class GitService {
                                 LOG.info("Staging file: " + cleanPath);
                             }
                             
+                            // Pre-check if file is ignored to avoid git command failures
+                            if (GitServiceHelper.isFileIgnored(projectPath, cleanPath)) {
+                                LOG.info("Skipping ignored file (pre-filtered): " + cleanPath);
+                                continue;
+                            }
+
                             try {
                                 String result = executeGitCommand(projectPath, command);
                                 // If command succeeded and produced output, we have changes
@@ -118,14 +124,14 @@ public class GitService {
                             } catch (Exception e) {
                                 String errorMessage = e.getMessage();
                                 LOG.warn("Error staging file " + cleanPath + ": " + errorMessage);
-                                
-                                // Check if it's an ignored file error
+
+                                // Check if it's an ignored file error (fallback check)
                                 if (errorMessage != null && errorMessage.contains("ignored by one of your .gitignore files")) {
-                                    LOG.info("File is ignored by .gitignore: " + cleanPath);
+                                    LOG.info("File is ignored by .gitignore (detected via error): " + cleanPath);
                                     // Skip this file - it shouldn't be committed
                                     continue;
                                 }
-                                
+
                                 // Try alternative approach for deleted files that are giving trouble
                                 if ("D".equals(file.getStatus())) {
                                     LOG.info("Trying alternative approach for deleted file: " + cleanPath);
@@ -135,6 +141,11 @@ public class GitService {
                                         LOG.info("Alternative approach succeeded");
                                         hasChanges = true;
                                     } catch (Exception e2) {
+                                        // Check if the alternative also failed due to ignore
+                                        if (e2.getMessage() != null && e2.getMessage().contains("ignored by one of your .gitignore files")) {
+                                            LOG.info("Deleted file is ignored by .gitignore (alternative check): " + cleanPath);
+                                            continue;
+                                        }
                                         LOG.warn("Alternative approach also failed: " + e2.getMessage());
                                         // Continue with other files
                                     }
@@ -157,7 +168,7 @@ public class GitService {
                         }
                         
                         if (!hasChanges) {
-                            throw new Exception("No changes to commit. Files may have already been committed.");
+                            throw new Exception("No changes to commit. Files may have already been committed or are ignored by .gitignore.");
                         }
 
                         // Build git commit command with multiple -m flags for multiline message
@@ -190,7 +201,9 @@ public class GitService {
                         
                         // Check for specific common error patterns
                         if (errorMsg.contains("nothing to commit") || errorMsg.contains("no changes added") || errorMsg.contains("Your branch is up to date")) {
-                            errorMsg = "No changes to commit. All files may have already been committed.";
+                            errorMsg = "No changes to commit. All files may have already been committed or are ignored by .gitignore.";
+                        } else if (errorMsg.contains("ignored by one of your .gitignore files")) {
+                            errorMsg = "Selected files are ignored by .gitignore and cannot be committed.";
                         } else if (errorMsg.contains("no remote repository") || errorMsg.contains("does not appear to be a git repository")) {
                             errorMsg = "No remote repository configured. Please set up a remote first.";
                         } else if (errorMsg.contains("failed to push") || errorMsg.contains("rejected")) {

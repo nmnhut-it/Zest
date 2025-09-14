@@ -55,6 +55,15 @@ public class ZestSettingsConfigurable implements Configurable {
     private JBCheckBox proxyServerEnabledCheckbox;
     private JLabel proxyDescLabel;
     
+    // Prompt Section Configuration
+    private JBCheckBox fileInfoSectionCheckbox;
+    private JBCheckBox frameworkSectionCheckbox;
+    private JBCheckBox contextAnalysisSectionCheckbox;
+    private JBCheckBox vcsSectionCheckbox;
+    private JBCheckBox relatedClassesSectionCheckbox;
+    private JBCheckBox astPatternsSectionCheckbox;
+    private JBCheckBox targetLineSectionCheckbox;
+    
     // System Prompts
     private JBTextArea systemPromptArea;
     private JBTextArea codeSystemPromptArea;
@@ -240,6 +249,32 @@ public class ZestSettingsConfigurable implements Configurable {
             }
         });
         
+        // Prompt Section Configuration
+        builder.addSeparator();
+        builder.addComponent(new TitledSeparator("Prompt Section Configuration"));
+        builder.addComponent(createDescriptionLabel("Control which sections are included in lean completion prompts"));
+        
+        fileInfoSectionCheckbox = new JBCheckBox("Include file information section", config.isFileInfoSectionIncluded());
+        builder.addComponent(fileInfoSectionCheckbox);
+        
+        frameworkSectionCheckbox = new JBCheckBox("Include framework-specific instructions", config.isFrameworkSectionIncluded());
+        builder.addComponent(frameworkSectionCheckbox);
+        
+        contextAnalysisSectionCheckbox = new JBCheckBox("Include context analysis", config.isContextAnalysisSectionIncluded());
+        builder.addComponent(contextAnalysisSectionCheckbox);
+        
+        vcsSectionCheckbox = new JBCheckBox("Include VCS context", config.isVcsSectionIncluded());
+        builder.addComponent(vcsSectionCheckbox);
+        
+        relatedClassesSectionCheckbox = new JBCheckBox("Include related classes", config.isRelatedClassesSectionIncluded());
+        builder.addComponent(relatedClassesSectionCheckbox);
+        
+        astPatternsSectionCheckbox = new JBCheckBox("Include AST patterns", config.isAstPatternsSectionIncluded());
+        builder.addComponent(astPatternsSectionCheckbox);
+        
+        targetLineSectionCheckbox = new JBCheckBox("Include target line", config.isTargetLineSectionIncluded());
+        builder.addComponent(targetLineSectionCheckbox);
+        
         JPanel panel = new JPanel(new BorderLayout());
         panel.add(builder.getPanel(), BorderLayout.NORTH);
         panel.setBorder(JBUI.Borders.empty(10));
@@ -343,6 +378,13 @@ public class ZestSettingsConfigurable implements Configurable {
                !maxRagContextSizeSpinner.getValue().equals(config.getMaxRagContextSize()) ||
                !embeddingCacheSizeSpinner.getValue().equals(config.getEmbeddingCacheSize()) ||
                proxyServerEnabledCheckbox.isSelected() != config.isProxyServerEnabled() ||
+               fileInfoSectionCheckbox.isSelected() != config.isFileInfoSectionIncluded() ||
+               frameworkSectionCheckbox.isSelected() != config.isFrameworkSectionIncluded() ||
+               contextAnalysisSectionCheckbox.isSelected() != config.isContextAnalysisSectionIncluded() ||
+               vcsSectionCheckbox.isSelected() != config.isVcsSectionIncluded() ||
+               relatedClassesSectionCheckbox.isSelected() != config.isRelatedClassesSectionIncluded() ||
+               astPatternsSectionCheckbox.isSelected() != config.isAstPatternsSectionIncluded() ||
+               targetLineSectionCheckbox.isSelected() != config.isTargetLineSectionIncluded() ||
                // Removed unused setting comparisons
                !systemPromptArea.getText().equals(config.getSystemPrompt()) ||
                !codeSystemPromptArea.getText().equals(config.getCodeSystemPrompt()) ||
@@ -379,6 +421,13 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setMaxRagContextSize((Integer) maxRagContextSizeSpinner.getValue());
         config.setEmbeddingCacheSize((Integer) embeddingCacheSizeSpinner.getValue());
         config.setProxyServerEnabled(proxyServerEnabledCheckbox.isSelected());
+        config.setFileInfoSectionIncluded(fileInfoSectionCheckbox.isSelected());
+        config.setFrameworkSectionIncluded(frameworkSectionCheckbox.isSelected());
+        config.setContextAnalysisSectionIncluded(contextAnalysisSectionCheckbox.isSelected());
+        config.setVcsSectionIncluded(vcsSectionCheckbox.isSelected());
+        config.setRelatedClassesSectionIncluded(relatedClassesSectionCheckbox.isSelected());
+        config.setAstPatternsSectionIncluded(astPatternsSectionCheckbox.isSelected());
+        config.setTargetLineSectionIncluded(targetLineSectionCheckbox.isSelected());
         // Removed unused setting assignments
         
         config.setSystemPrompt(systemPromptArea.getText());
@@ -419,6 +468,14 @@ public class ZestSettingsConfigurable implements Configurable {
         embeddingCacheSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
         
         proxyServerEnabledCheckbox.setSelected(config.isProxyServerEnabled());
+        
+        fileInfoSectionCheckbox.setSelected(config.isFileInfoSectionIncluded());
+        frameworkSectionCheckbox.setSelected(config.isFrameworkSectionIncluded());
+        contextAnalysisSectionCheckbox.setSelected(config.isContextAnalysisSectionIncluded());
+        vcsSectionCheckbox.setSelected(config.isVcsSectionIncluded());
+        relatedClassesSectionCheckbox.setSelected(config.isRelatedClassesSectionIncluded());
+        astPatternsSectionCheckbox.setSelected(config.isAstPatternsSectionIncluded());
+        targetLineSectionCheckbox.setSelected(config.isTargetLineSectionIncluded());
         
         // Update proxy description label to show current status
         if (config.isProxyServerEnabled()) {

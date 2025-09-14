@@ -89,38 +89,58 @@ public class GitStatusCollector {
     
     /**
      * Combines changes from different git commands into a single format.
+     * Filters out ignored files proactively.
      */
     private String combineChanges(String stagedFiles, String changedFiles, String untrackedFiles) {
         StringBuilder allChanges = new StringBuilder();
-        
-        // Add staged files first (they take precedence)
+
+        // Add staged files first (they take precedence) - filter ignored
         if (!stagedFiles.trim().isEmpty()) {
-            allChanges.append(stagedFiles);
-            if (!allChanges.toString().endsWith("\n")) {
-                allChanges.append("\n");
+            String[] stagedLines = stagedFiles.split("\n");
+            for (String line : stagedLines) {
+                if (!line.trim().isEmpty()) {
+                    // Extract filename from "STATUS\tfilename" format
+                    String[] parts = line.split("\t", 2);
+                    if (parts.length >= 2 && !GitServiceHelper.isFileIgnored(projectPath, parts[1])) {
+                        allChanges.append(line).append("\n");
+                    } else if (parts.length >= 2) {
+                        LOG.debug("Skipping ignored staged file: " + parts[1]);
+                    }
+                }
             }
         }
-        
-        // Add unstaged files (filter out already staged ones)
+
+        // Add unstaged files (filter out already staged ones and ignored files)
         if (!changedFiles.trim().isEmpty()) {
             String[] changedLines = changedFiles.split("\n");
             for (String line : changedLines) {
-                if (!line.trim().isEmpty() && !stagedFiles.contains(line.substring(2))) {
-                    allChanges.append(line).append("\n");
+                if (!line.trim().isEmpty()) {
+                    String[] parts = line.split("\t", 2);
+                    if (parts.length >= 2) {
+                        String filename = parts[1];
+                        // Skip if already staged or ignored
+                        if (!stagedFiles.contains(filename) && !GitServiceHelper.isFileIgnored(projectPath, filename)) {
+                            allChanges.append(line).append("\n");
+                        } else if (GitServiceHelper.isFileIgnored(projectPath, filename)) {
+                            LOG.debug("Skipping ignored unstaged file: " + filename);
+                        }
+                    }
                 }
             }
         }
-        
-        // Add untracked files with 'A' status
+
+        // Add untracked files with 'A' status - filter ignored
         if (!untrackedFiles.trim().isEmpty()) {
             String[] untracked = untrackedFiles.split("\n");
             for (String file : untracked) {
-                if (!file.trim().isEmpty()) {
+                if (!file.trim().isEmpty() && !GitServiceHelper.isFileIgnored(projectPath, file)) {
                     allChanges.append("A\t").append(file).append("\n");
+                } else if (!file.trim().isEmpty()) {
+                    LOG.debug("Skipping ignored untracked file: " + file);
                 }
             }
         }
-        
+
         return allChanges.toString();
     }
     
@@ -150,25 +170,25 @@ public class GitStatusCollector {
     
     /**
      * Converts git status --porcelain output to name-status format.
-     * Handles special cases like renamed files.
+     * Handles special cases like renamed files and filters out ignored files.
      */
     private String convertPorcelainToNameStatus(String porcelainOutput) {
         StringBuilder result = new StringBuilder();
         String[] lines = porcelainOutput.split("\n");
-        
+
         for (String line : lines) {
             if (line.trim().isEmpty()) continue;
-            
+
             // Porcelain format: XY filename
             // X = staged status, Y = unstaged status
             // ?? = untracked file
             if (line.length() >= 3) {
                 String statusChars = line.substring(0, 2);
                 String filenamePart = line.substring(3); // Skip XY and space
-                
+
                 char status;
                 String filename;
-                
+
                 // Handle special cases
                 if (statusChars.equals("??")) {
                     // Untracked file
@@ -189,7 +209,7 @@ public class GitStatusCollector {
                     // Otherwise use unstaged status (Y)
                     char stagedStatus = statusChars.charAt(0);
                     char unstagedStatus = statusChars.charAt(1);
-                    
+
                     if (stagedStatus != ' ' && stagedStatus != '?') {
                         status = stagedStatus;
                     } else if (unstagedStatus != ' ' && unstagedStatus != '?') {
@@ -199,16 +219,22 @@ public class GitStatusCollector {
                     }
                     filename = filenamePart;
                 }
-                
+
                 // Remove quotes if present
                 if (filename.startsWith("\"") && filename.endsWith("\"")) {
                     filename = filename.substring(1, filename.length() - 1);
                 }
-                
+
+                // Skip ignored files proactively
+                if (GitServiceHelper.isFileIgnored(projectPath, filename)) {
+                    LOG.debug("Skipping ignored file: " + filename);
+                    continue;
+                }
+
                 result.append(status).append("\t").append(filename).append("\n");
             }
         }
-        
+
         return result.toString();
     }
     

@@ -445,7 +445,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
                     .useLiteCodeModel()
                     .withMaxTokens(METHOD_REWRITE_MAX_TOKENS)
                     .withTemperature(0.3)
-                    .withStopSequences(getMethodRewriteStopSequences())
+//                    .withStopSequences(getMethodRewriteStopSequences())
 
                 llmService.queryWithParams(queryParams, ChatboxUtilities.EnumUsage.QUICK_ACTION_LOGGING)
             }
@@ -804,7 +804,7 @@ class ZestQuickActionService(private val project: Project) : Disposable {
 
 
     companion object {
-        private const val METHOD_REWRITE_TIMEOUT_MS = 200000L // 20 seconds
+        private const val METHOD_REWRITE_TIMEOUT_MS = 2000_0000L // 200 seconds
         private const val METHOD_REWRITE_MAX_TOKENS = 1500
     }
 }

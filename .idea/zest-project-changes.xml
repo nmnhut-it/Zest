@@ -2,5 +2,12 @@
 <project version="4">
   <component name="ProjectChangesTracker">
     <option name="lastCheckTime" value="1755849178726" />
+    <option name="modifiedMethods">
+      <list>
+        <SerializableModifiedMethod />
+        <SerializableModifiedMethod />
+        <SerializableModifiedMethod />
+      </list>
+    </option>
   </component>
 </project>

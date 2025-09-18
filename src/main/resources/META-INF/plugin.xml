@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.895</version>
+    <version>1.9.896</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -281,11 +281,21 @@
                     description="View Code Health usage guide / Xem hướng dẫn sử dụng Code Health">
             </action>
         </group>
-        
+
+        <!-- Ripgrep Tool Testing Action -->
+        <action id="Zest.TestRipgrepTool"
+                class="com.zps.zest.explanation.tools.testing.TestRipgrepToolAction"
+                text="Test Ripgrep Tool"
+                description="Open manual testing dialog for RipgrepCodeTool regression testing">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <add-to-group group-id="CodeMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F12"/>
+        </action>
+
         <!-- Code Health Debug Actions Group -->
         <group id="Zest.CodeHealthDebug" text="Debug Tools / Công Cụ Debug" popup="true">
 <!--            <add-to-group group-id="Zest.CodeHealth" anchor="last"/>-->
-            
+
             <action id="Zest.ShowReviewQueueStatus"
                     class="com.zps.zest.codehealth.actions.ShowReviewQueueStatusAction"
                     text="📋 Review Queue Status / Trạng Thái Hàng Đợi"
@@ -354,4 +364,18 @@
 
         </group>
     </actions>
+
+    <!-- Change notes for version updates -->
+    <change-notes><![CDATA[
+        <h3>Version 1.9.896</h3>
+        <ul>
+            <li><b>Enhanced Code Health Analysis:</b> Improved resilience when parsing LLM responses, ensuring partial results are still displayed</li>
+            <li><b>Focused Issue Reporting:</b> Now shows only the most critical issue per method (max 5 per file) for better actionability</li>
+            <li><b>Better Error Handling:</b> Replaced blocking dialogs with non-intrusive notifications</li>
+            <li><b>Performance:</b> Increased analysis timeout to 5 minutes for complex codebases</li>
+            <li><b>Code Quality:</b> Major refactoring - all methods now under 20 lines for better maintainability</li>
+            <li><b>UI Improvements:</b> Enhanced chat panel scrolling and JCEF stability</li>
+        </ul>
+        <p><i>Bug fixes and stability improvements</i></p>
+    ]]></change-notes>
 </idea-plugin>

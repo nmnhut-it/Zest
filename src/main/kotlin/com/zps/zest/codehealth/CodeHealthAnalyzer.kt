@@ -50,26 +50,34 @@ class CodeHealthAnalyzer(private val project: Project) {
             - Dùng line số 1-based tương ứng với method body bạn thấy trong context.
             - Mỗi diagnostic có range (relativeTo="method") và ưu tiên có anchors.before/after (cụm ngắn).
             - Chỉ report issues severity ≥ 3, tập trung vào lỗi thực sự (crash, security, leak, performance nghiêm trọng).
-            - Tối đa 3 issues per method, ưu tiên critical nhất trước.
+            - Tối đa 1 issue per method - chỉ report vấn đề NGHIÊM TRỌNG NHẤT.
+            - Tối đa 5 issues per file - ưu tiên top 5 critical nhất.
         """.trimIndent()
         
         private val DIAGNOSTIC_SCHEMA = """
             {
-              "category": "$CATEGORIES",
-              "severity": 3,
-              "title": "Tiêu đề",
-              "message": "Mô tả",
-              "impact": "Hậu quả",
-              "suggestedFix": "Cách sửa",
-              "confidence": 0.9,
-              "range": { "relativeTo": "method", "start": {"line": 10,"col":1}, "end": {"line": 10,"col": 120} },
-              "anchors": { "before": "cụm-ngắn", "after": "cụm-ngắn" }
+              "category": "$CATEGORIES",  // REQUIRED: Exactly one of: Resource|Security|Concurrency|Logic|Performance|API-Usage|Error-Handling|Other
+              "severity": 3,  // REQUIRED: Integer 3-5 only (3=warning, 4=major, 5=critical/blocker)
+              "title": "Brief issue name",  // REQUIRED: Max 50 chars, describe WHAT is wrong (e.g. "Null pointer risk", "SQL injection vulnerability")
+              "message": "Clear description",  // REQUIRED: Max 200 chars, explain the specific problem found in THIS code
+              "impact": "Potential consequences",  // REQUIRED: Max 150 chars, what bad things can happen if not fixed
+              "suggestedFix": "Actionable solution",  // REQUIRED: Max 200 chars, specific steps to resolve the issue
+              "confidence": 0.85,  // REQUIRED: Float 0.7-1.0 (0.7=possible, 0.85=likely, 1.0=certain)
+              "range": {  // REQUIRED: Exact location of issue
+                "relativeTo": "method",  // Always "method" for method-level analysis
+                "start": {"line": 10, "col": 15},  // Line/col where issue starts (1-based)
+                "end": {"line": 10, "col": 45}  // Line/col where issue ends (1-based)
+              },
+              "anchors": {  // OPTIONAL but recommended: Code fragments near the issue for precise location
+                "before": "code_before",  // Max 40 chars: Unique code snippet BEFORE the issue (e.g. "if (obj == null)")
+                "after": "code_after"  // Max 40 chars: Unique code snippet AFTER the issue (e.g. "obj.method()")
+              }
             }
         """.trimIndent()
 
         // Detection prompt with line numbering (no echo)
         private val PROMPT_DETECTION_LINENUM_TEMPLATE = """
-            Phân tích TỪNG method được cung cấp dưới đây. Với MỖI method, tìm tối đa 3 issues nghiêm trọng (severity ≥ 3) và sắp xếp theo mức độ nghiêm trọng.
+            Phân tích TỪNG method được cung cấp dưới đây. Với MỖI method, tìm TỐI ĐA 1 issue nghiêm trọng nhất (severity ≥ 3).
             QUAN TRỌNG: Phân tích TẤT CẢ methods được yêu cầu, không giới hạn số lượng methods.
             Method: {{FQN}}
             CODE (đã đánh số dòng):
@@ -79,7 +87,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             - Chỉ trả về CHÍNH XÁC JSON theo schema bên dưới.
             - Line/column dùng chỉ số 1-based, tính theo block code đã đánh số dòng.
             - Với mỗi issue, luôn có range (relativeTo="method"), và nên kèm anchors.before/anchors.after là 1-2 cụm ngắn (<= 40 ký tự) mô tả bối cảnh gần vị trí lỗi.
-            - Tối đa 3 issues, ưu tiên critical nhất trước.
+            - Tối đa 1 issue per method - chỉ report vấn đề NGHIÊM TRỌNG NHẤT.
             - Bỏ qua style/naming/formatting/optimizations nhỏ.
             TRẢ VỀ CHỈ JSON:
             {
@@ -117,7 +125,7 @@ class CodeHealthAnalyzer(private val project: Project) {
 
         // Whole-file prompt -> diagnostics per method (no code echo)
         private val PROMPT_WHOLE_FILE_TEMPLATE = """
-            Phân tích TẤT CẢ methods trong Java file này. Với mỗi method, tìm tối đa 3 issues nghiêm trọng.
+            Phân tích TẤT CẢ methods trong Java file này. Với mỗi method, tìm tối đa 1 issue nghiêm trọng nhất. Tổng cộng tối đa 5 issues cho toàn file.
             QUAN TRỌNG: Phân tích TOÀN BỘ danh sách methods được yêu cầu, không bỏ qua bất kỳ method nào.
             File: {{CLASS}}
             Modified methods: {{METHODS}}
@@ -169,7 +177,7 @@ class CodeHealthAnalyzer(private val project: Project) {
 
         // Method-group prompt -> diagnostics per method
         private val PROMPT_METHOD_GROUP_TEMPLATE = """
-            Phân tích TẤT CẢ Java methods trong danh sách. Với mỗi method, tìm tối đa 3 diagnostics nghiêm trọng.
+            Phân tích TẤT CẢ Java methods trong danh sách. Với mỗi method, tìm tối đa 1 diagnostic nghiêm trọng nhất.
             QUAN TRỌNG: Phân tích TOÀN BỘ danh sách methods được yêu cầu, không bỏ qua method nào.
             Class: {{CLASS}}
             Methods: {{METHODS}}
@@ -206,7 +214,7 @@ class CodeHealthAnalyzer(private val project: Project) {
             - Tập trung vào các vấn đề thấy rõ trong fragment.
             - KHÔNG echo lại code trong JSON.
             - Trả về diagnostics với range relativeTo="region" (1-based theo block region bạn thấy).
-            - Severity ≥ 3, tối đa 3 issues per region.
+            - Severity ≥ 3, tối đa 1 issue per region - chỉ report vấn đề NGHIÊM TRỌNG NHẤT.
             JSON TRẢ VỀ:
             {
               "regions": [
@@ -235,6 +243,7 @@ class CodeHealthAnalyzer(private val project: Project) {
 
     private val naiveLlmService: NaiveLLMService = project.service()
     private val langChainService: ZestLangChain4jService = project.service()
+    private val jsonHelper = JsonParsingHelper()
 
      private val results = ConcurrentHashMap<String, MethodHealthResult>()
     private val gson = Gson()
@@ -419,7 +428,9 @@ class CodeHealthAnalyzer(private val project: Project) {
         val issueCount = result.issues.size
         val verifiedCount = result.issues.count { it.verified && !it.falsePositive }
         println("[CodeHealthAnalyzer] Complete: ${result.fqn} -> $issueCount issues, $verifiedCount verified")
-        results[result.fqn] = result
+
+        // ALWAYS store result, even if empty or partial
+        results[result.fqn] = ensureResultHasData(result)
 
         val done = completed.incrementAndGet()
         indicator?.fraction = done.toDouble() / total
@@ -428,6 +439,27 @@ class CodeHealthAnalyzer(private val project: Project) {
         latch.countDown()
 
         println("[CodeHealthAnalyzer] Progress: $done/$total completed, ${latch.count} remaining")
+    }
+
+    private fun ensureResultHasData(result: MethodHealthResult): MethodHealthResult {
+        // If completely empty, add a synthetic issue to ensure visibility
+        if (result.issues.isEmpty() && result.summary.isBlank()) {
+            val syntheticIssue = HealthIssue(
+                issueCategory = "Other",
+                severity = 1,
+                title = "Analysis pending",
+                description = "Method tracked but not yet fully analyzed",
+                impact = "Manual review recommended",
+                suggestedFix = "Re-run analysis or review manually",
+                confidence = 0.3,
+                verified = false
+            )
+            return result.copy(
+                issues = listOf(syntheticIssue),
+                summary = "Analysis incomplete"
+            )
+        }
+        return result
     }
 
     private fun waitForAll(latch: CountDownLatch, total: Int) {
@@ -699,33 +731,23 @@ class CodeHealthAnalyzer(private val project: Project) {
     }
 
     private fun extractJsonFromResponse(response: String): JsonObject? {
-        val start = response.indexOf('{')
-        val end = response.lastIndexOf('}')
-        if (start == -1 || end == -1 || end < start) {
-            showMalformedJsonDialog(response, "Response does not contain JSON object")
-            return null
+        val json = jsonHelper.extractJson(response)
+        if (json == null) {
+            showMalformedJsonDialog(response, "Could not extract valid JSON")
         }
-        return try {
-            gson.fromJson(response.substring(start, end + 1), JsonObject::class.java)
-        } catch (e: Exception) {
-            println("[CodeHealthAnalyzer] Error parsing JSON: ${e.message}")
-            showMalformedJsonDialog(response, e.message ?: "Unknown JSON parse error")
-            null
-        }
+        return json
     }
 
     private fun showMalformedJsonDialog(raw: String, reason: String) {
-        val preview = raw.take(1500) + if (raw.length > 1500) "\n... (truncated)" else ""
-        val title = "Zest Code Health: Malformed LLM JSON"
-        val message = "The LLM returned a malformed JSON. Reason: $reason\n\nRaw response preview:\n\n$preview"
-
-        ApplicationManager.getApplication().invokeLater {
-            if (!project.isDisposed) Messages.showErrorDialog(project, message, title)
-        }
-
+        // Non-blocking notification only
+        println("[CodeHealthAnalyzer] Malformed JSON: $reason")
         NotificationGroupManager.getInstance()
             .getNotificationGroup("Zest Code Health")
-            .createNotification("Malformed LLM JSON", "We could not parse the LLM response. See error dialog for details.", NotificationType.ERROR)
+            .createNotification(
+                "Partial Analysis",
+                "Some results may be incomplete due to parsing issues",
+                NotificationType.WARNING
+            )
             .notify(project)
     }
 
@@ -738,38 +760,85 @@ class CodeHealthAnalyzer(private val project: Project) {
         llmResponse: String,
         actualModel: String
     ): MethodHealthResult {
-        return try {
-            val json = extractJsonFromResponse(llmResponse) ?: return createFallbackResult(fqn, "", callers, modificationCount, actualModel)
-            val summary = json.optString("summary", "Analysis completed")
-            val healthScore = json.optInt("healthScore", 85)
+        val (json, fallbackIssues) = tryParseResponse(llmResponse, fqn, callerSnippets)
+        val issues = extractIssuesFromJson(json, callerSnippets, fallbackIssues)
+        val summary = json?.optString("summary", "Analysis completed") ?: "Partial analysis"
+        val healthScore = json?.optInt("healthScore", 85) ?: calculateHealthFromIssues(issues)
 
-            val issues = mutableListOf<HealthIssue>()
-            if (json.has("diagnostics")) {
-                json.getAsJsonArray("diagnostics").forEach { el ->
-                    parseDiagnostic(el.asJsonObject)?.let { issues.add(it.copy(callerSnippets = callerSnippets)) }
+        return buildHealthResult(
+            fqn, context, callers, issues,
+            healthScore, modificationCount, summary, actualModel
+        )
+    }
+
+    private fun tryParseResponse(
+        response: String,
+        fqn: String,
+        callerSnippets: List<CallerSnippet>
+    ): Pair<JsonObject?, List<HealthIssue>> {
+        val json = jsonHelper.extractJson(response)
+        if (json != null) return Pair(json, emptyList())
+
+        // Try to extract individual diagnostics
+        val diagnostics = jsonHelper.extractDiagnostics(response)
+        if (diagnostics.isNotEmpty()) {
+            val issues = diagnostics.mapNotNull { parseDiagnostic(it) }
+                .map { it.copy(callerSnippets = callerSnippets) }
+            return Pair(null, issues)
+        }
+
+        // Create fallback diagnostic
+        val fallback = parseDiagnostic(jsonHelper.createFallbackDiagnostic(response, fqn))
+        return Pair(null, listOfNotNull(fallback))
+    }
+
+    private fun extractIssuesFromJson(
+        json: JsonObject?,
+        callerSnippets: List<CallerSnippet>,
+        fallback: List<HealthIssue>
+    ): List<HealthIssue> {
+        if (json == null) return fallback
+        val issues = mutableListOf<HealthIssue>()
+        if (json.has("diagnostics")) {
+            json.getAsJsonArray("diagnostics").forEach { el ->
+                parseDiagnostic(el.asJsonObject)?.let {
+                    issues.add(it.copy(callerSnippets = callerSnippets))
                 }
             }
-
-            val annotated = buildAnnotatedFromDiagnostics(context, issues)
-            logCodeFieldDebug(fqn, context, annotated)
-
-            MethodHealthResult(
-                fqn = fqn,
-                issues = issues,
-                impactedCallers = callers,
-                healthScore = healthScore,
-                modificationCount = modificationCount,
-                codeContext = context,
-                summary = summary,
-                actualModel = actualModel,
-                annotatedCode = annotated,
-                originalCode = context
-            )
-        } catch (e: Exception) {
-            println("[CodeHealthAnalyzer] Error parsing detection response: ${e.message}")
-            e.printStackTrace()
-            createFallbackResult(fqn, "", callers, modificationCount, actualModel)
         }
+        return if (issues.isNotEmpty()) issues else fallback
+    }
+
+    private fun buildHealthResult(
+        fqn: String,
+        context: String,
+        callers: List<String>,
+        issues: List<HealthIssue>,
+        healthScore: Int,
+        modificationCount: Int,
+        summary: String,
+        actualModel: String
+    ): MethodHealthResult {
+        val annotated = buildAnnotatedFromDiagnostics(context, issues)
+        logCodeFieldDebug(fqn, context, annotated)
+        return MethodHealthResult(
+            fqn = fqn,
+            issues = issues,
+            impactedCallers = callers,
+            healthScore = healthScore,
+            modificationCount = modificationCount,
+            codeContext = context,
+            summary = summary,
+            actualModel = actualModel,
+            annotatedCode = annotated,
+            originalCode = context
+        )
+    }
+
+    private fun calculateHealthFromIssues(issues: List<HealthIssue>): Int {
+        var score = 100
+        issues.forEach { score -= (it.severity * 5) }
+        return score.coerceIn(0, 100)
     }
 
     private fun logCodeFieldDebug(fqn: String, original: String, annotated: String) {

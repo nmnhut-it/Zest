@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.zps"
-version = "1.9.895"
+version = "1.9.896"
 
 repositories {
     mavenCentral()
@@ -189,7 +189,7 @@ tasks {
         // Test environment properties
         systemProperties(
             mapOf(
-                "idea.test.execution.policy" to "com.intellij.testFramework.TestExecutionPolicy",
+                // Remove the invalid test execution policy
                 "java.awt.headless" to "true",
                 "idea.test" to "true"
             )

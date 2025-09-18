@@ -486,7 +486,7 @@ public class ReadFileTool {
                 "**/*" + pathOrFqn + "*";              // Name pattern
             
             // Use ripgrep to find files matching pattern
-            String ripgrepResult = ripgrep.searchCode(".", pattern, null);
+            String ripgrepResult = ripgrep.findFiles( pattern);
             
             // Extract first matching file path
             return extractFirstFileFromRipgrepResult(ripgrepResult);

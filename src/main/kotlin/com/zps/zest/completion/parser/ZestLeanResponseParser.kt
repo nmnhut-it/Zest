@@ -4,9 +4,7 @@ package com.zps.zest.completion.parser
  * Parses responses from the lean completion strategy
  */
 class ZestLeanResponseParser {
-    
-    private val overlapDetector = ZestCompletionOverlapDetector()
-    
+
     private companion object {
         private const val BASE_CONFIDENCE = 0.7f
         private const val MAX_TRIMMED_LINE_LENGTH = 50
@@ -35,7 +33,7 @@ class ZestLeanResponseParser {
         }
         
         val completion = extractAndCleanCompletion(response)
-        val adjustedCompletion = adjustCompletionForOverlap(completion, documentText, offset)
+        val adjustedCompletion = completion // No overlap adjustment needed
         val confidence = calculateSimplifiedConfidence(adjustedCompletion)
         
         return LeanReasoningResult(
@@ -117,18 +115,9 @@ class ZestLeanResponseParser {
         }
     }
 
+    // Overlap detection removed - method kept for compatibility
     private fun adjustCompletionForOverlap(completion: String, documentText: String, offset: Int): String {
-        if (completion.isEmpty()) return completion
-        
-        val recentUserInput = extractRecentUserInputSafe(documentText, offset)
-        val overlapResult = overlapDetector.adjustCompletionForOverlap(
-            userTypedText = recentUserInput,
-            completionText = completion,
-            cursorOffset = offset,
-            documentText = documentText
-        )
-        
-        return overlapResult.adjustedCompletion
+        return completion
     }
 
     private fun String.removeXmlTags(): String {

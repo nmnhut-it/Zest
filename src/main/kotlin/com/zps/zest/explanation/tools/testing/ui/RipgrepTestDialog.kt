@@ -337,7 +337,9 @@ class RipgrepTestDialog(private val project: Project) : DialogWrapper(project, t
                         )
                     }
                     findFilesRadio.isSelected -> {
-                        ripgrepTool.findFiles(filePatternField.text.ifEmpty { queryField.text })
+                        // For file finding, use filePattern field first, then query field if empty
+                        val pattern = filePatternField.text.ifEmpty { queryField.text }
+                        ripgrepTool.findFiles(pattern)
                     }
                     searchWithContextRadio.isSelected -> {
                         ripgrepTool.searchCodeWithContext(

@@ -110,14 +110,6 @@
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         
-        <!-- Add overlap detector test action to Tools menu -->
-        <action id="Zest.TestOverlapDetector"
-                class="com.zps.zest.completion.actions.ZestTestOverlapDetectorAction"
-                text="Test Zest Overlap Detector..."
-                description="Test overlap detector behavior on blank lines">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
-        
         <!-- Context menu group for completion actions -->
         <group id="Zest.InlineCompletionContextMenu">
             <reference id="Zest.InlineCompletion.Accept"/>
@@ -129,21 +121,5 @@
             <separator/>
             <reference id="Zest.InlineCompletion.Dismiss"/>
         </group>
-        
-        <!-- Add debug action to Tools menu -->
-        <action id="Zest.ShowCompletionTimingDebug"
-                class="com.zps.zest.actions.ZestCompletionTimingDebugAction"
-                text="Zest Completion Timing Debug..."
-                description="Show detailed timing breakdown for recent completions">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
-        
-        <!-- Add overlap detector test action to Tools menu -->
-        <action id="Zest.TestOverlapDetector"
-                class="com.zps.zest.completion.actions.ZestTestOverlapDetectorAction"
-                text="Test Zest Overlap Detector..."
-                description="Test overlap detector behavior on blank lines">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
     </actions>
 </idea-plugin>

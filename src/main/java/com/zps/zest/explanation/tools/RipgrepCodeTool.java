@@ -44,42 +44,53 @@ public class RipgrepCodeTool {
     }
 
     /**
-     * Search for code patterns across the project using native ripgrep.
+     * Search for patterns INSIDE file contents across the project using native ripgrep.
+     * This searches the text content of files, not the file names themselves.
      */
     @Tool("""
-        Search for code patterns across the entire project using high-performance ripgrep.
+        Search for patterns INSIDE file contents across the entire project using high-performance ripgrep.
+        This searches the text content of files, not file names. Use findFiles() to search file names.
         Perfect for finding function calls, class definitions, imports, or any text patterns.
-        
+
         Parameters:
-        - query: The search pattern (supports regex)
+        - query: The search pattern (supports regex) to find in file contents
         - filePattern: Optional glob pattern to filter files (e.g., "*.java", "**/*.kt")
         - excludePattern: Optional pattern to exclude files (e.g., "test", "*.min.js")
-        
+
         Examples:
-        - searchCode("getUserById", "*.java", null) - Find getUserById in Java files
-        - searchCode("import.*React", "*.tsx", null) - Find React imports in TypeScript
-        - searchCode("@Override", null, "test") - Find @Override excluding test files
+        - searchCode("getUserById", "*.java", null) - Find getUserById text in Java files
+        - searchCode("import.*React", "*.tsx", null) - Find React imports in TypeScript files
+        - searchCode("@Override", null, "test") - Find @Override text excluding test files
         """)
     public String searchCode(String query, @Nullable String filePattern, @Nullable String excludePattern) {
+        if (query == null || query.trim().isEmpty()) {
+            return "Error: Search query cannot be empty";
+        }
         return searchWithRipgrep(query, filePattern, excludePattern, 0, 0, false);
     }
     
     /**
-     * Find files matching a glob pattern (no content search, just file listing).
+     * Find files by NAME/PATH matching a glob pattern (searches file names, not contents).
+     * This is different from searchCode() which searches inside file contents.
      */
     @Tool("""
-        Find files in the project that match a specific glob pattern.
-        This is perfect for exploring project structure or finding specific file types.
-        
+        Find files by NAME/PATH that match a specific glob pattern.
+        This searches for file names/paths, NOT file contents. Use searchCode() to search inside files.
+        Perfect for exploring project structure or finding specific file types.
+
         Parameters:
-        - globPattern: Glob pattern to match files (e.g., "*.java", "**/*.ts", "src/**/*.properties")
-        
+        - globPattern: Glob pattern to match file names/paths (e.g., "*.java", "**/*.ts", "src/**/*.properties")
+
         Examples:
-        - findFiles("*.java") - Find all Java files in project root
-        - findFiles("**/*.kt") - Find all Kotlin files recursively
-        - findFiles("src/**/application*.yml") - Find application config files
+        - findFiles("*.java") - Find all files with .java extension in project root
+        - findFiles("**/*.kt") - Find all Kotlin files recursively by name
+        - findFiles("src/**/application*.yml") - Find files named application*.yml in src
+        - findFiles("*Test*") - Find all files with "Test" in their name
         """)
     public String findFiles(String globPattern) {
+        if (globPattern == null || globPattern.trim().isEmpty()) {
+            globPattern = "*"; // Default to all files if no pattern provided
+        }
         return findFilesWithRipgrep(globPattern);
     }
     
@@ -101,6 +112,9 @@ public class RipgrepCodeTool {
         - searchCodeWithContext("TODO", null, "test", 1) - Find TODOs with 1 line context, exclude tests
         """)
     public String searchCodeWithContext(String query, @Nullable String filePattern, @Nullable String excludePattern, int contextLines) {
+        if (query == null || query.trim().isEmpty()) {
+            return "Error: Search query cannot be empty";
+        }
         return searchWithRipgrep(query, filePattern, excludePattern, contextLines, contextLines, false);
     }
     
@@ -120,6 +134,9 @@ public class RipgrepCodeTool {
         Example: searchWithBeforeContext("return", "*.java", null, 3) - See what leads to return statements
         """)
     public String searchWithBeforeContext(String query, @Nullable String filePattern, @Nullable String excludePattern, int beforeLines) {
+        if (query == null || query.trim().isEmpty()) {
+            return "Error: Search query cannot be empty";
+        }
         return searchWithRipgrep(query, filePattern, excludePattern, beforeLines, 0, false);
     }
     
@@ -139,6 +156,9 @@ public class RipgrepCodeTool {
         Example: searchWithAfterContext("if.*null", "*.java", null, 2) - See what happens after null checks
         """)
     public String searchWithAfterContext(String query, @Nullable String filePattern, @Nullable String excludePattern, int afterLines) {
+        if (query == null || query.trim().isEmpty()) {
+            return "Error: Search query cannot be empty";
+        }
         return searchWithRipgrep(query, filePattern, excludePattern, 0, afterLines, false);
     }
     
@@ -182,23 +202,28 @@ public class RipgrepCodeTool {
         if (ripgrepSearched) {
             return ripgrepPath;
         }
-        
+
         ripgrepSearched = true;
-        
+
+        System.out.println("[RipgrepCodeTool] Starting ripgrep binary search...");
+
         // Try bundled binary first
         String bundledPath = extractBundledRipgrep();
         if (bundledPath != null) {
+            System.out.println("[RipgrepCodeTool] Found bundled ripgrep: " + bundledPath);
             ripgrepPath = bundledPath;
             return ripgrepPath;
         }
-        
+
         // Fallback to system ripgrep
         String systemPath = findSystemRipgrep();
         if (systemPath != null) {
+            System.out.println("[RipgrepCodeTool] Found system ripgrep: " + systemPath);
             ripgrepPath = systemPath;
             return ripgrepPath;
         }
-        
+
+        System.out.println("[RipgrepCodeTool] No ripgrep binary found!");
         return null;
     }
     
@@ -209,7 +234,9 @@ public class RipgrepCodeTool {
         try {
             String platform = detectPlatform();
             String resourcePath = "/bin/rg-" + platform + (platform.contains("windows") ? ".exe" : "");
-            
+
+            System.out.println("[RipgrepCodeTool] Looking for bundled binary at: " + resourcePath);
+
             // Check if bundled binary exists
             InputStream bundledBinary = getClass().getResourceAsStream(resourcePath);
             if (bundledBinary == null) {
@@ -223,11 +250,13 @@ public class RipgrepCodeTool {
             
             // Check if already extracted and valid
             if (Files.exists(extractedPath) && Files.isExecutable(extractedPath)) {
+                System.out.println("[RipgrepCodeTool] Using existing extracted binary: " + extractedPath);
                 ripgrepPath = extractedPath.toString();
                 return ripgrepPath;
             }
-            
+
             // Extract binary
+            System.out.println("[RipgrepCodeTool] Extracting bundled binary to: " + extractedPath);
             Files.copy(bundledBinary, extractedPath, StandardCopyOption.REPLACE_EXISTING);
             bundledBinary.close();
             
@@ -396,9 +425,12 @@ public class RipgrepCodeTool {
      * Execute ripgrep and parse results
      */
     private String executeRipgrepCommand(List<String> command, String query) throws IOException, InterruptedException {
+        // Log the command for debugging
+        System.out.println("[RipgrepCodeTool] Executing command: " + String.join(" ", command));
+
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
-        
+
         Process process = pb.start();
         
         StringBuilder jsonOutput = new StringBuilder();
@@ -415,12 +447,28 @@ public class RipgrepCodeTool {
             return "Error: Ripgrep search timed out";
         }
         
-        if (process.exitValue() == 1) {
+        // Handle ripgrep exit codes:
+        // 0 = match found
+        // 1 = no match found (not an error)
+        // 2+ = error occurred
+        int exitCode = process.exitValue();
+
+        if (exitCode == 1) {
+            // No matches found - this is not an error
             return String.format("No results found for: '%s'", query);
         }
-        
-        if (process.exitValue() != 0) {
-            return "Error: Ripgrep failed with exit code: " + process.exitValue();
+
+        if (exitCode == 2) {
+            // Parse error output for better error message
+            String output = jsonOutput.toString().trim();
+            if (output.contains("regex parse error")) {
+                return String.format("Error: Invalid regex pattern: '%s'\nDetails: %s", query, output);
+            }
+            return String.format("Error: Ripgrep failed with pattern '%s'\nDetails: %s", query, output);
+        }
+
+        if (exitCode != 0) {
+            return String.format("Error: Ripgrep failed with exit code %d for query: '%s'", exitCode, query);
         }
         
         return parseRipgrepOutput(jsonOutput.toString(), query);
@@ -463,15 +511,17 @@ public class RipgrepCodeTool {
         try {
             JsonObject data = json.getAsJsonObject("data");
             String filePath = data.getAsJsonObject("path").get("text").getAsString();
-            
-            JsonArray lines = data.getAsJsonArray("lines");
-            JsonObject line = lines.get(0).getAsJsonObject();
-            int lineNumber = line.get("line_number").getAsInt();
-            String lineText = line.get("text").getAsString();
-            
+
+            // Fix: lines is an object, not an array
+            JsonObject lines = data.getAsJsonObject("lines");
+            // Fix: line_number is at data level, not in lines
+            int lineNumber = data.get("line_number").getAsInt();
+            String lineText = lines.get("text").getAsString();
+
             return new RipgrepMatch(filePath, lineNumber, lineText);
-            
+
         } catch (Exception e) {
+            System.err.println("[RipgrepCodeTool] Error parsing match: " + e.getMessage());
             return null;
         }
     }

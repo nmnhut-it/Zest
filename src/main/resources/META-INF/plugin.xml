@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.896</version>
+    <version>1.9.897</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -367,6 +367,15 @@
 
     <!-- Change notes for version updates -->
     <change-notes><![CDATA[
+        <h3>Version 1.9.897</h3>
+        <ul>
+            <li><b>Simplified Completion System:</b> Removed complex overlap detection logic for more predictable completions</li>
+            <li><b>Code Health Storage Fix:</b> Fixed issue where partial analysis results weren't being stored properly</li>
+            <li><b>Better JSON Parsing:</b> Added JsonParsingHelper with multiple fallback strategies for malformed LLM responses</li>
+            <li><b>Improved Resilience:</b> Code Health analysis now preserves partial results even when JSON parsing fails</li>
+            <li><b>Code Cleanup:</b> Removed ~400 lines of unnecessary overlap detector code</li>
+        </ul>
+
         <h3>Version 1.9.896</h3>
         <ul>
             <li><b>Enhanced Code Health Analysis:</b> Improved resilience when parsing LLM responses, ensuring partial results are still displayed</li>

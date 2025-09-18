@@ -189,7 +189,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
             "}");
 
         // Test with context lines
-        String result = ripgrepTool.searchCodeWithContext("testMethod", null, null, 1);
+        String result = ripgrepTool.searchCode("testMethod", null, null, 1, 1);
 
         if (!result.contains("Ripgrep not available")) {
             assertTrue("Should contain the match", result.contains("testMethod"));

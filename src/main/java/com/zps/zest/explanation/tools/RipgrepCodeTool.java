@@ -56,17 +56,31 @@ public class RipgrepCodeTool {
         - query: The search pattern (supports regex) to find in file contents
         - filePattern: Optional glob pattern to filter files (e.g., "*.java", "**/*.kt")
         - excludePattern: Optional pattern to exclude files (e.g., "test", "*.min.js")
+        - beforeLines: Number of lines to show before each match (0-10, default: 0)
+        - afterLines: Number of lines to show after each match (0-10, default: 0)
 
         Examples:
-        - searchCode("getUserById", "*.java", null) - Find getUserById text in Java files
-        - searchCode("import.*React", "*.tsx", null) - Find React imports in TypeScript files
-        - searchCode("@Override", null, "test") - Find @Override text excluding test files
+        - searchCode("getUserById", "*.java", null, 0, 0) - Find getUserById text in Java files
+        - searchCode("import.*React", "*.tsx", null, 2, 2) - Find React imports with 2 lines context
+        - searchCode("@Override", null, "test", 1, 3) - Find @Override with 1 line before, 3 after
         """)
-    public String searchCode(String query, @Nullable String filePattern, @Nullable String excludePattern) {
+    public String searchCode(String query, @Nullable String filePattern, @Nullable String excludePattern,
+                           int beforeLines, int afterLines) {
         if (query == null || query.trim().isEmpty()) {
             return "Error: Search query cannot be empty";
         }
-        return searchWithRipgrep(query, filePattern, excludePattern, 0, 0, false);
+        // Validate context lines are within reasonable bounds
+        beforeLines = Math.max(0, Math.min(10, beforeLines));
+        afterLines = Math.max(0, Math.min(10, afterLines));
+
+        return searchWithRipgrep(query, filePattern, excludePattern, beforeLines, afterLines, false);
+    }
+
+    /**
+     * Backward compatibility overload - searches without context lines
+     */
+    public String searchCode(String query, @Nullable String filePattern, @Nullable String excludePattern) {
+        return searchCode(query, filePattern, excludePattern, 0, 0);
     }
     
     /**
@@ -94,73 +108,8 @@ public class RipgrepCodeTool {
         return findFilesWithRipgrep(globPattern);
     }
     
-    /**
-     * Search with context lines (like rg -C)
-     */
-    @Tool("""
-        Search for code patterns with surrounding context lines for better understanding.
-        Shows lines before and after each match to provide context.
-        
-        Parameters:
-        - query: The search pattern (supports regex)
-        - filePattern: Optional glob pattern to filter files
-        - excludePattern: Optional pattern to exclude files  
-        - contextLines: Number of lines to show before and after each match (default: 3)
-        
-        Examples:
-        - searchCodeWithContext("public class", "*.java", null, 2) - Find class definitions with 2 lines context
-        - searchCodeWithContext("TODO", null, "test", 1) - Find TODOs with 1 line context, exclude tests
-        """)
-    public String searchCodeWithContext(String query, @Nullable String filePattern, @Nullable String excludePattern, int contextLines) {
-        if (query == null || query.trim().isEmpty()) {
-            return "Error: Search query cannot be empty";
-        }
-        return searchWithRipgrep(query, filePattern, excludePattern, contextLines, contextLines, false);
-    }
-    
-    /**
-     * Search with before context (like rg -B)
-     */
-    @Tool("""
-        Search for code patterns showing only lines BEFORE each match.
-        Useful for understanding what comes before specific code patterns.
-        
-        Parameters:
-        - query: The search pattern (supports regex)
-        - filePattern: Optional glob pattern to filter files
-        - excludePattern: Optional pattern to exclude files
-        - beforeLines: Number of lines to show before each match
-        
-        Example: searchWithBeforeContext("return", "*.java", null, 3) - See what leads to return statements
-        """)
-    public String searchWithBeforeContext(String query, @Nullable String filePattern, @Nullable String excludePattern, int beforeLines) {
-        if (query == null || query.trim().isEmpty()) {
-            return "Error: Search query cannot be empty";
-        }
-        return searchWithRipgrep(query, filePattern, excludePattern, beforeLines, 0, false);
-    }
-    
-    /**
-     * Search with after context (like rg -A)  
-     */
-    @Tool("""
-        Search for code patterns showing only lines AFTER each match.
-        Useful for understanding what follows specific code patterns.
-        
-        Parameters:
-        - query: The search pattern (supports regex)
-        - filePattern: Optional glob pattern to filter files
-        - excludePattern: Optional pattern to exclude files
-        - afterLines: Number of lines to show after each match
-        
-        Example: searchWithAfterContext("if.*null", "*.java", null, 2) - See what happens after null checks
-        """)
-    public String searchWithAfterContext(String query, @Nullable String filePattern, @Nullable String excludePattern, int afterLines) {
-        if (query == null || query.trim().isEmpty()) {
-            return "Error: Search query cannot be empty";
-        }
-        return searchWithRipgrep(query, filePattern, excludePattern, 0, afterLines, false);
-    }
+    // Removed searchCodeWithContext, searchWithBeforeContext, and searchWithAfterContext
+    // These are now handled by the unified searchCode method with beforeLines/afterLines parameters
     
     /**
      * Core ripgrep search implementation

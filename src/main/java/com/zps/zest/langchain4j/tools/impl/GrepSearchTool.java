@@ -17,14 +17,16 @@ import java.util.ArrayList;
 public class GrepSearchTool extends BaseCodeExplorationTool {
     
     public GrepSearchTool(@NotNull Project project) {
-        super(project, "grep_search", 
-            "Search for patterns in code using ripgrep (blazing fast regex search). " +
-            "Examples: " +
-            "- grep_search({\"query\": \"class.*Service\"}) - find all Service classes " +
-            "- grep_search({\"query\": \"@Test\", \"filePattern\": \"*.java\"}) - find test annotations in Java files " +
-            "- grep_search({\"query\": \"TODO\", \"contextLines\": 2}) - find TODOs with 2 lines of context " +
-            "- grep_search({\"query\": \"import.*Logger\", \"excludePattern\": \"*.test.java\"}) - find Logger imports excluding tests " +
-            "Params: query (required), filePattern (glob), excludePattern (glob), contextLines (int), caseSensitive (bool)");
+        super(project, "grep_search",
+            "Powerful code search with blazing-fast ripgrep. Supports regex with | (OR) operator, file filtering, and context lines. " +
+            "PATTERNS: " +
+            "- Usage: \"new ClassName\\(\" (instantiation), \"ClassName\\.\" (static calls), \"\\bClassName\\b\" (any reference) " +
+            "- Callers: \"methodName\\(\" (all calls), \"\\.methodName\\(\" (instance calls), \"(save|update|delete)\\(\" (multiple methods) " +
+            "- Case-sensitive: \"[A-Z][a-z]+[A-Z]\" (camelCase), \"[a-z]+_[a-z]+\" (snake_case), \"[A-Z_]+\" (CONSTANTS) " +
+            "EXAMPLES: " +
+            "- grep_search({\"query\": \"new (User|Admin)Service\\(\", \"filePattern\": \"*.java\", \"beforeLines\": 2, \"afterLines\": 2}) " +
+            "- grep_search({\"query\": \"@(Test|ParameterizedTest)\", \"filePattern\": \"**/*Test.java\"}) " +
+            "- grep_search({\"query\": \"(getUserById|findUserById)\\(\", \"excludePattern\": \"*test*\", \"contextLines\": 3})");
     }
     
     @Override
@@ -35,7 +37,7 @@ public class GrepSearchTool extends BaseCodeExplorationTool {
         // Required: query
         JsonObject query = new JsonObject();
         query.addProperty("type", "string");
-        query.addProperty("description", "The regex pattern or text to search for");
+        query.addProperty("description", "The regex pattern or text to search for. Supports | for OR (e.g., 'save|update|delete')");
         properties.add("query", query);
         
         // Optional: filePattern
@@ -53,7 +55,7 @@ public class GrepSearchTool extends BaseCodeExplorationTool {
         // Optional: contextLines
         JsonObject contextLines = new JsonObject();
         contextLines.addProperty("type", "integer");
-        contextLines.addProperty("description", "Number of context lines to show before and after matches (0-5)");
+        contextLines.addProperty("description", "Number of context lines to show before AND after matches (0-5). Use beforeLines/afterLines for different values");
         contextLines.addProperty("default", 0);
         contextLines.addProperty("minimum", 0);
         contextLines.addProperty("maximum", 5);
@@ -113,26 +115,20 @@ public class GrepSearchTool extends BaseCodeExplorationTool {
                 new ArrayList<>() // usagePatterns - will be populated by search
             );
             
-            String result;
-            
-            // Use appropriate search method based on context requirements
-            if (beforeLines > 0 && afterLines > 0) {
-                // Both before and after context
-                result = ripgrep.searchCodeWithContext(query, filePattern, excludePattern, 
-                    Math.max(beforeLines, afterLines));
-            } else if (beforeLines > 0) {
-                // Only before context
-                result = ripgrep.searchWithBeforeContext(query, filePattern, excludePattern, beforeLines);
-            } else if (afterLines > 0) {
-                // Only after context
-                result = ripgrep.searchWithAfterContext(query, filePattern, excludePattern, afterLines);
-            } else if (contextLines > 0) {
-                // Symmetric context
-                result = ripgrep.searchCodeWithContext(query, filePattern, excludePattern, contextLines);
-            } else {
-                // No context
-                result = ripgrep.searchCode(query, filePattern, excludePattern);
+            // Determine context lines to use
+            int finalBeforeLines = beforeLines;
+            int finalAfterLines = afterLines;
+
+            // If contextLines is specified and before/after weren't explicitly set, use contextLines for both
+            if (contextLines > 0 && parameters.has("contextLines") &&
+                !parameters.has("beforeLines") && !parameters.has("afterLines")) {
+                finalBeforeLines = contextLines;
+                finalAfterLines = contextLines;
             }
+
+            // Use unified searchCode method with before/after parameters
+            String result = ripgrep.searchCode(query, filePattern, excludePattern,
+                                              finalBeforeLines, finalAfterLines);
             
             // Create metadata
             JsonObject metadata = createMetadata();
@@ -146,6 +142,12 @@ public class GrepSearchTool extends BaseCodeExplorationTool {
             metadata.addProperty("caseSensitive", caseSensitive);
             if (contextLines > 0) {
                 metadata.addProperty("contextLines", contextLines);
+            }
+            if (finalBeforeLines > 0) {
+                metadata.addProperty("beforeLines", finalBeforeLines);
+            }
+            if (finalAfterLines > 0) {
+                metadata.addProperty("afterLines", finalAfterLines);
             }
             
             // Check if ripgrep is not available

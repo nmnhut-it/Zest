@@ -333,7 +333,9 @@ class RipgrepTestDialog(private val project: Project) : DialogWrapper(project, t
                         ripgrepTool.searchCode(
                             queryField.text,
                             filePatternField.text.ifEmpty { null },
-                            excludePatternField.text.ifEmpty { null }
+                            excludePatternField.text.ifEmpty { null },
+                            0,  // no before lines
+                            0   // no after lines
                         )
                     }
                     findFilesRadio.isSelected -> {
@@ -342,27 +344,31 @@ class RipgrepTestDialog(private val project: Project) : DialogWrapper(project, t
                         ripgrepTool.findFiles(pattern)
                     }
                     searchWithContextRadio.isSelected -> {
-                        ripgrepTool.searchCodeWithContext(
+                        val contextLines = contextLinesSpinner.value as Int
+                        ripgrepTool.searchCode(
                             queryField.text,
                             filePatternField.text.ifEmpty { null },
                             excludePatternField.text.ifEmpty { null },
-                            contextLinesSpinner.value as Int
+                            contextLines,  // same before and after
+                            contextLines   // same before and after
                         )
                     }
                     beforeContextRadio.isSelected -> {
-                        ripgrepTool.searchWithBeforeContext(
+                        ripgrepTool.searchCode(
                             queryField.text,
                             filePatternField.text.ifEmpty { null },
                             excludePatternField.text.ifEmpty { null },
-                            beforeLinesSpinner.value as Int
+                            beforeLinesSpinner.value as Int,  // only before
+                            0   // no after
                         )
                     }
                     afterContextRadio.isSelected -> {
-                        ripgrepTool.searchWithAfterContext(
+                        ripgrepTool.searchCode(
                             queryField.text,
                             filePatternField.text.ifEmpty { null },
                             excludePatternField.text.ifEmpty { null },
-                            afterLinesSpinner.value as Int
+                            0,  // no before
+                            afterLinesSpinner.value as Int   // only after
                         )
                     }
                     else -> "No test mode selected"

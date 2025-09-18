@@ -24,6 +24,12 @@ public class ListFilesTool {
         this.toolRegistry = toolRegistry;
     }
 
+    // Simple constructor without registry - will use direct file system access
+    public ListFilesTool(@NotNull Project project) {
+        this.project = project;
+        this.toolRegistry = null;
+    }
+
     @Tool("""
         List files and subdirectories in a directory with controlled recursion depth.
         
@@ -52,7 +58,7 @@ public class ListFilesTool {
         return ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
             try {
                 // First try using the CodeExplorationTool if available
-                CodeExplorationTool listTool = toolRegistry.getTool("list_files");
+                CodeExplorationTool listTool = toolRegistry != null ? toolRegistry.getTool("list_files") : null;
                 if (listTool != null) {
                     JsonObject params = new JsonObject();
                     params.addProperty("directory", normalizeDirectoryPath(directoryPath));

@@ -178,7 +178,7 @@ public class GitServiceHelper {
      */
     public static String cleanFilePath(String filePath, String projectName) {
         if (filePath == null || filePath.isEmpty()) return "";
-        
+
         // Remove project name prefix if present
         if (projectName != null && !projectName.isEmpty()) {
             String prefix = projectName + "/";

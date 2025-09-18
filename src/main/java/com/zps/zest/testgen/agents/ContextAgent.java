@@ -1,10 +1,10 @@
 package com.zps.zest.testgen.agents;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
 import com.zps.zest.testgen.tools.AnalyzeClassTool;
-import com.zps.zest.testgen.tools.FindFilesTool;
 import com.zps.zest.testgen.tools.ListFilesTool;
 import com.zps.zest.testgen.tools.TakeNoteTool;
 import com.zps.zest.langchain4j.tools.impl.ReadFileTool;
@@ -16,20 +16,37 @@ import com.zps.zest.testgen.ui.model.ContextDisplayData;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.service.SystemMessage;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
-import javax.swing.SwingUtilities;
 
 /**
- * Context gathering agent using LangChain4j's streaming capabilities.
- * No conversation loops - LangChain4j handles the agent orchestration.
+ * AI Agent responsible for gathering project context and understanding codebase.
+ *
+ * This agent acts as the "explorer" - it can navigate the project structure,
+ * search for code patterns, analyze classes, and build a mental model of
+ * the codebase architecture.
+ *
+ * Key capabilities:
+ * - File system navigation (list files, find files)
+ * - Code search with ripgrep (regex patterns, context lines)
+ * - Class analysis (structure, dependencies, methods)
+ * - Note-taking for important findings
+ * - Build file analysis (pom.xml, build.gradle)
+ *
+ * The agent maintains internal state of explored classes and findings,
+ * which can be accessed by the coordinator agent.
  */
 public class ContextAgent extends StreamingBaseAgent {
+    private static final Logger LOG = Logger.getInstance(ContextAgent.class);
+
     private final CodeExplorationToolRegistry toolRegistry;
     private final ContextGatheringTools contextTools;
     private final ContextGatheringAssistant assistant;
@@ -55,61 +72,29 @@ public class ContextAgent extends StreamingBaseAgent {
     }
 
     /**
+     * Compatibility constructor for older code (Kotlin) - delegates to main constructor.
+     */
+    public ContextAgent(Project project, Object langChainService, Object llmService) {
+        this(project, (ZestLangChain4jService) langChainService, (NaiveLLMService) llmService);
+    }
+
+    /**
      * Streamlined interface - LangChain4j handles the conversation loop internally
      */
     public interface ContextGatheringAssistant {
-        @dev.langchain4j.service.SystemMessage("""
+        @SystemMessage("""
 You are a context gatherer for test generation. The class analyzer captures all static dependencies. Your goal is to understand the code under test without any assumption
 
-CRITICAL RULE: ONLY search for files SPECIFICALLY REFERENCED in the analyzed code that are NOT already in the static context analysis.
+IMPORTANT: All tool usage examples in this conversation are for illustration only. You MUST follow the actual tool signatures and parameter names as defined.
 
-TARGETED APPROACH:
-1. **Scan the provided static analysis** for string literals, file paths, and resource references
-2. **ONLY search for files explicitly mentioned** in the code - no random exploration
-3. **Skip files already captured** in the static dependency graph
-4. **Focus on external resources** that the static analyzer cannot detect
-
-SEARCH ONLY FOR REFERENCED FILES:
-- **String literals** found in code: "config/database.yml", "templates/email.html", "scripts/setup.lua"
-- **Dynamic file loading** patterns: Files.readString(), getResourceAsStream(), Properties.load()
-- **Configuration references** that are loaded at runtime
-- **Scripts/templates** called dynamically by the code
-
-SEARCH STRATEGY:
-1. **searchCode for file references**: Look for specific file paths mentioned in string literals
-   * searchCode('"config/') → find config file references
-   * searchCode('\\.lua"') → find script references
-   * searchCode('getResourceAsStream') → find resource loading patterns
-
-2. **findFiles for exact references**: ONLY search for files found in Step 1
-   * If code mentions "config/leaderboard.lua" → findFiles("config/leaderboard.lua")
-   * If code loads ".properties" → findFiles("**/*.properties") 
-   * NEVER search for files not mentioned in the code
-
-3. **listFiles sparingly**: ONLY if specific directory referenced in code
-   * If code mentions "config/" directory → listFiles("config/")
-   * ONLY for directories with confirmed file references
-
-STRICT FILTERING:
-✅ Code contains 'Files.readString(Path.of("config/leaderboard.lua"))' → search for this exact file
-✅ Code contains 'getResourceAsStream("templates/")' → explore templates directory
-❌ Code doesn't mention .yml files → DON'T search for *.yml
-❌ No resource loading in code → DON'T explore resources/
-❌ No script references → DON'T look for .lua files
-
-Remember: You are NOT doing general project exploration. You are ONLY finding external files that the code explicitly references but static analysis missed.
-  
-EXPLORATION PRIORITIES:
-1. Files referenced by string literals in the analyzed code
-2. Configuration directories (config/, resources/, etc.)
-3. Test directories related to the class under test
-4. Script/template directories if code loads dynamic content
-
-AVOID:
-- Broad searches like "listFiles('.')" or "findFiles('*.java')" 
-- Exploring irrelevant directories (build/, .git/, node_modules/)
-- Recursive listing of large directory trees
-- General project exploration without specific purpose
+CONVERSATION APPROACH:
+1. Review the analysis and identify what additional context is needed. List out what your want to explore first.
+2. Use appropriate tools to gather that context (max 5 tools per response). Always start with file listing or find file. You have a budget of maximum 5 tool calls, so use it wisely.
+3. Do not assume file path. Search for file path before you want to read it, unless you are absolutely sure about the path.
+Do not read a file because you think it might exist - you need to prove that it is indeed used or is related to the code under test.
+4. Do not read whole code file if you have its signature, and that is enough to write tests.
+Before you read a file, give clear reason, and make sure you have not make the call to read it yet.
+5. After gathering context, or reading more than 5 files, stop and use takeNote() to record key findings
 
 YOUR TASK: Find non-static context needed to understand the code under test:
 - External APIs, services or script called dynamically
@@ -117,17 +102,18 @@ YOUR TASK: Find non-static context needed to understand the code under test:
 - Resource files loaded at runtime
 - Database schemas or migration files
 - Message formats or protocol definitions
-- Existing test classes of the code under test, if such classes exist. 
+- Usage of the method under test throughout the project.
+- Existing test classes of the code under test, if such classes exist.
 
 AVOID:
 - Classes already in the static dependency graph
 - General project exploration
 - Unrelated test examples
-- Files whose existence is unclear. 
+- Files whose existence is unclear.
 
-Your goal is not to fully explore the codebase, but to understand the code under test without any assumption. 
+Your goal is not to fully explore the codebase, but to understand the code under test without any assumption.
 
-Before any tool call, give a brief (about 50 words) on what you have explored. 
+Before any tool call, give a brief (about 50 words) on what you have explored.
 After each tool usage, explain what you found and what else needs investigation.
 Stop when you can test the code without making assumptions about external resources.
 """)
@@ -135,62 +121,47 @@ Stop when you can test the code without making assumptions about external resour
         String gatherContext(String request);
     }
 
-    @NotNull
-    public CompletableFuture<Void> gatherContext(@NotNull TestGenerationRequest request,
-                                                 @Nullable TestPlan testPlan,
-                                                 @Nullable String sessionId,
-                                                 @Nullable Consumer<Map<String, Object>> contextUpdateCallback) {
-        return CompletableFuture.runAsync(() -> {
+    /**
+     * Gather context for test generation using the AI assistant.
+     * Returns a completed future since the AI handles everything.
+     */
+    public CompletableFuture<Void> gatherContext(Object request, Object tools,
+                                                  String systemPrompt,
+                                                  Consumer<Map<String, Object>> updateCallback) {
+        return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.debug("Starting context gathering with LangChain4j orchestration");
-                
-                // Notify UI that we're starting
-                notifyStart();
-                sendToUI("🔍 Gathering context for test generation...\n\n");
 
                 // Reset tools for new session
                 contextTools.reset();
-                contextTools.setSessionId(sessionId);
-                contextTools.setContextUpdateCallback(contextUpdateCallback);
+                contextTools.setContextUpdateCallback(updateCallback);
 
-                // Build the request with class analysis included
-                String contextRequest = buildContextRequest(request, testPlan);
-                
-                // Send the initial request to UI
+                // Build the context request
+                String contextRequest;
+                if (request instanceof TestGenerationRequest) {
+                    contextRequest = buildContextRequest((TestGenerationRequest) request, null);
+                } else {
+                    contextRequest = request.toString();
+                }
+
+                // Send initial request to UI
+                sendToUI("🔍 Gathering context for test generation...\n\n");
                 sendToUI("📋 Request: " + contextRequest + "\n\n");
                 sendToUI("🤖 Assistant Response:\n");
                 sendToUI("-".repeat(40) + "\n");
 
                 // Let LangChain4j handle the entire conversation with streaming
-                // The assistant will make multiple tool calls as needed
                 try {
                     String response = assistant.gatherContext(contextRequest);
                     sendToUI(response);
                     sendToUI("\n" + "-".repeat(40) + "\n");
-                    notifyComplete();
-                }
-                catch (Exception e){
-                    LOG.warn("Context agent encountered an error but continuing with static analyzer", e);
+                } catch (Exception e) {
+                    LOG.warn("Context agent encountered an error but continuing", e);
                     sendToUI("\n⚠️ Context agent stopped: " + e.getMessage());
-                    sendToUI("\nContinuing with static analyzer results...\n");
+                    sendToUI("\nContinuing with available context...\n");
                 }
-                // Log token usage for this session
-//                if (getChatModelWithStreaming() instanceof ZestChatLanguageModel) {
-//                    ZestChatLanguageModel zestModel = (ZestChatLanguageModel) getChatModelWithStreaming();
-//                    TokenUsageTracker tracker = zestModel.getTokenTracker();
-//                    LOG.info(String.format("Context gathering token usage - Total: %d, TPM: %d",
-//                        tracker.getTotalTokens(), tracker.getTokensPerMinute()));
-//                }
-//
-                // Send the response to UI
 
-
-                // Detect framework after all analysis is complete
-                contextTools.detectFramework();
-                
-                LOG.debug("Context gathering complete - data and framework info available through tools");
-                
-                // Context data is accessed directly through contextTools
+                return null;
 
             } catch (Exception e) {
                 LOG.error("Failed to gather context", e);
@@ -201,84 +172,64 @@ Stop when you can test the code without making assumptions about external resour
     }
 
     /**
-     * Get the context gathering tools for direct access
+     * Build the initial context request.
+     */
+    private String buildContextRequest(TestGenerationRequest request, TestPlan testPlan) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("Gather comprehensive context for test generation.\n\n");
+
+        prompt.append("Target file: ").append(request.getTargetFile().getVirtualFile().getPath()).append("\n");
+
+        if (testPlan != null) {
+            prompt.append("Target class: ").append(testPlan.getTargetClass()).append("\n");
+            if (testPlan.getTargetMethods() != null && !testPlan.getTargetMethods().isEmpty()) {
+                prompt.append("Target methods: ").append(String.join(", ", testPlan.getTargetMethods())).append("\n");
+            }
+        }
+
+        if (request.hasSelection()) {
+            prompt.append("Note: User has selected specific code to test.\n");
+        }
+
+        prompt.append("\nAnalyze the provided class info and gather additional context needed for test generation.");
+//        prompt.append("\nFocus on external dependencies, configurations, and runtime resources.");
+
+        return prompt.toString();
+    }
+
+    /**
+     * Get context tools for direct access (used by other components).
      */
     public ContextGatheringTools getContextTools() {
         return contextTools;
     }
-    
+
     /**
-     * Get the chat memory for UI integration
+     * Get the chat memory for this agent.
      */
-    @NotNull
     public MessageWindowChatMemory getChatMemory() {
         return chatMemory;
     }
 
     /**
-     * Build the initial context request with pre-analyzed class info to save tokens.
+     * Set event listener (backward compatibility).
      */
-    private String buildContextRequest(TestGenerationRequest request, TestPlan testPlan) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("Gather comprehensive context for test generation.\n\n");
-        
-        prompt.append("Target file: ").append(request.getTargetFile().getVirtualFile().getPath()).append("\n");
-        
-        if (testPlan != null) {
-            prompt.append("Target class: ").append(testPlan.getTargetClass()).append("\n");
-            if (testPlan.getTargetMethods() != null && !testPlan.getTargetMethods().isEmpty()) {
-                prompt.append("Target method: ").append(testPlan.getTargetMethods().stream().collect(Collectors.joining(","))).append("\n");
-            }
-        }
-        
-        if (request.hasSelection()) {
-            prompt.append("Note: User has selected specific code to test.\n");
-        }
-        
-        // Pre-analyze the class to include in request (saves tokens)
-        String classAnalysis = preAnalyzeClass(request, testPlan);
-        if (classAnalysis != null) {
-            prompt.append("\nPre-analyzed class structure:\n");
-            prompt.append(compressWhitespace(classAnalysis));
-            prompt.append("\n");
-        }
-        
-        prompt.append("\nAnalyze the provided class info and gather additional context needed for test generation.");
-        prompt.append("\nFocus on external dependencies, configurations, and runtime resources.");
-        
-        // Log token estimate
-        int estimatedTokens = prompt.toString().length() / 4; // Rough estimate
-        LOG.info("Context request estimated tokens: " + estimatedTokens);
-        
-        return prompt.toString();
+    public void setEventListener(Object listener) {
+        // No-op for backward compatibility
     }
 
     /**
-     * Pre-analyze the target class to include in the initial request.
+     * Send context file analysis to UI.
      */
-    private String preAnalyzeClass(TestGenerationRequest request, TestPlan testPlan) {
-        try {
-
-            return        this.contextTools.analyzeClass(request.getTargetFile().getVirtualFile().getPath());
-        } catch (Exception e) {
-            LOG.warn("Failed to pre-analyze class", e);
-            return null;
-        }
+    protected void sendContextFileAnalyzed(ContextDisplayData data) {
+        // Send to UI through streaming callback if available
+        sendToUI("📄 Analyzed: " + data.getFileName() + "\n");
     }
 
     /**
-     * Compress whitespace to save tokens (4 spaces -> 1 space).
-     */
-    private String compressWhitespace(String text) {
-        return text.replaceAll("    ", " ")
-                   .replaceAll("\\n\\s*\\n", "\n")
-                   .trim();
-    }
-
-
-    /**
-     * Tools container with proper @Tool annotations for LangChain4j.
-     * Each tool is isolated with clear responsibilities.
+     * Context gathering tools - actual implementation of all tool methods.
+     * This is a static inner class that contains all the @Tool annotated methods
+     * that the AI assistant can call.
      */
     public static class ContextGatheringTools {
         private final Project project;
@@ -287,67 +238,48 @@ Stop when you can test the code without making assumptions about external resour
         private Consumer<String> toolNotifier;
         private Consumer<Map<String, Object>> contextUpdateCallback;
         private ContextAgent contextAgent; // Reference to parent agent
-        
+
         // Shared data storage
-        private final Map<String, String> analyzedClasses = new HashMap<>();
+        private final Map<String, String> analyzedClasses = new ConcurrentHashMap<>();
         private final List<String> contextNotes = new ArrayList<>();
-        private final Map<String, String> readFiles = new HashMap<>();
-        private String frameworkInfo = "JUnit 5"; // Default framework, will be detected during analysis
-        
+        private final Map<String, String> readFiles = new ConcurrentHashMap<>();
+        private String frameworkInfo = "";
+
         // Individual tool instances
         private final AnalyzeClassTool analyzeClassTool;
         private final ListFilesTool listFilesTool;
-        private final FindFilesTool findFilesTool;
+        private final RipgrepCodeTool ripgrepCodeTool;
         private final TakeNoteTool takeNoteTool;
         private final ReadFileTool readFileTool;
-        private final RipgrepCodeTool ripgrepCodeTool;
-        
-        // For GrepCodeTool shared data
-        private final Set<String> relatedFiles = new HashSet<>();
-        private final List<String> usagePatterns = new ArrayList<>();
 
-        public ContextGatheringTools(@NotNull Project project, @NotNull CodeExplorationToolRegistry toolRegistry) {
-            this(project, toolRegistry, null, null);
-        }
-
-        public ContextGatheringTools(@NotNull Project project, 
-                                   @NotNull CodeExplorationToolRegistry toolRegistry,
-                                   @Nullable Consumer<String> toolNotifier) {
-            this(project, toolRegistry, toolNotifier, null);
-        }
-        
-        public ContextGatheringTools(@NotNull Project project, 
-                                   @NotNull CodeExplorationToolRegistry toolRegistry,
-                                   @Nullable Consumer<String> toolNotifier,
-                                   @Nullable ContextAgent contextAgent) {
+        public ContextGatheringTools(@NotNull Project project,
+                                    @NotNull CodeExplorationToolRegistry toolRegistry,
+                                    @Nullable Consumer<String> toolNotifier,
+                                    @Nullable ContextAgent contextAgent) {
             this.project = project;
             this.toolRegistry = toolRegistry;
             this.toolNotifier = toolNotifier;
             this.contextAgent = contextAgent;
-            
+
             // Initialize tools with shared data
             this.analyzeClassTool = new AnalyzeClassTool(project, analyzedClasses);
-            this.listFilesTool = new ListFilesTool(project, toolRegistry);
-            this.findFilesTool = new FindFilesTool(project, toolRegistry);
+            this.listFilesTool = new ListFilesTool(project);
             this.takeNoteTool = new TakeNoteTool(contextNotes);
+            this.ripgrepCodeTool = new RipgrepCodeTool(project, new HashSet<>(), new ArrayList<>());
             this.readFileTool = new ReadFileTool(project);
-            this.ripgrepCodeTool = new RipgrepCodeTool(project, relatedFiles, usagePatterns);
         }
 
         public void reset() {
             analyzedClasses.clear();
             contextNotes.clear();
             readFiles.clear();
-            relatedFiles.clear();
-            usagePatterns.clear();
-            takeNoteTool.clearNotes();
-            frameworkInfo = "JUnit 5"; // Reset to default
+            frameworkInfo = "";
         }
 
         public void setSessionId(String sessionId) {
             this.sessionId = sessionId;
         }
-        
+
         public void setContextUpdateCallback(Consumer<Map<String, Object>> callback) {
             this.contextUpdateCallback = callback;
         }
@@ -359,35 +291,36 @@ Stop when you can test the code without making assumptions about external resour
             data.put("readFiles", new HashMap<>(readFiles));
             return data;
         }
-        
-        // Direct access methods for CoordinatorAgent
+
+        // Getters for backward compatibility
         public List<String> getContextNotes() {
             return new ArrayList<>(contextNotes);
         }
-        
+
         public Map<String, String> getAnalyzedClasses() {
             return new HashMap<>(analyzedClasses);
         }
-        
+
         public Map<String, String> getReadFiles() {
             return new HashMap<>(readFiles);
         }
-        
+
         public String getFrameworkInfo() {
+            detectFramework();
             return frameworkInfo;
         }
-        
+
         /**
          * Detect testing framework from analyzed classes and build files
          */
         public void detectFramework() {
-            String allContent = String.join("\n", analyzedClasses.values()) + 
+            String allContent = String.join("\n", analyzedClasses.values()) +
                                String.join("\n", readFiles.values());
-            
+
             if (allContent.contains("org.junit.jupiter") || allContent.contains("@Test") && allContent.contains("jupiter")) {
                 frameworkInfo = "JUnit 5";
             } else if (allContent.contains("org.junit.Test") || allContent.contains("junit:junit")) {
-                frameworkInfo = "JUnit 4"; 
+                frameworkInfo = "JUnit 4";
             } else if (allContent.contains("testng") || allContent.contains("org.testng")) {
                 frameworkInfo = "TestNG";
             } else if (allContent.contains("spring-boot-starter-test") || allContent.contains("@SpringBootTest")) {
@@ -399,14 +332,14 @@ Stop when you can test the code without making assumptions about external resour
 
         private void notifyTool(String toolName, String params) {
             if (toolNotifier != null) {
-                SwingUtilities.invokeLater(() -> 
+                SwingUtilities.invokeLater(() ->
                     toolNotifier.accept(String.format("🔧 %s(%s)\n", toolName, params)));
             }
         }
-        
+
         private void notifyContextUpdate() {
             if (contextUpdateCallback != null) {
-                SwingUtilities.invokeLater(() -> 
+                SwingUtilities.invokeLater(() ->
                     contextUpdateCallback.accept(getGatheredData()));
             }
         }
@@ -415,31 +348,33 @@ Stop when you can test the code without making assumptions about external resour
         public String analyzeClass(String filePathOrClassName) {
             notifyTool("analyzeClass", filePathOrClassName);
             String result = analyzeClassTool.analyzeClass(filePathOrClassName);
-            return processToolResult("analyzeClass", filePathOrClassName, result);
+
+            // Create and send ContextDisplayData object directly to UI
+            if (contextAgent != null) {
+                ContextDisplayData contextData = createContextDisplayData(filePathOrClassName, result);
+                contextAgent.sendContextFileAnalyzed(contextData);
+            }
+
+            notifyContextUpdate();
+            return result;
         }
 
         @Tool("""
             List files and subdirectories in a directory with controlled recursion depth.
-            
+
             Parameters:
             - directoryPath: The directory to list (e.g., "config/", "src/main/resources")
             - recursiveLevel: How deep to explore:
               * 0 = current directory only (non-recursive) - use for large dirs like src/
               * 1 = current + immediate subdirectories - use for most exploration
-              * 2 = two levels deep - use for config/templates structures  
+              * 2 = two levels deep - use for config/templates structures
               * 3+ = deeper exploration - use only when absolutely necessary
-            
+
             Examples:
             - listFiles("config/", 0) → lists only files directly in config/
             - listFiles("config/", 2) → explores config/ and 2 levels deep
             - listFiles("src/main/resources", 1) → resources/ and immediate subdirs
             - listFiles("scripts/", 1) → scripts/ and immediate subdirs
-            
-            Strategy Guidelines:
-            - Level 0 for large directories (src/, build/, target/)
-            - Level 1-2 for config/resource directories  
-            - Level 3+ only for deeply nested structures
-            - Always specify level explicitly - forces strategic thinking
             """)
         public String listFiles(String directoryPath, int recursiveLevel) {
             notifyTool("listFiles", directoryPath + " (level=" + recursiveLevel + ")");
@@ -449,79 +384,65 @@ Stop when you can test the code without making assumptions about external resour
         @Tool("Find files matching a pattern in the project")
         public String findFiles(String pattern) {
             notifyTool("findFiles", pattern);
-            return findFilesTool.findFiles(pattern);
+            return ripgrepCodeTool.findFiles(pattern);
         }
 
         @Tool("""
-            Search for code patterns, method calls, or text across the project using grep-like functionality with regex support.
-            CANNOT be used to search for files by their names. 
-            IMPORTANT: DO NOt use this if you want to read a file instead of finding file references. 
-            
-            This tool provides powerful text-based search capabilities similar to grep/ripgrep with intelligent file filtering.
-            Supports both literal text matching and regex patterns for complex searches.
-            
-            Common usage patterns:
-            - Method calls: "getUserById(", ".save(", "validateInput"
-            - Class references: "UserService", "implements Serializable", "extends BaseClass"
-            - Annotations: "@Test", "@Autowired", "@Component", "@Override"
-            - String literals: "config.properties", "SELECT * FROM", "error.message"
-            - Code patterns: "throw new", "try {", "catch (", "finally"
-            - Comments: "TODO", "FIXME", "deprecated", "bug"
-            - Import statements: "import java.util", "import com.example"
-            - Variable declarations: "private final", "public static", "List<String>"
-            - Exception handling: "catch (Exception", "throws IOException"
-            - Database queries: "SELECT", "INSERT INTO", "UPDATE SET"
-            - Configuration keys: "server.port", "database.url", "api.key"
-            
-            Examples:
-            - searchCode("@Test") → Find all test methods
-            - searchCode("UserService") → Find all references to UserService class
-            - searchCode("throw new IllegalArgumentException") → Find exception throwing patterns
-            - searchCode("config\\.properties") → Find config file references (regex)
-            - searchCode("TODO.*important") → Find important TODO comments (regex)
-            - searchCode("private.*String.*name") → Find private String fields named 'name' (regex)
-            
-            Tips:
-            - Use regex patterns with backslash escaping: "\\\\." for literal dots
-            - Search is case-insensitive by default
-            - Results show file path, line number, and surrounding context
-            - Limited to 20 results for performance
-            """)
-        public String searchCode(String query) {
-            notifyTool("searchCode", query);
-            return ripgrepCodeTool.searchCode(query, null, null);
-        }
-        
-        @Tool("""
-            Advanced search with file pattern filtering and regex support for targeted searches.
-            
-            Use this when you need to:
-            - Limit search to specific file types: "*.java", "*.kt", "*.xml"
-            - Exclude certain files: "!*test*", "!*generated*", "!*.class"
-            - Search in specific directories: "src/main/**", "config/**"
-            - Combine patterns: "*.{java,kt}" for Java and Kotlin files
-            
+            Powerful code search with blazing-fast ripgrep backend. Supports regex, file filtering, and context lines.
+
+            Core Capabilities:
+            - Regex patterns with | (OR) operator for multiple patterns
+            - File filtering with glob patterns
+            - Context lines (before/after) for understanding surroundings
+            - Case-sensitive searching available
+
+            🔍 POWERFUL PATTERNS FOR TEST WRITING:
+
+            1. USAGE/INSTANTIATION PATTERNS - Find where classes are used:
+               - "new ClassName\\(" → Find instantiations
+               - "ClassName\\." → Find static method calls
+               - "\\bClassName\\b" → Find any reference (word boundary)
+               - "new (UserService|AuthService)\\(" → Multiple classes with |
+
+            2. CALLERS/CONSUMERS - Find who calls your methods:
+               - "methodName\\(" → All calls to method
+               - "\\.methodName\\(" → Instance method calls
+               - "(save|update|delete)\\(" → Multiple methods with |
+               - "getUserById\\(.*\\)" → Calls with any arguments
+
+            3. CASE-SENSITIVE TIPS:
+               - CamelCase: "[A-Z][a-z]+[A-Z]" → getUserName, firstName
+               - snake_case: "[a-z]+_[a-z]+" → user_name, first_name
+               - CONSTANTS: "[A-Z_]+" → MAX_SIZE, DEFAULT_VALUE
+               - Mixed: "(userId|user_id|UserID)" → All variations
+
+            4. COMBINED SEARCHES:
+               - "@Test.*void.*test" → Test methods
+               - "@(Test|ParameterizedTest|RepeatedTest)" → Any test annotation
+               - "assert(Equals|True|NotNull)\\(" → Any assertion
+               - "mock\\(|when\\(|verify\\(" → Mockito patterns
+
             Parameters:
-            - query: Search pattern (literal text or regex)
-            - filePattern: Include files matching this pattern (glob syntax)
-            - excludePattern: Exclude files matching this pattern (glob syntax)
-            
+            - query: Search pattern (regex supported, use | for OR)
+            - filePattern: Include files (e.g., "*.java", "**/*Test.java")
+            - excludePattern: Exclude files (e.g., "*generated*", "target/**")
+            - beforeLines: Lines to show before match (0-10)
+            - afterLines: Lines to show after match (0-10)
+
             Examples:
-            - searchCodeAdvanced("@Entity", "*.java", null) → Find JPA entities only in Java files
-            - searchCodeAdvanced("config", "*.properties", null) → Search only in properties files  
-            - searchCodeAdvanced("SELECT", "*.java", "*test*") → Find SQL in Java files, excluding tests
-            - searchCodeAdvanced("api\\\\.key", "*.yml", null) → Find API key configs in YAML files
-            
-            File pattern syntax:
-            - * matches any characters within a directory name
-            - ** matches any number of directories
-            - ? matches a single character
-            - {a,b} matches either 'a' or 'b'
-            - [abc] matches any character in the set
+            - searchCode("new (User|Admin|Guest)Service\\(", "*.java", null, 2, 2)
+              → Find service instantiations with context
             """)
-        public String searchCodeAdvanced(String query, String filePattern, String excludePattern) {
-            notifyTool("searchCodeAdvanced", String.format("query=%s, filePattern=%s, excludePattern=%s", query, filePattern, excludePattern));
-            return ripgrepCodeTool.searchCode(query, filePattern, excludePattern);
+        public String searchCode(String query, String filePattern, String excludePattern,
+                                int beforeLines, int afterLines) {
+            notifyTool("searchCode", String.format("query=%s, filePattern=%s, excludePattern=%s, before=%d, after=%d",
+                                                   query, filePattern, excludePattern, beforeLines, afterLines));
+            return ripgrepCodeTool.searchCode(query, filePattern, excludePattern, beforeLines, afterLines);
+        }
+
+        // Overloaded searchCode for backward compatibility
+        public String searchCode(String query) {
+            return searchCode(query, null, null, 0, 0);
         }
 
         @Tool("Record important findings that impact test generation. Keep notes concise but complete.")
@@ -535,144 +456,63 @@ Stop when you can test the code without making assumptions about external resour
         @Tool("Read the complete content of any file in the project")
         public String readFile(String filePath) {
             notifyTool("readFile", filePath);
-            
+
             // Use ReadFileTool with JsonObject parameter
             com.google.gson.JsonObject params = new com.google.gson.JsonObject();
             params.addProperty("filePath", filePath);
-            
+
             var toolResult = readFileTool.execute(params);
             String result = toolResult.isSuccess() ? toolResult.getContent() : toolResult.getContent();
-            
-            // Store in readFiles map (use normalized path)
-            String normalizedPath = normalizeFilePath(filePath);
-            readFiles.put(normalizedPath, result);
-            
-            return processToolResult("readFile", filePath, result, toolResult.isSuccess());
-        }
-        
-        /**
-         * Normalize any input (FQN, file path, class name) to canonical file path.
-         */
-        private String normalizeFilePath(String input) {
-            if (input == null || input.trim().isEmpty()) return input;
-            
-            // If it's a tool name, don't process it - this shouldn't happen
-            if (input.equals("analyzeClass") || input.equals("readFile") || input.equals("searchCode")) {
-                LOG.warn("Tool name passed as file path: " + input);
-                return input;
-            }
-            
-            // If it's already a valid file path (contains slashes), normalize separators
-            if (input.contains("/") || input.contains("\\")) {
-                return input.replace('\\', '/');
-            }
-            
-            // If it's a FQN (com.example.MyClass), try to convert to file path
-            if (input.contains(".") && !input.endsWith(".java") && !input.endsWith(".kt")) {
-                // Try to find the actual file for this class
-                try {
-                    String classPath = input.replace('.', '/') + ".java";
-                    return classPath;
-                } catch (Exception e) {
-                    // Fallback to original input
-                    return input;
-                }
-            }
-            
-            return input;
-        }
-        
-        /**
-         * Validate if content is meaningful (not empty, not just error messages).
-         * Only fails on actual tool error messages, not legitimate file content that mentions errors.
-         */
-        private boolean hasValidContent(String content) {
-            if (content == null || content.trim().isEmpty()) return false;
-            
-            // Check for specific tool error patterns (not general content that mentions errors)
-            String trimmed = content.trim();
-            
-            // These are actual ReadFileTool error messages, not file content
-            if (trimmed.startsWith("❌") ||
-                trimmed.startsWith("No files found with name:") ||
-                trimmed.startsWith("Multiple files found with name") ||
-                trimmed.startsWith("Error reading file:") ||
-                trimmed.startsWith("File not found:") ||
-                trimmed.startsWith("Permission denied:") ||
-                (trimmed.contains("not found") && trimmed.length() < 100)) { // Short "not found" messages are likely errors
-                return false;
-            }
-            
-            // Require at least some meaningful content
-            return trimmed.length() > 10;
-        }
 
-        private ContextDisplayData createContextDisplayData(String inputPath, String analysisResult) {
-            return createContextDisplayData(inputPath, analysisResult, true); // Default to success for backward compatibility
-        }
-        
-        private ContextDisplayData createContextDisplayData(String inputPath, String analysisResult, boolean toolSuccess) {
-            // Normalize path to prevent duplicates
-            String normalizedPath = normalizeFilePath(inputPath);
-            
-            // Extract clean file name
-            String fileName = normalizedPath.substring(
-                Math.max(normalizedPath.lastIndexOf('/'), normalizedPath.lastIndexOf('\\')) + 1
-            );
-            
-            // Set status based on tool success and content validation
-            ContextDisplayData.AnalysisStatus status;
-            String summary;
-            boolean isValid;
-            
-            if (!toolSuccess) {
-                // Tool itself failed, definitely an error
-                status = ContextDisplayData.AnalysisStatus.ERROR;
-                summary = "Tool execution failed";
-                isValid = false;
-            } else {
-                // Tool succeeded, check if content looks good
-                isValid = hasValidContent(analysisResult);
-                status = isValid ? ContextDisplayData.AnalysisStatus.COMPLETED : ContextDisplayData.AnalysisStatus.ERROR;
-                summary = isValid ? 
-                    (analysisResult.length() > 100 ? analysisResult.substring(0, 100) + "..." : analysisResult) :
-                    "No valid content";
-            }
-            
-            return new ContextDisplayData(
-                normalizedPath,  // Use normalized path as key
-                fileName,
-                status,
-                summary,
-                isValid ? analysisResult : null, // Only set fullAnalysis if content is valid
-                extractClasses(analysisResult),
-                extractMethods(analysisResult),
-                Collections.emptyList(),
-                System.currentTimeMillis()
-            );
-        }
-        
-        /**
-         * Common logic for processing tool results and updating UI.
-         */
-        private String processToolResult(String toolName, String input, String result) {
-            return processToolResult(toolName, input, result, true); // Default to success for backward compatibility
-        }
-        
-        /**
-         * Common logic for processing tool results and updating UI with success status.
-         */
-        private String processToolResult(String toolName, String input, String result, boolean isSuccess) {
-            // Create context data with normalized path and send to UI
+            // Store in readFiles map
+            readFiles.put(filePath, result);
+
+            // Also send file read as context update
             if (contextAgent != null && result != null && !result.isEmpty()) {
-                ContextDisplayData contextData = createContextDisplayData(input, result, isSuccess);
+                ContextDisplayData contextData = createContextDisplayData(filePath, result);
                 contextAgent.sendContextFileAnalyzed(contextData);
             }
-            
+
             notifyContextUpdate();
             return result;
         }
-        
+
+        private ContextDisplayData createContextDisplayData(String filePath, String analysisResult) {
+            // Extract file name
+            String fileName = filePath;
+            int lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+            if (lastSlash >= 0) {
+                fileName = filePath.substring(lastSlash + 1);
+            }
+
+            // Extract summary (first paragraph or first 200 chars)
+            String summary = analysisResult;
+            if (summary.length() > 200) {
+                int firstNewline = summary.indexOf('\n');
+                if (firstNewline > 0 && firstNewline < 200) {
+                    summary = summary.substring(0, firstNewline);
+                } else {
+                    summary = summary.substring(0, 200) + "...";
+                }
+            }
+
+            // Extract classes and methods from analysis
+            List<String> classes = extractClasses(analysisResult);
+            List<String> methods = extractMethods(analysisResult);
+
+            return new ContextDisplayData(
+                filePath,
+                fileName,
+                ContextDisplayData.AnalysisStatus.COMPLETED,
+                summary,
+                analysisResult, // full analysis
+                classes,
+                methods,
+                Collections.emptyList(), // dependencies
+                System.currentTimeMillis()
+            );
+        }
+
         private List<String> extractClasses(String analysis) {
             List<String> classes = new ArrayList<>();
             // Look for class declarations
@@ -692,23 +532,21 @@ Stop when you can test the code without making assumptions about external resour
             }
             return classes;
         }
-        
+
         private List<String> extractMethods(String analysis) {
             List<String> methods = new ArrayList<>();
             // Look for method signatures
             String[] lines = analysis.split("\n");
             for (String line : lines) {
-                if ((line.contains("public") || line.contains("private") || line.contains("protected")) 
-                    && line.contains("(") && line.contains(")") 
-                    && !line.contains("class ") && !line.contains("interface ")) {
+                if ((line.contains("public ") || line.contains("private ") || line.contains("protected "))
+                    && line.contains("(") && line.contains(")") && !line.contains("class ")) {
                     // Try to extract method name
                     int parenIndex = line.indexOf('(');
                     if (parenIndex > 0) {
-                        String beforeParen = line.substring(0, parenIndex).trim();
-                        String[] parts = beforeParen.split(" ");
-                        if (parts.length > 0) {
-                            String methodName = parts[parts.length - 1];
-                            if (!methodName.isEmpty() && !methodName.equals("if") && !methodName.equals("for") && !methodName.equals("while")) {
+                        int spaceBeforeParen = line.lastIndexOf(' ', parenIndex);
+                        if (spaceBeforeParen >= 0 && spaceBeforeParen < parenIndex) {
+                            String methodName = line.substring(spaceBeforeParen + 1, parenIndex).trim();
+                            if (!methodName.isEmpty() && !methodName.contains(" ")) {
                                 methods.add(methodName);
                             }
                         }

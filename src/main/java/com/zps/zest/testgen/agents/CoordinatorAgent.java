@@ -76,6 +76,15 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         - Analyze each scenario individually - one test class can have both unit and integration scenarios
         - Use the context analysis to determine what each scenario needs to test
 
+        TESTING STRATEGY:
+        - UNIT tests: For pure business logic only - no external dependencies, no mocking needed
+        - INTEGRATION tests: For code with external dependencies - use real test infrastructure:
+          * Databases: Use Testcontainers (PostgreSQLContainer, MySQLContainer, etc.)
+          * Message queues: Use Testcontainers (KafkaContainer, RabbitMQContainer, etc.)
+          * HTTP APIs: Use WireMock or MockWebServer
+          * File operations: Use @TempDir for temporary test directories
+        - Avoid mocking frameworks when possible - prefer real test infrastructure for more reliable tests
+
         TEST PLANNING PRINCIPLES:
 
         When creating test scenarios, think like a quality assurance expert. Start with the main purpose of the method - what should it do when everything goes right? Create at least one test for normal, expected behavior with valid inputs.

@@ -59,7 +59,12 @@ public class TestPlanningHandler extends AbstractStateHandler {
             setSessionData(stateMachine, "coordinatorAgent", coordinatorAgent); // Update session data with new instance
             
             logToolActivity(stateMachine, "CoordinatorAgent", "Analyzing testing requirements");
-            
+
+            // Notify UI of phase start
+            if (uiEventListener != null) {
+                uiEventListener.onPhaseStarted(getHandledState());
+            }
+
             // Send initial streaming update
             if (streamingCallback != null) {
                 streamingCallback.accept("📋 Starting test plan generation...\n");

@@ -50,7 +50,12 @@ public class TestMergingHandler extends AbstractStateHandler {
                 (com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools) getSessionData(stateMachine, "contextTools");
             
             logToolActivity(stateMachine, "TestMerger", "Preparing test merging");
-            
+
+            // Notify UI of phase start
+            if (uiEventListener != null) {
+                uiEventListener.onPhaseStarted(getHandledState());
+            }
+
             // Send initial streaming update
             if (streamingCallback != null) {
                 streamingCallback.accept("🤖 AI-based test merging starting...\n");

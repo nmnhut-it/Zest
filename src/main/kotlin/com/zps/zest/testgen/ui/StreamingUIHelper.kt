@@ -17,6 +17,7 @@ interface StreamingEventListener {
     fun onStatusChanged(status: String)
     fun onProgressChanged(percent: Int, message: String)
     fun onGenerationCompleted(session: TestGenerationSession) {}  // Default empty implementation
+    fun onPhaseStarted(phase: com.zps.zest.testgen.statemachine.TestGenerationState) {}  // Default empty implementation
 }
 
 /**

@@ -62,7 +62,12 @@ public class TestGenerationHandler extends AbstractStateHandler {
             stateMachine.setSessionData("testWriterAgent", testWriterAgent);
             
             logToolActivity(stateMachine, "TestWriterAgent", "Preparing test generation");
-            
+
+            // Notify UI of phase start
+            if (uiEventListener != null) {
+                uiEventListener.onPhaseStarted(getHandledState());
+            }
+
             // Send initial streaming update
             if (streamingCallback != null) {
                 streamingCallback.accept(String.format("⚡ Generating tests for %d scenarios...\n", selectedScenarios.size()));

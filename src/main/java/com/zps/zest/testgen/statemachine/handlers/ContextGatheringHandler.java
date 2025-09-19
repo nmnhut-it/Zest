@@ -57,6 +57,8 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             // Set up UI event listener for real-time context tab updates
             if (uiEventListener != null) {
                 contextAgent.setEventListener(uiEventListener);
+                // Notify UI of phase start
+                uiEventListener.onPhaseStarted(getHandledState());
             }
             
             // Set up progress callback for context updates

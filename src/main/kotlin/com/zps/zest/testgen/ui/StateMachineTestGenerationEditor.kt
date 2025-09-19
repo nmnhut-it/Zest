@@ -288,6 +288,19 @@ class StateMachineTestGenerationEditor(
                 logEvent("Status: $message")
             }
         }
+
+        override fun onPhaseStarted(phase: com.zps.zest.testgen.statemachine.TestGenerationState) {
+            SwingUtilities.invokeLater {
+                val tabIndex = when (phase) {
+                    com.zps.zest.testgen.statemachine.TestGenerationState.GATHERING_CONTEXT -> 0
+                    com.zps.zest.testgen.statemachine.TestGenerationState.PLANNING_TESTS -> 1
+                    com.zps.zest.testgen.statemachine.TestGenerationState.GENERATING_TESTS -> 2
+                    com.zps.zest.testgen.statemachine.TestGenerationState.MERGING_TESTS -> 3
+                    else -> return@invokeLater
+                }
+                tabbedPane.selectedIndex = tabIndex
+            }
+        }
     }
     
     init {

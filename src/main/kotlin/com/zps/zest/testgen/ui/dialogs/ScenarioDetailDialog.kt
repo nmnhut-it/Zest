@@ -48,7 +48,7 @@ class ScenarioDetailDialog(
 
         // Test inputs
         if (scenario.inputs.isNotEmpty()) {
-            content.add(Box.createVerticalStrut(10))
+            content.add(Box.createVerticalStrut(5))
             addListSection(content, "Test Inputs", scenario.inputs)
         }
 
@@ -131,16 +131,27 @@ class ScenarioDetailDialog(
     }
     
     private fun addListSection(parent: JPanel, title: String, items: List<String>) {
-        val titleLabel = JBLabel(title + ":")
+        // Main container panel with proper label alignment
+        val containerPanel = JPanel(BorderLayout())
+        containerPanel.isOpaque = false
+        containerPanel.border = EmptyBorder(5, 0, 5, 0)
+
+        // Title label aligned like other sections
+        val titleLabel = JBLabel("$title:")
         titleLabel.font = titleLabel.font.deriveFont(Font.BOLD)
-        titleLabel.alignmentX = Component.LEFT_ALIGNMENT
-        parent.add(titleLabel)
+        titleLabel.preferredSize = Dimension(120, titleLabel.preferredSize.height)
+        titleLabel.verticalAlignment = SwingConstants.TOP
+        containerPanel.add(titleLabel, BorderLayout.WEST)
+
+        // Items panel for the list
+        val itemsPanel = JPanel()
+        itemsPanel.layout = BoxLayout(itemsPanel, BoxLayout.Y_AXIS)
+        itemsPanel.isOpaque = false
 
         items.forEachIndexed { index, item ->
             val itemPanel = JPanel(BorderLayout())
             itemPanel.isOpaque = false
-            itemPanel.border = EmptyBorder(2, 20, 2, 0)
-            itemPanel.alignmentX = Component.LEFT_ALIGNMENT
+            itemPanel.border = EmptyBorder(2, 0, 2, 0)
 
             // Number label
             val numberLabel = JBLabel("${index + 1}. ")
@@ -159,8 +170,11 @@ class ScenarioDetailDialog(
             itemText.border = EmptyBorder(0, 0, 0, 0)
             itemPanel.add(itemText, BorderLayout.CENTER)
 
-            parent.add(itemPanel)
+            itemsPanel.add(itemPanel)
         }
+
+        containerPanel.add(itemsPanel, BorderLayout.CENTER)
+        parent.add(containerPanel)
     }
     
     override fun createActions(): Array<Action> {

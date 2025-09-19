@@ -7,11 +7,7 @@ import com.intellij.openapi.project.Project
 /**
  * Action to open the simple chat dialog
  */
-class OpenChatDialogAction : AnAction(
-    "💬 Open Simple Chat",
-    "Open simple chat dialog for AI assistance",
-    null
-) {
+class OpenChatDialogAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

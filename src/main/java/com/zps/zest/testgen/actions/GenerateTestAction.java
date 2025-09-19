@@ -79,16 +79,6 @@ public class GenerateTestAction extends AnAction {
         
         boolean enabled = project != null && psiFile != null && isTestableFile(psiFile);
         e.getPresentation().setEnabled(enabled);
-        
-        // Update text based on context
-        if (enabled) {
-            Editor editor = e.getData(CommonDataKeys.EDITOR);
-            if (editor != null && editor.getSelectionModel().hasSelection()) {
-                e.getPresentation().setText("Generate Tests for Selection (AI)");
-            } else {
-                e.getPresentation().setText("Generate Tests (AI)");
-            }
-        }
     }
     
     private boolean isTestableFile(@NotNull PsiFile file) {

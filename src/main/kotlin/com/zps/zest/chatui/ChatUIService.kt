@@ -20,6 +20,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
 import com.intellij.openapi.application.ApplicationManager
 import com.zps.zest.ConfigurationManager
+import com.zps.zest.rules.ZestRulesLoader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.io.BufferedReader
@@ -72,6 +73,45 @@ class ChatUIService(private val project: Project) : Disposable {
     
     // Dialog management
     private var currentDialog: JCEFChatDialog? = null
+
+    // Cache for project rules
+    private var cachedProjectRules: String? = null
+    private var lastRulesLoadTime: LocalDateTime? = null
+    private val rulesRefreshIntervalMinutes = 30L
+
+    /**
+     * Build system prompt with project rules concatenated if they exist
+     */
+    private fun buildSystemPromptWithRules(basePrompt: String): String {
+        // Check if we need to refresh the cached rules
+        if (cachedProjectRules == null || lastRulesLoadTime == null ||
+            ChronoUnit.MINUTES.between(lastRulesLoadTime, LocalDateTime.now()) >= rulesRefreshIntervalMinutes) {
+
+            // Load project rules
+            val rulesLoader = ZestRulesLoader(project)
+            cachedProjectRules = rulesLoader.loadCustomRules()
+            lastRulesLoadTime = LocalDateTime.now()
+
+            if (cachedProjectRules != null) {
+                LOG.info("Loaded project rules for chat context (${cachedProjectRules!!.length} characters)")
+            } else {
+                LOG.info("No project rules found")
+            }
+        }
+
+        // If rules exist and not already in the prompt, concatenate them
+        return if (!cachedProjectRules.isNullOrBlank() && !basePrompt.contains("## Project-Specific Rules")) {
+            """
+$basePrompt
+
+## Project-Specific Rules
+
+${cachedProjectRules}
+            """.trimIndent()
+        } else {
+            basePrompt
+        }
+    }
 
     /**
      * Send a message to the AI with streaming response support and tool integration using AiServices
@@ -270,7 +310,7 @@ class ChatUIService(private val project: Project) : Disposable {
         setContext(ChatboxUtilities.EnumUsage.CHAT_CODE_REVIEW)
 
         if (getMessages().isEmpty()) {
-            addSystemMessage("""
+            addSystemMessage(buildSystemPromptWithRules("""
 You are an expert code reviewer following the ContextAgent philosophy: understand code thoroughly before reviewing.
 
 ## Core Review Principles
@@ -371,7 +411,7 @@ searchCode("MyClassName|myMethodName|MY_CONSTANT", null, null, 2, 2)
 
 **Note**: All tool syntax examples are illustrative. Follow the actual tool signatures provided.
 
-            """.trimIndent())
+            """.trimIndent()))
         }
     }
     
@@ -383,7 +423,7 @@ searchCode("MyClassName|myMethodName|MY_CONSTANT", null, null, 2, 2)
         setContext(ChatboxUtilities.EnumUsage.CHAT_GIT_COMMIT_MESSAGE)
         
         if (getMessages().isEmpty()) {
-            addSystemMessage("""
+            addSystemMessage(buildSystemPromptWithRules("""
 You are a Git commit message specialist. Your role is to create clear, conventional commit messages.
 
 Follow these guidelines:
@@ -418,7 +458,7 @@ Examples:
 - fix: resolve null pointer exception in UserService
 - refactor: extract common validation logic
 Be concise but descriptive.
-            """.trimIndent())
+            """.trimIndent()))
         }
     }
     

@@ -1351,12 +1351,8 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         e.presentation.isEnabledAndVisible = isAvailable
 
         if (methodRewriteService?.isRewriteInProgress() == true) {
-            e.presentation.text = "Quick Action (In Progress...)"
-            e.presentation.description = "A task is currently in progress - check status bar"
             e.presentation.isEnabled = false
         } else {
-            e.presentation.text = "Quick Action..."
-            e.presentation.description = "Perform specific task on selected code (progress shown in status bar)"
             e.presentation.isEnabled = isAvailable
         }
     }

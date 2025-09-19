@@ -33,9 +33,6 @@ public class ToggleDevToolsAction extends AnAction {
         if (browserService.getBrowserPanel() != null) {
             boolean isVisible = browserService.getBrowserPanel().toggleDevTools();
             LOG.info("Developer tools visibility: " + isVisible);
-            
-            // Update action presentation
-            e.getPresentation().setText(isVisible ? "Hide ZPS Chat Developer Tools" : "Show ZPS Chat Developer Tools");
         } else {
             LOG.warn("Cannot toggle developer tools: Browser panel not available");
         }

@@ -195,7 +195,7 @@ public class SendCodeReviewToChatBox extends BaseChatAction {
         prompt.append("1. **Correctness**: Logic errors, edge cases, null safety\n");
         prompt.append("2. **Performance**: Bottlenecks, unnecessary operations, resource leaks\n");
         prompt.append("3. **Security**: Input validation, injection risks, data exposure\n");
-        prompt.append("4. **Testability**: Hard-to-test patterns, missing test coverage\n");
+        prompt.append("4. **Testability**: Hard-to-test patterns such as tight-coupling\n");
         prompt.append("5. **Code Reuse**: Duplicate logic that exists elsewhere (check similar patterns above)\n");
         prompt.append("6. **Best Practices**: Design patterns, SOLID principles, clean code\n");
         prompt.append("\n");

@@ -115,16 +115,16 @@
         <group id="Zest.InlineCompletion" text="Zest Inline Completion">
             <action id="Zest.InlineCompletion.Trigger"
                     class="com.zps.zest.completion.actions.ZestTrigger"
-                    text="Trigger Inline Completion"
-                    description="Gợi ý code thông minh tại vị trí con trỏ">
+                    text="Trigger Inline Completion / Gợi ý code thông minh"
+                    description="Trigger smart code suggestions at cursor position / Gợi ý code thông minh tại vị trí con trỏ">
                 <keyboard-shortcut first-keystroke="ctrl alt SPACE" keymap="$default"/>
 
             </action>
 
             <action id="Zest.InlineCompletion.TabAccept"
                     class="com.zps.zest.completion.actions.ZestTabAccept"
-                    text="Accept Completion (Tab)"
-                    description="Chấp nhận gợi ý bằng phím Tab">
+                    text="Accept Completion (Tab) / Chấp nhận gợi ý (Tab)"
+                    description="Accept suggestion with Tab key / Chấp nhận gợi ý bằng phím Tab">
                 <keyboard-shortcut first-keystroke="TAB" keymap="$default"/>
             </action>
 
@@ -155,40 +155,40 @@
 
             <action id="Zest.InlineCompletion.Dismiss"
                     class="com.zps.zest.completion.actions.ZestDismiss"
-                    text="Dismiss Completion"
-                    description="Hủy gợi ý (Escape)">
+                    text="Dismiss Completion / Hủy bỏ gợi ý"
+                    description="Cancel suggestion with Escape / Hủy gợi ý bằng phím Escape">
                 <keyboard-shortcut first-keystroke="ESCAPE" keymap="$default"/>
             </action>
 
             <action id="Zest.TriggerQuickAction"
                     class="com.zps.zest.completion.actions.ZestTriggerQuickAction"
-                    text="Quick Action..."
-                    description="Perform specific task on selected code (progress shown in status bar)">
+                    text="Quick Action... / Thao tác nhanh..."
+                    description="Perform specific task on selected code / Thực hiện tác vụ cụ thể trên code đã chọn">
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="Mac OS X"/>
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="Mac OS X 10.5+"/>
             </action>
         </group>
 
-        <group id="ZestGroup" text="Zest" description="AI-powered tools cho Java development" popup="true"
+        <group id="ZestGroup" text="Zest" description="AI-powered tools for development / Công cụ AI hỗ trợ lập trình" popup="true"
                icon="com.zps.zest.ZestIcons.ZEST">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>
         
         <!-- Simple Chat Dialog Action -->
-        <action id="Zest.OpenSimpleChat"
-                class="com.zps.zest.chatui.OpenChatDialogAction"
-                text="💬 Open Simple Chat"
-                description="Open simple chat dialog for AI assistance">
-            <add-to-group group-id="ZestGroup" anchor="first"/>
-        </action>
+<!--        <action id="Zest.OpenSimpleChat"-->
+<!--                class="com.zps.zest.chatui.OpenChatDialogAction"-->
+<!--                text="💬 Open Chat - Simple / Mở hộp thoại chat trong Intelij"-->
+<!--                description="Open simple chat dialog for AI assistance / Mở hộp thoại chat đơn giản với AI">-->
+<!--            <add-to-group group-id="ZestGroup" anchor="first"/>-->
+<!--        </action>-->
         
         <!-- Open Chat in Editor Action -->
         <action id="Zest.OpenChatInEditor"
                 class="com.zps.zest.browser.actions.OpenChatInEditorAction"
-                text="💬 Open Chat in Editor"
-                description="Open ZPS Chat in full-screen editor tab">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.OpenSimpleChat"/>
+                text="💬 Open Chat / Mở chat toàn màn hình"
+                description="Open ZPS Chat in full-screen editor tab / Mở chat AI trong tab toàn màn hình">
+            <add-to-group group-id="ZestGroup" anchor="first"/>
         </action>
 
 
@@ -196,35 +196,35 @@
         <!-- Toolbar Actions -->
         <action id="Zest.OpenChat"
                 class="com.zps.zest.browser.actions.OpenZestChatAction"
-                text="💬 Chat"
+                text="Chat / Trò chuyện với AI"
                 icon="com.zps.zest.ZestIcons.ZPS_CHAT"
-                description="Open ZPS AI Chat">
+                description="Open ZPS AI Chat / Mở cửa sổ trò chuyện với AI">
             <add-to-group group-id="MainToolbarRight" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift C"/>
         </action>
 
         <action id="Zest.OpenCodeHealth"
                 class="com.zps.zest.codehealth.actions.OpenCodeHealthAction"
-                text="🛡️ Health"
+                text="Health / Kiểm tra sức khỏe code"
                 icon="com.zps.zest.ZestIcons.CODE_HEALTH"
-                description="Open Code Health Overview">
+                description="Open Code Health Overview / Mở bảng kiểm tra chất lượng code">
             <add-to-group group-id="MainToolbarRight" anchor="after" relative-to-action="Zest.OpenChat"/>
         </action>
 
         <action id="Zest.SendCodeReviewToChatBox"
                 class="com.zps.zest.browser.actions.SendCodeReviewToChatBox"
-                text="Code Review (Chat)"
+                text="Code Review (Chat) / Nhờ AI xem code"
                 icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
-                description="Review code và đưa ra gợi ý cải thiện">
+                description="AI reviews and suggests improvements / AI xem xét code và đưa ra gợi ý cải thiện">
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Zest.ReviewCurrentFile"/>
         </action>
 
         <action id="Zest.GitCommitMessageGeneratorAction"
                 class="com.zps.zest.GitCommitMessageGeneratorAction"
-                text="Git Commit &amp; Push"
+                text="Git Commit and Push / Lưu và đẩy code lên Git"
                 icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
-                description="Open Git UI with auto-selected changes and AI-generated commit message">
+                description="Open Git UI with AI-generated commit message / Mở giao diện Git với AI tự động viết mô tả commit">
             <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
 
@@ -235,16 +235,16 @@
         <!-- Test Generation Action -->
         <action id="Zest.GenerateTests"
                 class="com.zps.zest.testgen.actions.GenerateTestAction"
-                text="Generate Tests (AI)"
+                text="Generate Tests (AI) / Tạo test tự động"
                 icon="com.zps.zest.ZestIcons.TEST_WRITING_16"
-                description="Generate tests using improved LangChain4j agents with streaming">
+                description="Generate tests using AI agents / Dùng AI để viết test cho code của bạn">
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Generate"/>
             <keyboard-shortcut first-keystroke="ctrl alt T" keymap="$default"/>
         </action>
         
         <!-- Code Health Group -->
-        <group id="Zest.CodeHealth" text="Code Health / Sức Khỏe Code" popup="true">
+        <group id="Zest.CodeHealth" text="Code Health / Sức khỏe code" popup="true">
             <add-to-group group-id="ZestGroup" anchor="last"/>
             <!-- Removed from ToolsMenu - available in ZestGroup -->
             
@@ -264,48 +264,48 @@
 
             <action id="Zest.ReviewCurrentFile"
                     class="com.zps.zest.codehealth.actions.ReviewCurrentFileAction"
-                    text="🔍 Review This File Now"
-                    description="Immediately analyze current file for code health issues">
+                    text="Review This File Now / Kiểm tra file ngay"
+                    description="Immediately analyze current file / Phân tích ngay file hiện tại">
                 <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Zest.GenerateTests"/>
                 <keyboard-shortcut first-keystroke="ctrl alt H" keymap="$default"/>
             </action>
             
             <action id="Zest.TriggerFinalReview"
                     class="com.zps.zest.codehealth.actions.TriggerFinalReviewAction"
-                    text="📊 Daily Health Report / Báo Cáo Hàng Ngày"
-                    description="Generate comprehensive daily code quality report / Tạo báo cáo tổng hợp chất lượng code">
+                    text="📊 Daily Health Report / Báo cáo chất lượng hàng ngày"
+                    description="Generate comprehensive daily report / Tạo báo cáo tổng hợp chất lượng code hàng ngày">
             </action>
             <action id="Zest.ShowGuardianHelp"
                     class="com.zps.zest.codehealth.actions.ShowGuardianHelpAction"
-                    text="❓ Usage guide"
-                    description="View Code Health usage guide / Xem hướng dẫn sử dụng Code Health">
+                    text="Usage Guide / Hướng dẫn sử dụng"
+                    description="View Code Health usage guide / Xem hướng dẫn sử dụng kiểm tra sức khỏe code">
             </action>
         </group>
 
         <!-- Ripgrep Tool Testing Action -->
         <action id="Zest.TestRipgrepTool"
                 class="com.zps.zest.explanation.tools.testing.TestRipgrepToolAction"
-                text="Test Ripgrep Tool"
-                description="Open manual testing dialog for RipgrepCodeTool regression testing">
+                text="Test Ripgrep Tool / Kiểm tra công cụ tìm kiếm"
+                description="Open manual testing dialog / Mở hộp thoại kiểm thử công cụ tìm kiếm code">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             <add-to-group group-id="CodeMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F12"/>
         </action>
 
         <!-- Code Health Debug Actions Group -->
-        <group id="Zest.CodeHealthDebug" text="Debug Tools / Công Cụ Debug" popup="true">
+        <group id="Zest.CodeHealthDebug" text="Debug Tools / Công cụ gỡ lỗi" popup="true">
 <!--            <add-to-group group-id="Zest.CodeHealth" anchor="last"/>-->
 
             <action id="Zest.ShowReviewQueueStatus"
                     class="com.zps.zest.codehealth.actions.ShowReviewQueueStatusAction"
-                    text="📋 Review Queue Status / Trạng Thái Hàng Đợi"
-                    description="View methods being monitored and their status / Xem các method đang theo dõi và trạng thái">
+                    text="Review Queue Status / Xem danh sách chờ kiểm tra"
+                    description="View methods being monitored / Xem các phương thức đang được theo dõi">
             </action>
             
             <action id="Zest.DebugHealthAction"
                     class="com.zps.zest.codehealth.DebugHealthAction"
-                    text="🧪 Test Mode / Chế Độ Thử Nghiệm"
-                    description="Reset and add test data for debugging / Đặt lại và thêm dữ liệu thử nghiệm">
+                    text="Test Mode / Chế độ thử nghiệm"
+                    description="Reset and add test data / Đặt lại và thêm dữ liệu thử nghiệm">
             </action>
             
             <separator/>
@@ -318,36 +318,36 @@
         <!-- Zest Rules Management Action -->
         <action id="Zest.CreateRulesFile"
                 class="com.zps.zest.actions.CreateZestRulesAction"
-                text="Create/Open Zest Rules File"
-                description="Create or open zest_rules.md to define custom LLM rules">
+                text="Create/Open Zest Rules File / Tạo/Mở file quy tắc"
+                description="Create or open custom rules file / Tạo hoặc mở file định nghĩa quy tắc riêng cho AI">
             <add-to-group group-id="ZestGroup" anchor="first"/>
         </action>
         
         <!-- Open Chat in Editor (also in Tools menu) -->
         <action id="Zest.OpenChatInEditorTools"
                 class="com.zps.zest.browser.actions.OpenChatInEditorAction"
-                text="💬 ZPS Chat (Editor)"
-                description="Open ZPS Chat in full-screen editor tab">
-            <add-to-group group-id="ToolsMenu" anchor="before" relative-to-action="Zest.TestGeneration"/>
+                text="ZPS Chat (Editor) / Chat toàn màn hình"
+                description="Open ZPS Chat in full-screen editor tab / Mở chat AI ở chế độ toàn màn hình">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         
         <!-- Zest Update Info Action -->
         <action id="Zest.ShowUpdateInfo"
                 class="com.zps.zest.update.ShowUpdateInfoAction"
-                text="Check for Zest Updates..."
-                description="Show update information and download options">
+                text="Check for Zest Updates... / Kiểm tra cập nhật"
+                description="Show update information / Hiển thị thông tin và tùy chọn tải bản mới">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
         
         
         <!-- Zest Debug Menu (only in Tools menu) -->
-        <group id="Zest.DebugMenu" text="Zest Debug" popup="true">
+        <group id="Zest.DebugMenu" text="Zest Debug / Gỡ lỗi Zest" popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             
             <action id="Zest.ShowCompletionTimingDebug"
                     class="com.zps.zest.actions.ZestCompletionTimingDebugAction"
-                    text="Completion Timing Debug..."
-                    description="Show detailed timing breakdown for recent completions"/>
+                    text="Completion Timing Debug... / Kiểm tra tốc độ gợi ý"
+                    description="Show timing breakdown / Hiển thị phân tích thời gian gợi ý code"/>
             
             <!-- Temporarily disabled - debug action removed
             <action id="Zest.ToggleCompletionDebug"
@@ -358,8 +358,8 @@
             
             <action id="Zest.ToggleDevTools"
                     class="com.zps.zest.browser.actions.ToggleDevToolsAction"
-                    text="Toggle Browser DevTools"
-                    description="Toggle developer tools for the chat browser"/>
+                    text="Toggle Browser DevTools / Bật/tắt công cụ debug"
+                    description="Toggle developer tools / Bật/tắt công cụ debug trình duyệt chat"/>
                     
 
         </group>

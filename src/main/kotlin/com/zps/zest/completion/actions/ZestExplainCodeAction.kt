@@ -19,7 +19,7 @@ import java.util.concurrent.CompletableFuture
  * Action for explaining selected code or entire file and showing its interactions with other code.
  * Uses a language-agnostic approach with LLM keyword extraction and grep search tools.
  */
-class ZestExplainCodeAction : AnAction("Explain Code", "Explain the selected code and its interactions", null) {
+class ZestExplainCodeAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

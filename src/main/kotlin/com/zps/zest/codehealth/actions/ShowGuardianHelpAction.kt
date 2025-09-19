@@ -4,7 +4,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.ui.Messages
 
-class ShowGuardianHelpAction : AnAction("❓ Help / Trợ Giúp", "View Code Health usage guide / Xem hướng dẫn sử dụng Code Health", null) {
+class ShowGuardianHelpAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val helpText = """

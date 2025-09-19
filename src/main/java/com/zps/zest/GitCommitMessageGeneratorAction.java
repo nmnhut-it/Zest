@@ -84,8 +84,8 @@ public class GitCommitMessageGeneratorAction extends AnAction {
     public void update(@NotNull AnActionEvent e) {
         // Enable action only when project is available
         e.getPresentation().setEnabledAndVisible(e.getProject() != null);
-        e.getPresentation().setText("Git Commit & Push");
-        e.getPresentation().setDescription("Open Git UI with auto-selected changes and AI-generated commit message");
+//        e.getPresentation().setText("Git Commit & Push");
+//        e.getPresentation().setDescription("Open Git UI with auto-selected changes and AI-generated commit message");
     }
 
     /**

@@ -12,11 +12,7 @@ import com.zps.zest.browser.editor.ZestChatVirtualFileSystem
 /**
  * Action to open Zest Chat in a split editor view alongside the current code
  */
-class OpenChatInEditorAction : AnAction(
-    "Open Chat in Editor",
-    "Open ZPS Chat in a split editor view alongside your code",
-    AllIcons.Toolwindows.ToolWindowMessages
-) {
+class OpenChatInEditorAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

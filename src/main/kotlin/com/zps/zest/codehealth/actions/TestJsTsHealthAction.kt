@@ -10,7 +10,7 @@ import com.zps.zest.codehealth.ProjectChangesTracker
 /**
  * Test action for JS/TS health tracking
  */
-class TestJsTsHealthAction : AnAction("Test JS/TS Health") {
+class TestJsTsHealthAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

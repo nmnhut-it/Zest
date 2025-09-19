@@ -11,7 +11,7 @@ import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.*
 
-class ShowUpdateInfoAction : AnAction("Check for Updates...", "Show Zest plugin update information and download options", null) {
+class ShowUpdateInfoAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project

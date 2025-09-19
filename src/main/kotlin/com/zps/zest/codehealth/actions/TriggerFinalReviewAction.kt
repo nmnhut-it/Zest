@@ -47,15 +47,10 @@ class TriggerFinalReviewAction : AnAction() {
     override fun update(e: AnActionEvent) {
         val project = e.project
         e.presentation.isEnabledAndVisible = project != null
-        
+
         if (project != null) {
             val tracker = ProjectChangesTracker.getInstance(project)
             e.presentation.isEnabled = !tracker.isAnalysisRunning.get()
-            e.presentation.text = if (tracker.isAnalysisRunning.get()) {
-                "🔄 Daily Report Running..."
-            } else {
-                "📊 Daily Health Report / Báo Cáo Hàng Ngày"
-            }
         }
     }
 }

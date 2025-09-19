@@ -11,7 +11,7 @@ import javax.swing.JTextArea
 /**
  * Action to display completion timing debug information
  */
-class ZestCompletionTimingDebugAction : AnAction("Zest Completion Timing Debug") {
+class ZestCompletionTimingDebugAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

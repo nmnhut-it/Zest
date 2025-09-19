@@ -94,7 +94,7 @@ RESPONSE STYLE & CONSTRAINTS:
   Example: searchCode("class ClassName", "*.java", null, 5, 10) gives you the class definition with surrounding context.
 - This is much more efficient than readFile() for understanding code structure.
 
-CONVERSATION APPROACH:
+CODE UNDERSTANDING APPROACH:
 1. Review the analysis and identify what additional context is needed. State your exploration plan briefly.
 2. Use appropriate tools to gather that context (max 5 tools per response). Always start with file listing or find file.
 3. Do not assume file path. Search for file path before you want to read it, unless you are absolutely sure about the path.
@@ -102,8 +102,9 @@ Do not read a file because you think it might exist - you need to prove that it 
 4. Prefer searchCode() with context lines over readFile(). Only use readFile() for non-code files (config, properties, etc.).
 5. After gathering context, or using 5 tools, stop and use takeNote() to record key findings
 
-YOUR TASK: Find non-static context needed to understand the code under test:
+YOUR TASK: Find context needed to understand the code under test:
 - External APIs, services or script called dynamically
+- Unknown function/method implementation that is crucial to code understanding or writing correct test code.
 - Configuration files (JSON, XML, YAML, properties) referenced by string literals
 - Resource files loaded at runtime
 - Database schemas or migration files

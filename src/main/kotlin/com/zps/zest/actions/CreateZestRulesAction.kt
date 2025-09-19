@@ -13,7 +13,7 @@ import java.nio.file.Paths
 /**
  * Action to create a default zest_rules.md file if it doesn't exist
  */
-class CreateZestRulesAction : AnAction("Create Zest Rules File", "Create a zest_rules.md file to define custom LLM rules", null) {
+class CreateZestRulesAction : AnAction() {
     
     override fun getActionUpdateThread(): ActionUpdateThread {
         // Run update() on background thread to avoid EDT blocking
@@ -74,15 +74,6 @@ class CreateZestRulesAction : AnAction("Create Zest Rules File", "Create a zest_
     override fun update(e: AnActionEvent) {
         val project = e.project
         e.presentation.isEnabledAndVisible = project != null
-        
-        if (project != null) {
-            val rulesLoader = ZestRulesLoader(project)
-            e.presentation.text = when {
-                !rulesLoader.rulesFileExists() -> "Create Zest Rules File"
-                rulesLoader.isCurrentRulesFileMinimal() -> "Upgrade Zest Rules File"
-                else -> "Open Zest Rules File"
-            }
-        }
     }
     
     private fun openRulesFile(project: Project) {

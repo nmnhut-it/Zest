@@ -8,7 +8,7 @@ import com.intellij.notification.NotificationType
 /**
  * Debug action for testing code health
  */
-class DebugHealthAction : AnAction("🧪 Test Mode / Chế Độ Thử Nghiệm") {
+class DebugHealthAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

@@ -36,11 +36,13 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
     // Rate limiting configuration - now configurable via environment variables
     private static final long DEFAULT_MIN_DELAY_MS = 2000; // Default 2 seconds for streaming (less than sync)
     private static final long DEFAULT_REQUEST_DELAY_MS = 3000; // Default 3 second delay for streaming
-    
+    private static final int MAX_RETRY_ATTEMPTS = 3; // Maximum number of retry attempts
+    private static final long MAX_BACKOFF_DELAY_MS = 60000; // Maximum backoff delay (60 seconds)
+
     // Configurable delays
     private final long minDelayMs;
     private final long requestDelayMs;
-    
+
     // Track last request time for rate limiting
     private final AtomicLong lastRequestTime = new AtomicLong(0);
     
@@ -235,40 +237,18 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
 
     @Override
     public void chat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
-        applyRateLimit();
-        
-        try {
+        executeWithRetryBackoff(() -> {
+            applyRateLimit();
             executeWithPluginClassLoader(() -> delegateModel.chat(chatRequest, handler));
-        } catch (Exception e) {
-            // Check if this is a rate limit error and apply exponential backoff
-            if (isRateLimitError(e)) {
-                handleRateLimitError(e);
-                // Retry once after exponential backoff
-                applyRateLimit(); // Apply additional delay
-                executeWithPluginClassLoader(() -> delegateModel.chat(chatRequest, handler));
-            } else {
-                throw e;
-            }
-        }
+        });
     }
 
     @Override
     public void chat(List<ChatMessage> messages, StreamingChatResponseHandler handler) {
-        applyRateLimit();
-        
-        try {
+        executeWithRetryBackoff(() -> {
+            applyRateLimit();
             executeWithPluginClassLoader(() -> delegateModel.chat(messages, handler));
-        } catch (Exception e) {
-            // Check if this is a rate limit error and apply exponential backoff
-            if (isRateLimitError(e)) {
-                handleRateLimitError(e);
-                // Retry once after exponential backoff
-                applyRateLimit(); // Apply additional delay
-                executeWithPluginClassLoader(() -> delegateModel.chat(messages, handler));
-            } else {
-                throw e;
-            }
-        }
+        });
     }
 
     @Override
@@ -341,7 +321,7 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         if (errorMessage == null) {
             return 0;
         }
-        
+
         try {
             // Look for "try again in X seconds" or "try again in X.Xs"
             if (errorMessage.contains("try again in")) {
@@ -360,7 +340,60 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         } catch (Exception e) {
             LOG.warn("Could not parse suggested delay from error message", e);
         }
-        
+
         return 0;
+    }
+
+    /**
+     * Execute an operation with exponential backoff retry logic for rate limit errors.
+     * Will retry up to MAX_RETRY_ATTEMPTS times with exponential backoff.
+     */
+    private void executeWithRetryBackoff(Runnable operation) {
+        Exception lastException = null;
+        long backoffDelay = requestDelayMs;
+
+        for (int attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+            try {
+                operation.run();
+                return; // Success - exit
+            } catch (Exception e) {
+                lastException = e;
+
+                // Only retry for rate limit errors
+                if (!isRateLimitError(e)) {
+                    throw new RuntimeException("Non-rate-limit error in streaming chat", e);
+                }
+
+                // Check if we've exhausted retries
+                if (attempt == MAX_RETRY_ATTEMPTS) {
+                    LOG.error("Maximum retry attempts (" + MAX_RETRY_ATTEMPTS + ") exceeded for rate limit error");
+                    throw new RuntimeException("Rate limit error after " + MAX_RETRY_ATTEMPTS + " retries", e);
+                }
+
+                // Calculate backoff delay
+                long suggestedDelay = extractSuggestedDelay(e.getMessage());
+                if (suggestedDelay > 0) {
+                    backoffDelay = Math.min(suggestedDelay, MAX_BACKOFF_DELAY_MS);
+                } else {
+                    // Exponential backoff: double the delay each time
+                    backoffDelay = Math.min(backoffDelay * 2, MAX_BACKOFF_DELAY_MS);
+                }
+
+                LOG.warn("Rate limit error on attempt " + (attempt + 1) + "/" + MAX_RETRY_ATTEMPTS +
+                        ". Retrying after " + backoffDelay + "ms backoff. Error: " + e.getMessage());
+
+                try {
+                    TimeUnit.MILLISECONDS.sleep(backoffDelay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted during rate limit backoff", ie);
+                }
+            }
+        }
+
+        // This should never be reached due to the throw in the loop, but just in case
+        if (lastException != null) {
+            throw new RuntimeException("Unexpected error in retry logic", lastException);
+        }
     }
 }

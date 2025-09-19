@@ -7,11 +7,14 @@ import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
+import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.zps.zest.explanation.tools.RipgrepCodeTool;
+import com.zps.zest.testgen.tools.AnalyzeClassTool;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Action that sends the current code to the chat for review.
@@ -57,38 +60,249 @@ public class SendCodeReviewToChatBox extends BaseChatAction {
     protected String createPrompt(@NotNull AnActionEvent e) throws Exception {
         Editor editor = e.getData(CommonDataKeys.EDITOR);
         PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
-        
-        if (editor == null || psiFile == null) {
+        Project project = e.getProject();
+
+        if (editor == null || psiFile == null || project == null) {
             throw new Exception("No file or editor available");
         }
-        
+
         // Get the code to review
         String codeContent = ReadAction.compute(() -> {
             String selectedText = editor.getSelectionModel().getSelectedText();
             if (selectedText != null && !selectedText.isEmpty()) {
                 return selectedText;
             }
-            
+
             PsiElement element = psiFile.findElementAt(editor.getCaretModel().getOffset());
             PsiClass psiClass = PsiTreeUtil.getParentOfType(element, PsiClass.class);
             if (psiClass != null) {
                 return psiClass.getText();
             }
-            
+
             return psiFile.getText();
         });
-        
-        return createReviewPrompt(psiFile.getName(), psiFile.getFileType().getDefaultExtension(), codeContent);
+
+        // Gather context for better review
+        CodeReviewContext context = gatherCodeContext(project, psiFile, codeContent);
+
+        return createEnhancedReviewPrompt(psiFile.getName(), psiFile.getFileType().getDefaultExtension(),
+                                         codeContent, context);
     }
     
-    private String createReviewPrompt(String fileName, String fileType, String codeContent) {
-        return
-               "**" + fileName + "**\n" +
-               "```" + fileType + "\n" + codeContent + "\n```\n\n" +
-               "Analyze: quality, bugs, performance, security, best practices, and test-ability\n" +
-               "If the code is hard to be unit-tested or integration-tested, please point out and suggest improvements\n" +
-               "Style: Be concise, specific, actionable. Use bullet points and proper line breaks.\n" +
-               "No more than 20 words on each paragraph.\n";
+    /**
+     * Gather relevant context for code review using tools similar to ContextAgent
+     */
+    private CodeReviewContext gatherCodeContext(Project project, PsiFile psiFile, String codeContent) {
+        CodeReviewContext context = new CodeReviewContext();
+
+        try {
+            // Initialize tools
+            RipgrepCodeTool ripgrepTool = new RipgrepCodeTool(project, new HashSet<>(), new ArrayList<>());
+            AnalyzeClassTool analyzeClassTool = new AnalyzeClassTool(project, new HashMap<>());
+
+            // Extract key identifiers from the code
+            Set<String> classNames = extractClassNames(codeContent);
+            Set<String> methodNames = extractMethodNames(codeContent);
+
+            // Find test files for the class
+            if (!classNames.isEmpty()) {
+                String className = classNames.iterator().next();
+                String testSearchResult = ripgrepTool.findFiles("*" + className + "Test*");
+                context.testFiles = parseFileList(testSearchResult);
+
+                // Search for usage patterns
+                String usageResult = ripgrepTool.searchCode(className, "*.java", null, 2, 2);
+                context.usagePatterns = extractUsageExamples(usageResult, className);
+            }
+
+            // Search for similar patterns in the codebase
+            if (!methodNames.isEmpty()) {
+                for (String methodName : methodNames) {
+                    String similarResult = ripgrepTool.searchCode(methodName, "*.java", null, 1, 1);
+                    context.similarImplementations.add("Method '" + methodName + "' found in: " +
+                                                     countOccurrences(similarResult));
+                }
+            }
+
+            // Get class structure if reviewing a class
+            ReadAction.run(() -> {
+                PsiElement element = psiFile.findElementAt(0);
+                PsiClass psiClass = PsiTreeUtil.getParentOfType(element, PsiClass.class);
+                if (psiClass != null) {
+                    String classAnalysis = analyzeClassTool.analyzeClass(psiClass.getQualifiedName());
+                    context.classStructure = extractClassSummary(classAnalysis);
+
+                    // Get imports
+                    PsiImportList importList = ((PsiJavaFile) psiFile).getImportList();
+                    if (importList != null) {
+                        context.dependencies = Arrays.stream(importList.getImportStatements())
+                            .map(PsiImportStatement::getQualifiedName)
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toList());
+                    }
+                }
+            });
+
+        } catch (Exception ex) {
+            // Log but don't fail - context is helpful but not required
+            LOG.warn("Failed to gather full context for code review", ex);
+        }
+
+        return context;
+    }
+
+    /**
+     * Create enhanced review prompt with gathered context
+     */
+    private String createEnhancedReviewPrompt(String fileName, String fileType, String codeContent,
+                                             CodeReviewContext context) {
+        StringBuilder prompt = new StringBuilder();
+
+        prompt.append("## Code Review Context\n\n");
+        prompt.append("**File:** ").append(fileName).append("\n");
+
+        if (!context.testFiles.isEmpty()) {
+            prompt.append("**Related Test Files:** ").append(String.join(", ", context.testFiles)).append("\n");
+        }
+
+        if (!context.dependencies.isEmpty()) {
+            prompt.append("**Key Dependencies:** \n");
+            context.dependencies.stream().limit(5).forEach(dep ->
+                prompt.append("- ").append(dep).append("\n"));
+        }
+
+        if (!context.usagePatterns.isEmpty()) {
+            prompt.append("**Usage Examples Found:** ").append(context.usagePatterns.size()).append(" locations\n");
+        }
+
+        if (!context.similarImplementations.isEmpty()) {
+            prompt.append("**Similar Patterns in Codebase:**\n");
+            context.similarImplementations.forEach(impl ->
+                prompt.append("- ").append(impl).append("\n"));
+        }
+
+        if (context.classStructure != null && !context.classStructure.isEmpty()) {
+            prompt.append("**Class Structure:** ").append(context.classStructure).append("\n");
+        }
+
+        prompt.append("\n## Code to Review\n\n");
+        prompt.append("```").append(fileType).append("\n");
+        prompt.append(codeContent).append("\n");
+        prompt.append("```\n\n");
+
+        prompt.append("## Review Focus\n\n");
+        prompt.append("Please analyze this code for:\n");
+        prompt.append("1. **Correctness**: Logic errors, edge cases, null safety\n");
+        prompt.append("2. **Performance**: Bottlenecks, unnecessary operations, resource leaks\n");
+        prompt.append("3. **Security**: Input validation, injection risks, data exposure\n");
+        prompt.append("4. **Testability**: Hard-to-test patterns, missing test coverage\n");
+        prompt.append("5. **Code Reuse**: Duplicate logic that exists elsewhere (check similar patterns above)\n");
+        prompt.append("6. **Best Practices**: Design patterns, SOLID principles, clean code\n");
+        prompt.append("\n");
+        prompt.append("**Instructions:**\n");
+        prompt.append("- Use tools strategically to understand the codebase better\n");
+        prompt.append("- Reference specific line numbers when pointing out issues\n");
+        prompt.append("- Suggest concrete improvements with code examples\n");
+        prompt.append("- Prioritize issues by severity (critical → major → minor)\n");
+        prompt.append("- Be concise but thorough - focus on actionable feedback\n");
+
+        return prompt.toString();
+    }
+
+    // Helper methods for context extraction
+    private Set<String> extractClassNames(String code) {
+        Set<String> classNames = new HashSet<>();
+        String[] patterns = {"class\\s+(\\w+)", "interface\\s+(\\w+)", "enum\\s+(\\w+)"};
+
+        for (String pattern : patterns) {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(pattern);
+            java.util.regex.Matcher m = p.matcher(code);
+            while (m.find()) {
+                classNames.add(m.group(1));
+            }
+        }
+        return classNames;
+    }
+
+    private Set<String> extractMethodNames(String code) {
+        Set<String> methodNames = new HashSet<>();
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+            "(public|private|protected|static|\\s)+[\\w<>\\[\\]]+\\s+(\\w+)\\s*\\([^)]*\\)");
+        java.util.regex.Matcher m = p.matcher(code);
+        while (m.find()) {
+            String name = m.group(2);
+            if (!name.equals("if") && !name.equals("for") && !name.equals("while") &&
+                !name.equals("switch") && !name.equals("catch")) {
+                methodNames.add(name);
+            }
+        }
+        return methodNames;
+    }
+
+    private List<String> parseFileList(String fileListOutput) {
+        List<String> files = new ArrayList<>();
+        if (fileListOutput != null && !fileListOutput.isEmpty()) {
+            String[] lines = fileListOutput.split("\n");
+            for (String line : lines) {
+                if (line.trim().endsWith(".java") || line.trim().endsWith(".kt")) {
+                    files.add(line.trim());
+                }
+            }
+        }
+        return files;
+    }
+
+    private List<String> extractUsageExamples(String searchResult, String className) {
+        List<String> examples = new ArrayList<>();
+        if (searchResult != null && !searchResult.isEmpty()) {
+            String[] lines = searchResult.split("\n");
+            for (String line : lines) {
+                if (line.contains(className) && !line.contains("class " + className)) {
+                    examples.add(line.trim());
+                    if (examples.size() >= 3) break; // Limit to 3 examples
+                }
+            }
+        }
+        return examples;
+    }
+
+    private String countOccurrences(String searchResult) {
+        if (searchResult == null || searchResult.isEmpty()) {
+            return "0 occurrences";
+        }
+        String[] lines = searchResult.split("\n");
+        Set<String> files = new HashSet<>();
+        for (String line : lines) {
+            if (line.contains(":")) {
+                files.add(line.substring(0, line.indexOf(":")));
+            }
+        }
+        return files.size() + " file(s)";
+    }
+
+    private String extractClassSummary(String classAnalysis) {
+        if (classAnalysis == null || classAnalysis.isEmpty()) {
+            return null;
+        }
+        // Extract first meaningful line from class analysis
+        String[] lines = classAnalysis.split("\n");
+        for (String line : lines) {
+            if (line.contains("methods") || line.contains("fields") || line.contains("extends")) {
+                return line.trim();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Container for code review context
+     */
+    private static class CodeReviewContext {
+        List<String> testFiles = new ArrayList<>();
+        List<String> dependencies = new ArrayList<>();
+        List<String> usagePatterns = new ArrayList<>();
+        List<String> similarImplementations = new ArrayList<>();
+        String classStructure;
     }
 
 

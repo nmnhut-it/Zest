@@ -32,29 +32,34 @@ public class ListFilesTool {
 
     @Tool("""
         List files and subdirectories in a directory with controlled recursion depth.
-        
+
         Parameters:
         - directoryPath: The directory to list (e.g., "config/", "src/main/resources")
-        - recursiveLevel: How deep to explore:
+        - recursiveLevel: How deep to explore (default 1 if not specified):
           * 0 = current directory only (non-recursive) - use for large dirs
-          * 1 = current + immediate subdirectories - use for most exploration  
+          * 1 = current + immediate subdirectories - use for most exploration
           * 2 = two levels deep - use for config/template structures
           * 3+ = deeper exploration - use only when absolutely necessary
-        
+
         Examples:
         - listFiles("config/", 0) → lists only files directly in config/
         - listFiles("config/", 2) → explores config/ and 2 levels deep
         - listFiles("src/main/resources", 1) → resources/ and immediate subdirs
         - listFiles("scripts/", 1) → scripts/ and immediate subdirs
-        
+
         Returns: A formatted tree of files and directories up to the specified depth.
-        
+
         Strategy:
         - Use level 0 for large directories to avoid overwhelming output
         - Use level 1-2 for targeted exploration of config/resource directories
         - Always specify depth explicitly based on exploration needs
         """)
-    public String listFiles(String directoryPath, int recursiveLevel) {
+    public String listFiles(String directoryPath, Integer recursiveLevel) {
+        // Default to level 1 if not specified
+        if (recursiveLevel == null) {
+            recursiveLevel = 1;
+        }
+        Integer finalRecursiveLevel = recursiveLevel;
         return ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
             try {
                 // First try using the CodeExplorationTool if available
@@ -62,8 +67,8 @@ public class ListFilesTool {
                 if (listTool != null) {
                     JsonObject params = new JsonObject();
                     params.addProperty("directory", normalizeDirectoryPath(directoryPath));
-                    params.addProperty("recursive", recursiveLevel > 0);
-                    params.addProperty("maxDepth", recursiveLevel);
+                    params.addProperty("recursive", finalRecursiveLevel > 0);
+                    params.addProperty("maxDepth", finalRecursiveLevel);
 
                     CodeExplorationTool.ToolResult result = listTool.execute(params);
                     if (result.isSuccess()) {
@@ -72,12 +77,12 @@ public class ListFilesTool {
                 }
 
                 // Fallback to direct file system access with depth control
-                return listFilesDirectly(directoryPath, recursiveLevel);
+                return listFilesDirectly(directoryPath, finalRecursiveLevel);
                 
             } catch (Exception e) {
                 return String.format("Error listing directory '%s' (level %d): %s\n" +
                                    "Please check the path and ensure it exists within the project.",
-                                   directoryPath, recursiveLevel, e.getMessage());
+                                   directoryPath, finalRecursiveLevel, e.getMessage());
             }
         });
     }

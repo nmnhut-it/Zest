@@ -279,6 +279,7 @@ class JCEFChatDialog(
                 // Update tool call with result
                 val escapedResult = escapeJavaScriptString(result)
                 val status = if (result.startsWith("❌")) "error" else "complete"
+
                 chatPanel.getBrowserManager().executeJavaScript("""
                     if (window.chatFunctions && window.chatFunctions.updateToolCall) {
                         window.chatFunctions.updateToolCall('$toolCallId', '$status', '$escapedResult');

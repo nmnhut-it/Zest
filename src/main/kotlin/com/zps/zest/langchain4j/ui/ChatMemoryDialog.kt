@@ -347,27 +347,25 @@ class ChatMemoryDialog(
 }
 
 /**
- * Detailed view dialog for individual messages - clean and focused
+ * Detailed view dialog for individual messages - uses JCEF for markdown rendering
  */
 private class MessageDetailDialog(
-    project: Project,
+    private val project: Project,
     private val message: ChatMessage,
     agentName: String
 ) : DialogWrapper(project) {
-    
+
     init {
         title = "Message Details - $agentName"
         init()
     }
-    
+
     override fun createCenterPanel(): JComponent {
-        val mainPanel = JPanel(BorderLayout())
-        mainPanel.preferredSize = JBUI.size(700, 500)
-        
-        // Header
-        val headerPanel = JPanel(BorderLayout())
-        headerPanel.border = EmptyBorder(10, 10, 10, 10)
-        
+        // Use JCEFChatPanel for better markdown rendering
+        val chatPanel = com.zps.zest.chatui.JCEFChatPanel(project)
+        chatPanel.preferredSize = JBUI.size(800, 600)
+
+        // Get message type info
         val icon = when (message) {
             is SystemMessage -> "⚙️"
             is UserMessage -> "👤"
@@ -375,95 +373,73 @@ private class MessageDetailDialog(
             is ToolExecutionResultMessage -> "🔧"
             else -> "💬"
         }
-        
+
         val type = when (message) {
             is SystemMessage -> "System Prompt"
-            is UserMessage -> "User Message" 
+            is UserMessage -> "User Message"
             is AiMessage -> "AI Response"
-            is ToolExecutionResultMessage -> "Tool Result"
+            is ToolExecutionResultMessage -> "Tool Result: ${message.toolName()}"
             else -> "Message"
         }
-        
-        val typeLabel = JBLabel("$icon $type")
-        typeLabel.font = typeLabel.font.deriveFont(Font.BOLD, 16f)
-        headerPanel.add(typeLabel, BorderLayout.WEST)
-        
-        val timeLabel = JBLabel(SimpleDateFormat("HH:mm:ss").format(Date()))
-        timeLabel.foreground = UIUtil.getInactiveTextColor()
-        headerPanel.add(timeLabel, BorderLayout.EAST)
-        
-        mainPanel.add(headerPanel, BorderLayout.NORTH)
-        
-        // Content based on message type
-        val contentPanel = when (message) {
-            is SystemMessage -> createTextContent(message.text())
-            is UserMessage -> createTextContent(message.singleText())
-            is AiMessage -> createAiMessageContent(message)
-            is ToolExecutionResultMessage -> createToolResultContent(message)
-            else -> createTextContent(message.toString())
-        }
-        
-        mainPanel.add(contentPanel, BorderLayout.CENTER)
-        return mainPanel
-    }
-    
-    private fun createTextContent(text: String): JComponent {
-        val textArea = JBTextArea(text)
-        textArea.isEditable = false
-        textArea.font = Font(Font.MONOSPACED, Font.PLAIN, 13)
-        textArea.lineWrap = true
-        textArea.wrapStyleWord = true
-        textArea.border = EmptyBorder(5, 5, 5, 5)
-        
-        return JBScrollPane(textArea)
-    }
-    
-    private fun createAiMessageContent(message: AiMessage): JComponent {
-        val tabbedPane = JTabbedPane()
-        
-        // AI text response
-        message.text()?.let { text ->
-            if (text.isNotBlank()) {
-                tabbedPane.addTab("💬 Response", createTextContent(text))
+
+        // Format and add content based on message type
+        when (message) {
+            is SystemMessage -> {
+                chatPanel.addMessage("$icon $type", message.text())
             }
-        }
-        
-        // Tool calls
-        if (message.toolExecutionRequests().isNotEmpty()) {
-            val toolsPanel = JPanel()
-            toolsPanel.layout = BoxLayout(toolsPanel, BoxLayout.Y_AXIS)
-            
-            message.toolExecutionRequests().forEachIndexed { index, tool ->
-                val toolContent = "Tool: ${tool.name()}\n\nArguments:\n${tool.arguments()}"
-                val toolTextArea = JBTextArea(toolContent)
-                toolTextArea.isEditable = false
-                toolTextArea.font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-                toolTextArea.lineWrap = true
-                toolTextArea.wrapStyleWord = true
-                toolTextArea.border = EmptyBorder(10, 10, 10, 10)
-                
-                val toolScrollPane = JBScrollPane(toolTextArea)
-                toolScrollPane.border = JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1)
-                toolScrollPane.preferredSize = Dimension(-1, 150)
-                
-                toolsPanel.add(toolScrollPane)
-                if (index < message.toolExecutionRequests().size - 1) {
-                    toolsPanel.add(Box.createVerticalStrut(10))
+            is UserMessage -> {
+                chatPanel.addMessage("$icon $type", message.singleText())
+            }
+            is AiMessage -> {
+                // Add main response if present
+                message.text()?.let { text ->
+                    if (text.isNotBlank()) {
+                        chatPanel.addMessage("$icon $type", text)
+                    }
+                }
+
+                // Add tool calls as formatted markdown
+                if (message.toolExecutionRequests().isNotEmpty()) {
+                    message.toolExecutionRequests().forEachIndexed { index, tool ->
+                        val toolContent = buildString {
+                            appendLine("### Tool: ${tool.name()}")
+                            appendLine()
+                            appendLine("**Arguments:**")
+                            appendLine("```json")
+                            appendLine(tool.arguments())
+                            appendLine("```")
+                        }
+                        chatPanel.addMessage("🔧 Tool Call #${index + 1}", toolContent)
+                    }
                 }
             }
-            
-            val toolsScrollPane = JBScrollPane(toolsPanel)
-            tabbedPane.addTab("🔧 Tool Calls (${message.toolExecutionRequests().size})", toolsScrollPane)
+            is ToolExecutionResultMessage -> {
+                val content = buildString {
+                    appendLine("**Tool:** ${message.toolName()}")
+                    appendLine()
+                    appendLine("**Result:**")
+
+                    // Check if result looks like JSON and format accordingly
+                    val resultText = message.text()
+                    if (resultText.trimStart().startsWith("{") || resultText.trimStart().startsWith("[")) {
+                        appendLine("```json")
+                        appendLine(resultText)
+                        appendLine("```")
+                    } else {
+                        appendLine(resultText)
+                    }
+                }
+                chatPanel.addMessage("$icon $type", content)
+            }
+            else -> {
+                chatPanel.addMessage("$icon $type", message.toString())
+            }
         }
-        
-        return tabbedPane
+
+        // No need to finalize - messages are already complete (not streaming)
+        return chatPanel
     }
-    
-    private fun createToolResultContent(message: ToolExecutionResultMessage): JComponent {
-        val content = "Tool: ${message.toolName()}\n\nResult:\n${message.text()}"
-        return createTextContent(content)
-    }
-    
+
     override fun createActions(): Array<Action> {
         return arrayOf(okAction)
     }

@@ -2,11 +2,8 @@ package com.zps.zest.chatui
 
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import com.zps.zest.browser.JCEFBrowserManager
 import com.zps.zest.browser.JCEFBrowserService
-import com.zps.zest.browser.jcef.JCEFResourceManager
-import dev.langchain4j.data.message.*
 import java.awt.BorderLayout
 import java.text.SimpleDateFormat
 import java.util.*
@@ -104,7 +101,7 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
         if (messageIndex >= 0) {
             val updatedMessage = conversationMessages[messageIndex].copy(content = finalContent)
             conversationMessages[messageIndex] = updatedMessage
-            
+
             // Finalize message with proper markdown rendering
             val escapedContent = escapeJavaScriptString(finalContent)
             browserManager.executeJavaScript("""
@@ -114,7 +111,7 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
             """)
         }
     }
-    
+
     /**
      * Clear all messages
      */

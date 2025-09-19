@@ -16,6 +16,7 @@ import java.awt.event.MouseEvent
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.swing.*
+import javax.swing.Timer
 import javax.swing.border.EmptyBorder
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeCellRenderer
@@ -471,16 +472,20 @@ private class MessageDetailDialog(
 /**
  * Tree node data for efficient message display
  */
-private data class MessageNodeData(val message: ChatMessage, val index: Int) {
+private data class MessageNodeData(
+    val message: ChatMessage,
+    val index: Int,
+    val timestamp: String = SimpleDateFormat("HH:mm:ss").format(Date())
+) {
     override fun toString(): String {
         val icon = when (message) {
             is SystemMessage -> "⚙️"
             is UserMessage -> "👤"
-            is AiMessage -> "🤖" 
+            is AiMessage -> "🤖"
             is ToolExecutionResultMessage -> "🔧"
             else -> "💬"
         }
-        
+
         val type = when (message) {
             is SystemMessage -> "System"
             is UserMessage -> "User"
@@ -488,7 +493,7 @@ private data class MessageNodeData(val message: ChatMessage, val index: Int) {
             is ToolExecutionResultMessage -> message.toolName()
             else -> "Message"
         }
-        
+
         val preview = when (message) {
             is SystemMessage -> message.text().take(100)
             is UserMessage -> message.singleText().take(100)
@@ -496,11 +501,10 @@ private data class MessageNodeData(val message: ChatMessage, val index: Int) {
             is ToolExecutionResultMessage -> message.text().take(100)
             else -> "Unknown"
         }.replace('\n', ' ').replace('\t', ' ').trim()
-        
+
         val cleanPreview = if (preview.length >= 100) "${preview.take(97)}..." else preview
-        val time = SimpleDateFormat("HH:mm:ss").format(Date())
-        
-        return "$icon $type: $cleanPreview [$time]"
+
+        return "$icon $type: $cleanPreview [$timestamp]"
     }
 }
 
@@ -546,8 +550,16 @@ class ChatMemoryPanel(
     private val treeModel = DefaultTreeModel(DefaultMutableTreeNode("$agentName Conversation"))
     private val messageTree = JTree(treeModel)
     private val statsLabel = JBLabel()
+    private var scrollPane: JBScrollPane? = null
+    private var autoScroll = true
+    private var autoScrollCheckBox: JCheckBox? = null
+    private val scrollDebounceTimer = Timer(300) { performScrollToBottom() }
+    // Track displayed messages to enable incremental updates
+    private val displayedMessages = mutableListOf<ChatMessage>()
+    private val messageNodeMap = mutableMapOf<ChatMessage, DefaultMutableTreeNode>()
 
     init {
+        scrollDebounceTimer.isRepeats = false
         setupUI()
         loadMessages()
     }
@@ -622,12 +634,28 @@ class ChatMemoryPanel(
             }
         })
 
-        val scrollPane = JBScrollPane(messageTree)
+        scrollPane = JBScrollPane(messageTree)
         add(scrollPane, BorderLayout.CENTER)
 
         // Footer with controls
         val footerPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
         footerPanel.border = EmptyBorder(5, 10, 5, 10)
+
+        // Auto-scroll checkbox
+        autoScrollCheckBox = JCheckBox("Auto-scroll", autoScroll)
+        autoScrollCheckBox!!.toolTipText = "Automatically scroll to the latest message"
+        autoScrollCheckBox!!.addActionListener {
+            autoScroll = autoScrollCheckBox!!.isSelected
+            if (autoScroll) {
+                scheduleScrollToBottom()
+            }
+        }
+        footerPanel.add(autoScrollCheckBox)
+
+        // Add separator
+        footerPanel.add(JSeparator(JSeparator.VERTICAL).apply {
+            preferredSize = Dimension(1, 20)
+        })
 
         val refreshButton = JButton("Refresh")
         refreshButton.addActionListener { refresh() }
@@ -650,28 +678,110 @@ class ChatMemoryPanel(
         updateStats()
     }
 
+    /**
+     * Call this method periodically to check for new messages and update the display.
+     * Returns true if new messages were found.
+     */
+    fun checkForUpdates(): Boolean {
+        val currentMessageCount = getMessages().size
+        val root = treeModel.root as DefaultMutableTreeNode
+        val displayedMessageCount = if (root.childCount == 1 && root.getChildAt(0).toString().contains("No messages")) {
+            0
+        } else {
+            root.childCount
+        }
+
+        if (currentMessageCount != displayedMessageCount) {
+            refresh()
+            return true
+        }
+        return false
+    }
+
     private fun loadMessages() {
         val root = treeModel.root as DefaultMutableTreeNode
-        root.removeAllChildren()
-
         val messages = getMessages()
+        val hadMessages = displayedMessages.isNotEmpty()
 
-        if (messages.isEmpty()) {
-            val emptyNode = DefaultMutableTreeNode("No messages yet - start a conversation to see chat history")
-            root.add(emptyNode)
-            root.userObject = "$agentName Conversation (Empty)"
-        } else {
+        // Check if we need a full reload (messages removed or reordered)
+        val needsFullReload = displayedMessages.size > messages.size ||
+            (displayedMessages.isNotEmpty() && messages.isNotEmpty() && displayedMessages.first() != messages.first())
+
+        if (needsFullReload) {
+            // Full reload needed - messages were removed or reordered
+            root.removeAllChildren()
+            displayedMessages.clear()
+            messageNodeMap.clear()
+
+            if (messages.isEmpty()) {
+                val emptyNode = DefaultMutableTreeNode("No messages yet - start a conversation to see chat history")
+                root.add(emptyNode)
+                root.userObject = "$agentName Conversation (Empty)"
+            } else {
+                root.userObject = "$agentName Conversation (${messages.size} messages)"
+                messages.forEachIndexed { index, message ->
+                    val nodeData = MessageNodeData(message, index)
+                    val node = DefaultMutableTreeNode(nodeData)
+                    root.add(node)
+                    displayedMessages.add(message)
+                    messageNodeMap[message] = node
+                }
+            }
+            treeModel.reload()
+        } else if (messages.size > displayedMessages.size) {
+            // Incremental update - just add new messages
+            if (displayedMessages.isEmpty() && messages.isNotEmpty()) {
+                // First messages arriving - clear placeholder
+                root.removeAllChildren()
+            }
+
             root.userObject = "$agentName Conversation (${messages.size} messages)"
 
-            messages.forEachIndexed { index, message ->
-                val nodeData = MessageNodeData(message, index)
+            // Add only the new messages
+            for (i in displayedMessages.size until messages.size) {
+                val message = messages[i]
+                val nodeData = MessageNodeData(message, i)
                 val node = DefaultMutableTreeNode(nodeData)
                 root.add(node)
+                displayedMessages.add(message)
+                messageNodeMap[message] = node
+
+                // Notify tree model about the new node
+                treeModel.nodesWereInserted(root, intArrayOf(root.childCount - 1))
             }
         }
 
-        treeModel.reload()
-        messageTree.expandRow(0) // Expand root
+        // Expand all nodes to show messages
+        SwingUtilities.invokeLater {
+            for (i in 0 until messageTree.rowCount) {
+                messageTree.expandRow(i)
+            }
+
+            // Auto-scroll if new messages were added
+            if (autoScroll && messages.size > displayedMessages.size - (messages.size - displayedMessages.size)) {
+                scheduleScrollToBottom()
+            }
+        }
+    }
+
+    private fun scheduleScrollToBottom() {
+        // Cancel any pending scroll and schedule a new one (debounce)
+        scrollDebounceTimer.restart()
+    }
+
+    private fun performScrollToBottom() {
+        SwingUtilities.invokeLater {
+            scrollPane?.let { sp ->
+                val vertical = sp.verticalScrollBar
+                vertical.value = vertical.maximum
+
+                // Also ensure the last tree node is visible
+                val rowCount = messageTree.rowCount
+                if (rowCount > 0) {
+                    messageTree.scrollRowToVisible(rowCount - 1)
+                }
+            }
+        }
     }
 
     private fun updateStats() {

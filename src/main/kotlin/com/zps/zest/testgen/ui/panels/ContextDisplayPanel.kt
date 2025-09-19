@@ -9,6 +9,7 @@ import com.zps.zest.langchain4j.ui.ChatMemoryDialog
 import com.zps.zest.langchain4j.ui.ChatMemoryPanel
 import java.awt.*
 import javax.swing.*
+import javax.swing.Timer
 import javax.swing.border.EmptyBorder
 
 /**
@@ -19,8 +20,10 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
 
     private var contextAgentMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
     private var chatMemoryPanel: ChatMemoryPanel? = null
-    
+    private val updateTimer = Timer(1000) { checkForUpdates() }
+
     init {
+        updateTimer.isRepeats = true
         setupUI()
     }
 
@@ -43,6 +46,9 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
      */
     fun clear() {
         SwingUtilities.invokeLater {
+            // Stop the update timer
+            updateTimer.stop()
+
             // Reset chat memory
             contextAgentMemory = null
             chatMemoryPanel = null
@@ -62,20 +68,37 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
         SwingUtilities.invokeLater {
             this.contextAgentMemory = chatMemory
 
-            // Remove existing content and add the chat memory panel
-            removeAll()
-
             if (chatMemory != null) {
-                // Create and add the chat memory panel
-                chatMemoryPanel = ChatMemoryPanel(project, chatMemory, "ContextAgent")
-                add(chatMemoryPanel, BorderLayout.CENTER)
-            } else {
-                // Show placeholder
-                setupUI()
-            }
+                if (chatMemoryPanel == null) {
+                    // Only create the panel if it doesn't exist
+                    removeAll()
+                    chatMemoryPanel = ChatMemoryPanel(project, chatMemory, "ContextAgent")
+                    add(chatMemoryPanel, BorderLayout.CENTER)
+                    revalidate()
+                    repaint()
 
-            revalidate()
-            repaint()
+                    // Start the update timer when panel is created
+                    updateTimer.start()
+                } else {
+                    // Reuse existing panel, just update the memory
+                    chatMemoryPanel!!.setChatMemory(chatMemory)
+                }
+            } else {
+                // Clear everything
+                updateTimer.stop()
+                chatMemoryPanel = null
+                removeAll()
+                setupUI()
+                revalidate()
+                repaint()
+            }
+        }
+    }
+
+    private fun checkForUpdates() {
+        SwingUtilities.invokeLater {
+            // Only check for updates if we have a panel
+            chatMemoryPanel?.checkForUpdates()
         }
     }
 

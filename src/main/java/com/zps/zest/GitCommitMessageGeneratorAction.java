@@ -11,6 +11,7 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.DialogWrapper.IdeModalityType;
 import com.zps.zest.browser.WebBrowserPanel;
+import com.zps.zest.browser.BrowserPurpose;
 import com.zps.zest.git.GitStatusCollector;
 import org.jetbrains.annotations.NotNull;
 
@@ -261,7 +262,7 @@ public class GitCommitMessageGeneratorAction extends AnAction {
         public GitCommitDialog(Project project) {
             super(project, null, false, IdeModalityType.MODELESS);
             this.project = project;
-            this.gitUIPanel = new WebBrowserPanel(project, false);
+            this.gitUIPanel = new WebBrowserPanel(project, false, BrowserPurpose.GIT);
             
             setTitle("Git Commit & Push");
             setSize(1200, 700);

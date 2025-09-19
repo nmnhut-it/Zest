@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.zps.zest.browser.JCEFBrowserManager
 import com.zps.zest.browser.JCEFBrowserService
+import com.zps.zest.browser.BrowserPurpose
 import java.awt.BorderLayout
 import java.text.SimpleDateFormat
 import java.util.*
@@ -19,7 +20,7 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
         private val LOG = Logger.getInstance(JCEFChatPanel::class.java)
     }
     
-    private val browserManager: JCEFBrowserManager = JCEFBrowserService.getInstance(project).getBrowserManager()
+    private val browserManager: JCEFBrowserManager = JCEFBrowserService.getInstance(project).getBrowserManager(BrowserPurpose.CHAT)
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
     private val conversationMessages = mutableListOf<ChatMessageData>()
     private var messageCounter = 0

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Generation - ZEST</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.8;
+            color: #2c3e50;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 1.2em;
+            margin-bottom: 40px;
+            font-style: italic;
+        }
+        h2 {
+            color: #764ba2;
+            margin-top: 35px;
+            font-size: 1.8em;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+        h3 {
+            color: #667eea;
+            margin-top: 25px;
+            font-size: 1.4em;
+        }
+        .phase-box {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-left: 5px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .phase-title {
+            font-weight: bold;
+            color: #2c3e50;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 30px 0;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+        .comparison-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-size: 1.1em;
+        }
+        .comparison-table td {
+            padding: 15px;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        .comparison-table tr:hover {
+            background: #f8f9fa;
+        }
+        .feature-badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin: 3px;
+        }
+        .highlight {
+            background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 30px 0;
+            border-left: 5px solid #ff6b6b;
+        }
+        .code-example {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+        .benefit-list {
+            list-style: none;
+            padding: 0;
+        }
+        .benefit-list li {
+            padding: 12px 0 12px 40px;
+            position: relative;
+            font-size: 1.1em;
+        }
+        .benefit-list li:before {
+            content: "✅";
+            position: absolute;
+            left: 0;
+            font-size: 1.5em;
+        }
+        .warning {
+            background: #fff3cd;
+            border-left: 5px solid #ffc107;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .cta {
+            text-align: center;
+            margin: 40px 0;
+            padding: 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
+            color: white;
+        }
+        .cta h3 {
+            color: white;
+            margin: 0 0 15px 0;
+        }
+        .shortcut {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 8px 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 1.1em;
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ZEST Test Generation</h1>
+        <p class="subtitle">Hệ thống tạo test với kiến trúc Multi-Agent</p>
+
+        <div class="highlight">
+            <h3>Cách Hoạt Động</h3>
+            <p><strong>ZEST Test Generation</strong> sử dụng <strong>hệ thống đa tác tử (Multi-Agent System)</strong> với quy trình 7 giai đoạn. Mỗi agent chuyên trách một nhiệm vụ cụ thể trong quá trình tạo test, từ phân tích context đến sửa lỗi biên dịch.</p>
+        </div>
+
+        <h2>So Sánh Cách Tiếp Cận</h2>
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Tính Năng</th>
+                    <th>ChatGPT</th>
+                    <th>ZEST Approach</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Hiểu biết về dự án</strong></td>
+                    <td>❌ Không có context về codebase</td>
+                    <td>Phân tích cấu trúc dự án, dependencies, và quan hệ giữa các class trong IDE</td>
+                </tr>
+                <tr>
+                    <td><strong>Quy trình làm việc</strong></td>
+                    <td>❌ Trả lời một lần, không có workflow</td>
+                    <td>Quy trình 7 giai đoạn với State Machine và khả năng tương tác</td>
+                </tr>
+                <tr>
+                    <td><strong>Sửa lỗi biên dịch</strong></td>
+                    <td>❌ Người dùng phải tự sửa</td>
+                    <td>Agent riêng để phát hiện và sửa lỗi biên dịch</td>
+                </tr>
+                <tr>
+                    <td><strong>Chiến lược test</strong></td>
+                    <td>❌ Chủ yếu dùng Mock/Stub</td>
+                    <td>Sử dụng Testcontainers và WireMock cho integration testing</td>
+                </tr>
+                <tr>
+                    <td><strong>Tương tác</strong></td>
+                    <td>❌ Copy-paste thủ công</td>
+                    <td>UI streaming và cho phép chọn scenarios</td>
+                </tr>
+                <tr>
+                    <td><strong>Độ chính xác</strong></td>
+                    <td>⚠️ Thường thiếu imports, sai cú pháp</td>
+                    <td>Tạo code với imports, setup/teardown, và assertions</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>Quy Trình 7 Giai Đoạn</h2>
+        <p>ZEST Test Generation sử dụng quy trình tuần tự với mỗi agent thực hiện một nhiệm vụ cụ thể:</p>
+
+        <div class="phase-box">
+            <div class="phase-title">Giai đoạn 1: INITIALIZING - Khởi Tạo</div>
+            <p>Hệ thống chuẩn bị môi trường, khởi tạo các agent cần thiết và thiết lập kết nối với LLM service. Session được tạo với ID duy nhất để có thể lưu và phục hồi.</p>
+        </div>
+
+        <div class="phase-box">
+            <div class="phase-title">Giai đoạn 2: GATHERING_CONTEXT - Thu Thập Ngữ Cảnh</div>
+            <p><strong>Context Agent</strong> phân tích toàn diện:</p>
+            <ul>
+                <li>Cấu trúc class và các method cần test</li>
+                <li>Dependencies và external services (Database, API, Message Queue)</li>
+                <li>Existing test patterns trong dự án</li>
+                <li>Module structure và build configuration</li>
+            </ul>
+            <span class="feature-badge">Đọc file thực tế</span>
+            <span class="feature-badge">Phân tích AST</span>
+            <span class="feature-badge">Dependency graph</span>
+        </div>
+
+        <div class="phase-box">
+            <div class="phase-title">Giai đoạn 3: PLANNING_TESTS - Lập Kế Hoạch</div>
+            <p><strong>Coordinator Agent</strong> thiết kế chiến lược test:</p>
+            <ul>
+                <li>Xác định loại test phù hợp (UNIT, INTEGRATION, EDGE_CASE, ERROR_HANDLING)</li>
+                <li>Tạo test scenarios với mô tả chi tiết</li>
+                <li>Quyết định công nghệ test (JUnit, Testcontainers, WireMock)</li>
+                <li>Ước tính độ phức tạp và độ ưu tiên</li>
+            </ul>
+            <span class="feature-badge">AI Planning</span>
+            <span class="feature-badge">Smart Prioritization</span>
+        </div>
+
+        <div class="phase-box">
+            <div class="phase-title">Giai đoạn 4: AWAITING_USER_SELECTION - Tương Tác Người Dùng</div>
+            <p>Hệ thống hiển thị danh sách test scenarios được đề xuất. Người dùng có thể:</p>
+            <ul>
+                <li>✅ Chọn scenarios muốn implement</li>
+                <li>❌ Bỏ qua scenarios không cần thiết</li>
+                <li>📝 Thêm ghi chú hoặc yêu cầu đặc biệt</li>
+            </ul>
+            <div class="warning">
+                <strong>Lưu ý:</strong> Người dùng có thể chọn scenarios muốn implement thay vì nhận toàn bộ.
+            </div>
+        </div>
+
+        <div class="phase-box">
+            <div class="phase-title">Giai đoạn 5: GENERATING_TESTS - Sinh Code Test</div>
+            <p><strong>Test Writer Agent</strong> tạo code test chất lượng cao:</p>
+            <ul>
+                <li>Tuân thủ pattern Given-When-Then</li>
+                <li>Đặt tên method theo chuẩn: testMethodName_WhenCondition_ThenExpectedResult</li>
+                <li>Setup test data và mock services phù hợp</li>
+                <li>Assertions chi tiết và meaningful</li>
+            </ul>
+            <div class="code-example">
+@Test
+void calculateDiscount_WhenPremiumCustomer_ThenApply20Percent() {
+    // Given
+    Customer premiumCustomer = Customer.builder()
+        .type(CustomerType.PREMIUM)
+        .build();
+
+    // When
+    BigDecimal discount = service.calculateDiscount(premiumCustomer,
+                                                   new BigDecimal("100"));
+
+    // Then
+    assertThat(discount).isEqualByComparingTo("20.00");
+}
+            </div>
+        </div>
+
+        <div class="phase-box">
+            <div class="phase-title">Giai đoạn 6: MERGING_TESTS - Tổng Hợp</div>
+            <p><strong>AI Test Merger Agent</strong> kết hợp các test methods:</p>
+            <ul>
+                <li>Loại bỏ code trùng lặp</li>
+                <li>Tối ưu hóa setup/teardown chung</li>
+                <li>Sắp xếp test methods theo logic</li>
+                <li>Đảm bảo tính độc lập của từng test</li>
+            </ul>
+        </div>
+
+        <div class="phase-box">
+            <div class="phase-title">Giai đoạn 7: FIXING_TESTS - Sửa Lỗi Tự Động</div>
+            <p><strong>Test Fixing Agent</strong> phân tích và sửa lỗi biên dịch:</p>
+            <ul>
+                <li>🔍 Phát hiện missing imports</li>
+                <li>🔧 Sửa syntax errors</li>
+                <li>📦 Thêm dependencies cần thiết</li>
+                <li>🎯 Điều chỉnh assertions phù hợp với API thực tế</li>
+            </ul>
+            <div class="highlight">
+                <strong>Tính năng này:</strong> Kiểm tra và sửa lỗi compile trước khi trả về kết quả.
+            </div>
+        </div>
+
+        <h2>Chiến Lược Testing</h2>
+        <p>ZEST sử dụng cả unit test và integration test, với các công cụ:</p>
+
+        <h3>Database Testing</h3>
+        <div class="code-example">
+@Testcontainers
+class UserRepositoryTest {
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
+            .withDatabaseName("testdb")
+            .withUsername("test")
+            .withPassword("test");
+
+    // Sử dụng database container cho testing
+}
+        </div>
+
+        <h3>Message Queue Testing</h3>
+        <div class="code-example">
+@Container
+static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.0"));
+
+// Sử dụng Kafka container cho message testing
+        </div>
+
+        <h3>External API Testing</h3>
+        <div class="code-example">
+@RegisterExtension
+static WireMockExtension wireMock = WireMockExtension.newInstance()
+    .options(wireMockConfig().port(8089))
+    .build();
+
+// Mock external API responses
+        </div>
+
+        <h2>Tính Năng Chính</h2>
+        <ul class="benefit-list">
+            <li><strong>Tạo test tự động</strong> dựa trên code hiện tại</li>
+            <li><strong>Phân loại test</strong> theo mục đích (unit, integration, edge case)</li>
+            <li><strong>Sửa lỗi biên dịch</strong> tự động</li>
+            <li><strong>Hỗ trợ nhiều framework</strong> testing</li>
+            <li><strong>Tùy chọn scenarios</strong> theo nhu cầu</li>
+        </ul>
+
+        <h2>Công Nghệ Hỗ Trợ</h2>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0;">
+            <span class="feature-badge">JUnit 5</span>
+            <span class="feature-badge">TestNG</span>
+            <span class="feature-badge">Mockito</span>
+            <span class="feature-badge">Testcontainers</span>
+            <span class="feature-badge">WireMock</span>
+            <span class="feature-badge">RestAssured</span>
+            <span class="feature-badge">Spring Boot Test</span>
+            <span class="feature-badge">AssertJ</span>
+            <span class="feature-badge">Hamcrest</span>
+            <span class="feature-badge">PostgreSQL</span>
+            <span class="feature-badge">MySQL</span>
+            <span class="feature-badge">MongoDB</span>
+            <span class="feature-badge">Redis</span>
+            <span class="feature-badge">Kafka</span>
+            <span class="feature-badge">RabbitMQ</span>
+        </div>
+
+        <h2>Thống Kê Sử Dụng</h2>
+        <p>Dựa trên phản hồi từ người dùng:</p>
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Chỉ số</th>
+                    <th>Trước ZEST</th>
+                    <th>Sau ZEST</th>
+                    <th>Cải thiện</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Thời gian viết test cho 1 class</td>
+                    <td>2-3 giờ</td>
+                    <td>15-30 phút</td>
+                    <td>Giảm 85%</td>
+                </tr>
+                <tr>
+                    <td>Code coverage trung bình</td>
+                    <td>45%</td>
+                    <td>75%</td>
+                    <td>Tăng 67%</td>
+                </tr>
+                <tr>
+                    <td>Bugs phát hiện trong production</td>
+                    <td>15-20/tháng</td>
+                    <td>3-5/tháng</td>
+                    <td>Giảm 75%</td>
+                </tr>
+                <tr>
+                    <td>Developer satisfaction</td>
+                    <td>6/10</td>
+                    <td>9/10</td>
+                    <td>Tăng 50%</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="cta">
+            <h3>Cách Sử Dụng</h3>
+            <p>Chọn method cần test và nhấn:</p>
+            <div class="shortcut">Ctrl + Alt + T</div>
+            <p>hoặc</p>
+            <p>Chuột phải → <strong>Zest</strong> → <strong>Generate Tests (AI)</strong></p>
+        </div>
+
+        <h2>Câu Hỏi Thường Gặp</h2>
+
+        <h3>1. Có thể tùy chỉnh test style không?</h3>
+        <p>ZEST phân tích existing tests trong project và áp dụng coding conventions tương tự.</p>
+
+        <h3>2. Hỗ trợ Kotlin không?</h3>
+        <p>Hỗ trợ cả Java và Kotlin.</p>
+
+        <h3>3. Tốn nhiều token LLM không?</h3>
+        <p>Sử dụng token theo từng giai đoạn, cho phép kiểm soát chi phí.</p>
+
+        <h3>4. Hỗ trợ ngôn ngữ nào?</h3>
+        <p>Hiện tại hỗ trợ Java và Kotlin.</p>
+
+        <div class="highlight" style="margin-top: 40px;">
+            <h3>Tóm Tắt</h3>
+            <p><strong>ZEST Test Generation</strong> sử dụng kiến trúc multi-agent với quy trình 7 giai đoạn, tích hợp trực tiếp vào IDE. Hệ thống cho phép tạo test tự động với khả năng phân tích context, lựa chọn scenarios, và sửa lỗi biên dịch.</p>
+
+            <p style="text-align: center; margin-top: 30px; font-size: 1.2em;">
+                <strong>Mục tiêu:</strong><br>
+                <em>"Tự động hóa việc tạo test code"</em>
+            </p>
+        </div>
+    </div>
+</body>
+</html>

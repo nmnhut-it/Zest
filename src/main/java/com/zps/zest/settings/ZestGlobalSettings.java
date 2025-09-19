@@ -59,6 +59,9 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     // Local Embedding Settings
     public boolean preferLocalEmbeddings = true;            // Prefer local Ollama embedding server when available
     public String localEmbeddingUrl = "http://localhost:11435/api/embeddings"; // Local embedding server URL
+
+    // Version tracking for update notifications
+    public String lastNotifiedVersion = null;               // Last version where update notification was shown
     
     // Default system prompts as static constants
     public static final String DEFAULT_SYSTEM_PROMPT = "You are a concise technical assistant. Keep responses brief and to the point.\n" +

@@ -6,7 +6,7 @@
 
 **ZEST** là một plugin khiêm tốn cho IntelliJ, được sinh ra từ nỗi đau của việc alt-tab qua lại giữa IDE và ChatGPT. Mình có thể không hoàn hảo, nhưng ít nhất bạn không phải copy-paste code nữa! 
 
-**Version**: 1.9.898 (JSON parsing mạnh mẽ hơn, Code Health thông minh hơn! 🚀)
+**Version**: 1.9.899 (Git UI mượt mà hơn, Browser ổn định hơn! 🚀)
 
 ## 🥺 Cài Đặt (Dễ Ợt)
 
@@ -18,13 +18,15 @@
 
 > 💌 **Chưa có tài khoản?** Nhắn AnhNT22 nhé, anh ấy tốt lắm!
 
-## 🎉 Có Gì Mới (v1.9.898)?
+## 🎉 Có Gì Mới (v1.9.899)?
 
 ### Cải tiến chính:
-- **🧠 JSON Parser thông minh hơn**: JsonParsingHelper với nhiều chiến lược dự phòng khi LLM trả về JSON lỗi
-- **💾 Code Health bền bỉ hơn**: Lưu kết quả phân tích ngay cả khi parse JSON thất bại (partial results vẫn OK!)
-- **🎯 Completion đơn giản hơn**: Bỏ logic phát hiện overlap phức tạp, gợi ý code ổn định hơn
-- **📊 Báo cáo tập trung hơn**: Chỉ hiện vấn đề nghiêm trọng nhất (max 5 issues/file)
+- **🎨 Git UI responsive hơn**: Cải thiện hiệu năng và độ mượt mà của giao diện Git
+- **🧪 Test Generation nâng cấp**: Thêm thông báo phase start và hiển thị test strategy rõ ràng hơn
+- **🛠️ Browser ổn định hơn**: Sửa lỗi null mode trong debug log, tránh crash bất ngờ
+- **📁 Dọn dẹp project**: Clean up IDEA project settings cho gọn gàng
+- **🧪 Test Scenario cải thiện**: Dialog hiển thị test scenario đẹp và rõ ràng hơn
+- **✨ UI mượt mà**: Nhiều cải tiến nhỏ trong git interface và các dialog
 
 
 ## 🎁 Mình Có Thể Giúp Gì?
@@ -170,4 +172,4 @@ ZEST có thể không phải plugin AI tốt nhất, nhưng ít nhất mình ở
 
 **ZEST** - *Plugin nhỏ bé với ước mơ lớn lao: Giúp bạn code vui vẻ hơn!* 💚
 
-*Version 1.9.898 - Vẫn đang cố gắng từng ngày*
+*Version 1.9.899 - Vẫn đang cố gắng từng ngày*

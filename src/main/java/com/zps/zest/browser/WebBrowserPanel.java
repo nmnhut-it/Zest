@@ -72,6 +72,7 @@ public class WebBrowserPanel implements Disposable {
     private final Project project;
     private final JPanel mainPanel;
     private final JCEFBrowserManager browserManager;
+    private final BrowserPurpose browserPurpose;
     private final JBTextField urlField;
     private final JButton modeButton;
     private final List<BrowserMode> browserModes = new ArrayList<>();
@@ -82,21 +83,39 @@ public class WebBrowserPanel implements Disposable {
     }
 
     /**
-     * Creates a new web browser panel.
+     * Creates a new web browser panel with default purpose.
      */
     public WebBrowserPanel(Project project) {
         this(project, true); // Default: include navigation panel
     }
-    
+
     /**
      * Creates a new web browser panel with optional navigation panel.
      */
     public WebBrowserPanel(Project project, boolean includeNavigation) {
+        this(project, includeNavigation, BrowserPurpose.WEB_BROWSER); // Default purpose
+    }
+
+    /**
+     * Creates a new web browser panel with specified purpose.
+     */
+    public WebBrowserPanel(Project project, BrowserPurpose purpose) {
+        this(project, true, purpose);
+    }
+
+    /**
+     * Creates a new web browser panel with optional navigation panel and specified purpose.
+     * @param project The project context
+     * @param includeNavigation Whether to include navigation controls
+     * @param purpose The purpose for this browser instance
+     */
+    public WebBrowserPanel(Project project, boolean includeNavigation, BrowserPurpose purpose) {
         this.project = project;
         this.mainPanel = new JPanel(new BorderLayout());
+        this.browserPurpose = purpose;
 
-        // Get browser manager from service (creates if needed)
-        this.browserManager = JCEFBrowserService.getInstance(project).getBrowserManager();
+        // Get browser manager from service for the specified purpose
+        this.browserManager = JCEFBrowserService.getInstance(project).getBrowserManager(purpose);
 
         // Initialize browser modes
         initBrowserModes();
@@ -145,6 +164,15 @@ public class WebBrowserPanel implements Disposable {
                 }
             }
         }, browserManager.getBrowser().getCefBrowser());
+
+        LOG.info("WebBrowserPanel created for project: " + project.getName() + " with purpose: " + purpose);
+    }
+
+    /**
+     * Gets the browser purpose for this panel.
+     */
+    public BrowserPurpose getBrowserPurpose() {
+        return browserPurpose;
     }
 
     public void switchToAgentMode() {

@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.898</version>
+    <version>1.9.899</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -42,6 +42,7 @@
         <backgroundPostStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.startup.PromptMigrationStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.langchain4j.agent.network.ProxyStartupActivity"/>
+        <backgroundPostStartupActivity implementation="com.zps.zest.update.VersionUpdateNotifier"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
 
@@ -242,6 +243,14 @@
             <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Generate"/>
             <keyboard-shortcut first-keystroke="ctrl alt T" keymap="$default"/>
         </action>
+
+        <!-- Test Generation Help Action -->
+        <action id="Zest.ShowTestGenerationHelp"
+                class="com.zps.zest.testgen.actions.ShowTestGenerationHelpAction"
+                text="📖 Test Generation Guide / Hướng dẫn tạo test"
+                description="View comprehensive test generation documentation / Xem tài liệu chi tiết về tạo test">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateTests"/>
+        </action>
         
         <!-- Code Health Group -->
         <group id="Zest.CodeHealth" text="Code Health / Sức khỏe code" popup="true">
@@ -367,6 +376,16 @@
 
     <!-- Change notes for version updates -->
     <change-notes><![CDATA[
+        <h3>Version 1.9.899</h3>
+        <ul>
+            <li><b>Responsive Git UI:</b> Improved responsiveness and performance of the Git interface</li>
+            <li><b>Test Generation:</b> Enhanced phase start notifications and test strategy display in test generation</li>
+            <li><b>Browser Stability:</b> Fixed null mode handling in browser debug logging to prevent crashes</li>
+            <li><b>Project Configuration:</b> Cleaned up IDEA project settings for better maintainability</li>
+            <li><b>Test Scenario Display:</b> Improved test scenario dialog with clearer formatting</li>
+            <li><b>UI Polish:</b> Various small UI improvements in git interface and dialogs</li>
+        </ul>
+
         <h3>Version 1.9.898</h3>
         <ul>
             <li><b>Smart JSON Parsing:</b> Introduced JsonParsingHelper with multiple fallback strategies for handling malformed LLM responses</li>

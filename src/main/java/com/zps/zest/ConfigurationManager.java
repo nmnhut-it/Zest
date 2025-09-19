@@ -7,6 +7,7 @@ import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.ui.Messages;
 import com.zps.zest.browser.JCEFBrowserManager;
+import com.zps.zest.browser.JCEFBrowserService;
 import com.zps.zest.browser.WebBrowserService;
 import com.zps.zest.settings.ZestGlobalSettings;
 import com.zps.zest.settings.ZestProjectSettings;
@@ -177,18 +178,15 @@ public class ConfigurationManager {
     public void setAuthToken(String authToken) {
         globalSettings.authToken = authToken;
         
-        // Notify the browser to update its stored auth token
+        // Notify all browsers in the pool to update their stored auth token
         try {
-            WebBrowserService browserService = WebBrowserService.getInstance(project);
-            if (browserService != null && browserService.getBrowserPanel() != null) {
-                JCEFBrowserManager browserManager = browserService.getBrowserPanel().getBrowserManager();
-                if (browserManager != null) {
-                    browserManager.updateAuthTokenInBrowser(authToken);
-                }
+            JCEFBrowserService browserService = JCEFBrowserService.getInstance(project);
+            if (browserService != null) {
+                browserService.updateAuthTokenInBrowser(authToken);
             }
         } catch (Exception e) {
             // Log but don't fail if browser update fails
-            LOG.warn("Could not update auth token in browser", e);
+            LOG.warn("Could not update auth token in browsers", e);
         }
     }
 
@@ -595,17 +593,14 @@ public class ConfigurationManager {
                     resultToken[0] = token.trim();
                     globalSettings.authToken = token.trim();
                     
-                    // Update the browser's auth token immediately
+                    // Update all browsers' auth tokens immediately
                     try {
-                        WebBrowserService browserService = WebBrowserService.getInstance(project);
-                        if (browserService != null && browserService.getBrowserPanel() != null) {
-                            JCEFBrowserManager browserManager = browserService.getBrowserPanel().getBrowserManager();
-                            if (browserManager != null) {
-                                browserManager.updateAuthTokenInBrowser(globalSettings.authToken);
-                            }
+                        JCEFBrowserService browserService = JCEFBrowserService.getInstance(project);
+                        if (browserService != null) {
+                            browserService.updateAuthTokenInBrowser(globalSettings.authToken);
                         }
                     } catch (Exception ex) {
-                        LOG.warn("Could not update auth token in browser", ex);
+                        LOG.warn("Could not update auth token in browsers", ex);
                     }
 
                     Messages.showInfoMessage(

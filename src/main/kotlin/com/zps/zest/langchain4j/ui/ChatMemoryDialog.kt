@@ -34,12 +34,27 @@ class ChatMemoryDialog(
     private val treeModel = DefaultTreeModel(DefaultMutableTreeNode("$agentName Conversation"))
     private val messageTree = JTree(treeModel)
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
-    
+
+    companion object {
+        /**
+         * Create a reusable chat memory panel component that can be embedded anywhere.
+         * This is the same component used in the dialog but without dialog-specific controls.
+         */
+        @JvmStatic
+        fun createChatMemoryPanel(
+            project: Project,
+            chatMemory: MessageWindowChatMemory?,
+            agentName: String = "Agent"
+        ): JComponent {
+            return ChatMemoryPanel(project, chatMemory, agentName)
+        }
+    }
+
     init {
         title = "$agentName Chat Memory"
         init()
     }
-    
+
     override fun createCenterPanel(): JComponent {
         val mainPanel = JPanel(BorderLayout())
         mainPanel.preferredSize = JBUI.size(900, 600)
@@ -498,22 +513,259 @@ private class MessageTreeCellRenderer : DefaultTreeCellRenderer() {
         leaf: Boolean, row: Int, hasFocus: Boolean
     ): Component {
         super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus)
-        
+
         if (!sel) { // Only apply colors when not selected
             val node = value as DefaultMutableTreeNode
             val userData = node.userObject
-            
+
             if (userData is MessageNodeData) {
                 foreground = when (userData.message) {
                     is SystemMessage -> if (UIUtil.isUnderDarcula()) Color(255, 200, 100) else Color(180, 120, 0)
-                    is UserMessage -> if (UIUtil.isUnderDarcula()) Color(120, 180, 255) else Color(70, 120, 200)  
+                    is UserMessage -> if (UIUtil.isUnderDarcula()) Color(120, 180, 255) else Color(70, 120, 200)
                     is AiMessage -> if (UIUtil.isUnderDarcula()) Color(120, 255, 180) else Color(0, 150, 50)
                     is ToolExecutionResultMessage -> if (UIUtil.isUnderDarcula()) Color(200, 200, 200) else Color(120, 120, 120)
                     else -> UIUtil.getTreeForeground()
                 }
             }
         }
-        
+
         return this
+    }
+}
+
+/**
+ * Reusable chat memory panel that can be embedded in other UI components.
+ * Contains the tree-based message display without dialog-specific controls.
+ */
+class ChatMemoryPanel(
+    private val project: Project,
+    private var chatMemory: MessageWindowChatMemory?,
+    private val agentName: String = "Agent"
+) : JPanel(BorderLayout()) {
+
+    private val treeModel = DefaultTreeModel(DefaultMutableTreeNode("$agentName Conversation"))
+    private val messageTree = JTree(treeModel)
+    private val statsLabel = JBLabel()
+
+    init {
+        setupUI()
+        loadMessages()
+    }
+
+    private fun setupUI() {
+        // Header with stats
+        val headerPanel = JPanel(BorderLayout())
+        headerPanel.border = EmptyBorder(10, 10, 10, 10)
+
+        val titleLabel = JBLabel("💬 $agentName Conversation")
+        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 14f)
+        headerPanel.add(titleLabel, BorderLayout.WEST)
+
+        statsLabel.foreground = UIUtil.getInactiveTextColor()
+        updateStats()
+        headerPanel.add(statsLabel, BorderLayout.EAST)
+
+        add(headerPanel, BorderLayout.NORTH)
+
+        // Tree setup
+        messageTree.setRootVisible(true)
+        messageTree.setShowsRootHandles(true)
+        messageTree.cellRenderer = MessageTreeCellRenderer()
+
+        // Double-click to view details
+        messageTree.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (e.clickCount == 2) {
+                    val path = messageTree.getPathForLocation(e.x, e.y)
+                    if (path != null) {
+                        val node = path.lastPathComponent as DefaultMutableTreeNode
+                        val nodeData = node.userObject
+                        if (nodeData is MessageNodeData) {
+                            showMessageDetails(nodeData.message)
+                        }
+                    }
+                }
+            }
+
+            override fun mousePressed(e: MouseEvent) {
+                if (e.isPopupTrigger) handlePopup(e)
+            }
+
+            override fun mouseReleased(e: MouseEvent) {
+                if (e.isPopupTrigger) handlePopup(e)
+            }
+
+            private fun handlePopup(e: MouseEvent) {
+                val path = messageTree.getPathForLocation(e.x, e.y) ?: return
+                val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
+                val nodeData = node.userObject as? MessageNodeData ?: return
+
+                messageTree.selectionPath = path
+
+                val popupMenu = JPopupMenu()
+
+                val viewDetailsItem = JMenuItem("View Details")
+                viewDetailsItem.addActionListener {
+                    showMessageDetails(nodeData.message)
+                }
+                popupMenu.add(viewDetailsItem)
+
+                popupMenu.addSeparator()
+
+                val copyItem = JMenuItem("Copy Message")
+                copyItem.addActionListener {
+                    copyMessage(nodeData.message)
+                }
+                popupMenu.add(copyItem)
+
+                popupMenu.show(messageTree, e.x, e.y)
+            }
+        })
+
+        val scrollPane = JBScrollPane(messageTree)
+        add(scrollPane, BorderLayout.CENTER)
+
+        // Footer with controls
+        val footerPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
+        footerPanel.border = EmptyBorder(5, 10, 5, 10)
+
+        val refreshButton = JButton("Refresh")
+        refreshButton.addActionListener { refresh() }
+        footerPanel.add(refreshButton)
+
+        val exportButton = JButton("Export")
+        exportButton.addActionListener { exportMemory() }
+        footerPanel.add(exportButton)
+
+        add(footerPanel, BorderLayout.SOUTH)
+    }
+
+    fun setChatMemory(memory: MessageWindowChatMemory?) {
+        this.chatMemory = memory
+        refresh()
+    }
+
+    fun refresh() {
+        loadMessages()
+        updateStats()
+    }
+
+    private fun loadMessages() {
+        val root = treeModel.root as DefaultMutableTreeNode
+        root.removeAllChildren()
+
+        val messages = getMessages()
+
+        if (messages.isEmpty()) {
+            val emptyNode = DefaultMutableTreeNode("No messages yet - start a conversation to see chat history")
+            root.add(emptyNode)
+            root.userObject = "$agentName Conversation (Empty)"
+        } else {
+            root.userObject = "$agentName Conversation (${messages.size} messages)"
+
+            messages.forEachIndexed { index, message ->
+                val nodeData = MessageNodeData(message, index)
+                val node = DefaultMutableTreeNode(nodeData)
+                root.add(node)
+            }
+        }
+
+        treeModel.reload()
+        messageTree.expandRow(0) // Expand root
+    }
+
+    private fun updateStats() {
+        statsLabel.text = if (chatMemory != null) {
+            try {
+                val count = chatMemory!!.messages().size
+                "Messages: $count"
+            } catch (e: Exception) {
+                "Messages: error"
+            }
+        } else {
+            "No chat memory"
+        }
+    }
+
+    private fun getMessages(): List<ChatMessage> {
+        return try {
+            chatMemory?.messages() ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun showMessageDetails(message: ChatMessage) {
+        val dialog = MessageDetailDialog(project, message, agentName)
+        dialog.show()
+    }
+
+    private fun copyMessage(message: ChatMessage) {
+        val content = when (message) {
+            is SystemMessage -> "System: ${message.text()}"
+            is UserMessage -> "User: ${message.singleText()}"
+            is AiMessage -> buildString {
+                message.text()?.let { append("AI: $it\n") }
+                message.toolExecutionRequests().forEach {
+                    append("Tool: ${it.name()} - ${it.arguments()}\n")
+                }
+            }
+            is ToolExecutionResultMessage -> "Tool Result: ${message.toolName()} - ${message.text()}"
+            else -> message.toString()
+        }
+
+        val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+        clipboard.setContents(StringSelection(content), null)
+    }
+
+    private fun exportMemory() {
+        val content = buildString {
+            appendLine("$agentName Chat Memory Export")
+            appendLine("=" .repeat(50))
+            appendLine("Exported: ${java.time.LocalDateTime.now()}")
+            appendLine()
+
+            getMessages().forEachIndexed { index, message ->
+                appendLine("[$index] ${getMessageTypeName(message)}")
+                appendLine("-" .repeat(40))
+
+                when (message) {
+                    is SystemMessage -> appendLine(message.text())
+                    is UserMessage -> appendLine(message.singleText())
+                    is AiMessage -> {
+                        message.text()?.let { appendLine("Response: $it") }
+                        message.toolExecutionRequests().forEach {
+                            appendLine("Tool: ${it.name()}")
+                            appendLine("Args: ${it.arguments()}")
+                        }
+                    }
+                    is ToolExecutionResultMessage -> {
+                        appendLine("Tool: ${message.toolName()}")
+                        appendLine("Result: ${message.text()}")
+                    }
+                }
+                appendLine()
+            }
+        }
+
+        val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+        clipboard.setContents(StringSelection(content), null)
+
+        JOptionPane.showMessageDialog(
+            this,
+            "Chat memory exported to clipboard",
+            "Export Complete",
+            JOptionPane.INFORMATION_MESSAGE
+        )
+    }
+
+    private fun getMessageTypeName(message: ChatMessage): String {
+        return when (message) {
+            is SystemMessage -> "System Prompt"
+            is UserMessage -> "User Message"
+            is AiMessage -> "AI Response"
+            is ToolExecutionResultMessage -> "Tool Result"
+            else -> "Message"
+        }
     }
 }

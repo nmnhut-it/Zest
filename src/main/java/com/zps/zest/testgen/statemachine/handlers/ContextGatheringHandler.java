@@ -98,9 +98,8 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             // Execute context gathering with error handling
             CompletableFuture<Void> contextFuture = contextAgent.gatherContext(
                 request,
-                null, // No test plan at this stage
-                stateMachine.getSessionId(),
-                contextUpdateCallback
+                    // No test plan at this stage
+                    contextUpdateCallback
             );
             
             // Wait for context gathering to complete

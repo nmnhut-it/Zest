@@ -25,7 +25,6 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 /**
  * AI Agent responsible for gathering project context and understanding codebase.
@@ -161,9 +160,8 @@ Stop when you can test the code without making assumptions about external resour
      * Gather context for test generation using the AI assistant.
      * Returns a completed future since the AI handles everything.
      */
-    public CompletableFuture<Void> gatherContext(Object request, Object tools,
-                                                  String systemPrompt,
-                                                  Consumer<Map<String, Object>> updateCallback) {
+    public CompletableFuture<Void> gatherContext(Object request,
+                                                 Consumer<Map<String, Object>> updateCallback) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.debug("Starting context gathering with LangChain4j orchestration");

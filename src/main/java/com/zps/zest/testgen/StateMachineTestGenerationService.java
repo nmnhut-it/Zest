@@ -33,17 +33,7 @@ public final class StateMachineTestGenerationService {
         this.project = project;
         LOG.info("StateMachineTestGenerationService initialized");
     }
-    
-    /**
-     * Start test generation using the state machine approach
-     */
-    @NotNull
-    public CompletableFuture<TestGenerationStateMachine> startTestGeneration(
-            @NotNull TestGenerationRequest request,
-            @Nullable TestGenerationEventListener eventListener) {
-        return startTestGeneration(request, eventListener, null);
-    }
-    
+
     /**
      * Start test generation with both event listener and streaming callback
      */

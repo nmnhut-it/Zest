@@ -186,7 +186,7 @@
         <!-- Open Chat in Editor Action -->
         <action id="Zest.OpenChatInEditor"
                 class="com.zps.zest.browser.actions.OpenChatInEditorAction"
-                text="💬 Open Chat / Mở chat toàn màn hình"
+                text="Open Chat / Mở chat toàn màn hình"
                 description="Open ZPS Chat in full-screen editor tab / Mở chat AI trong tab toàn màn hình">
             <add-to-group group-id="ZestGroup" anchor="first"/>
         </action>

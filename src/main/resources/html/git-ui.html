@@ -374,15 +374,42 @@
             .git-content {
                 flex-direction: column;
             }
-            
+
             .commit-panel {
                 width: 100%;
                 border-left: none;
                 border-top: 1px solid #e0e0e0;
             }
-            
+
             .dark .commit-panel {
                 border-top-color: #444;
+            }
+        }
+
+        @media (max-width: 600px) {
+            body {
+                font-size: 13px;
+            }
+
+            .btn {
+                padding: 5px 8px;
+                font-size: 12px;
+            }
+
+            .file-status {
+                width: 20px;
+                height: 20px;
+                font-size: 10px;
+            }
+
+            .commit-summary {
+                font-size: 12px;
+            }
+
+            .commit-description {
+                font-size: 12px;
+                min-height: 40px;
+                max-height: 80px;
             }
         }
     </style>

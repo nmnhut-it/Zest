@@ -6,7 +6,7 @@
 
 **ZEST** là một plugin khiêm tốn cho IntelliJ, được sinh ra từ nỗi đau của việc alt-tab qua lại giữa IDE và ChatGPT. Mình có thể không hoàn hảo, nhưng ít nhất bạn không phải copy-paste code nữa! 
 
-**Version**: 1.9.890 (vẫn còn bug đấy, nhưng ít hơn version trước 🎉)
+**Version**: 1.9.898 (JSON parsing mạnh mẽ hơn, Code Health thông minh hơn! 🚀)
 
 ## 🥺 Cài Đặt (Dễ Ợt)
 
@@ -17,6 +17,15 @@
 5. **Chọn model "Code Expert"** (nghe oai ghê nhưng thực ra cũng bình thường)
 
 > 💌 **Chưa có tài khoản?** Nhắn AnhNT22 nhé, anh ấy tốt lắm!
+
+## 🎉 Có Gì Mới (v1.9.898)?
+
+### Cải tiến chính:
+- **🧠 JSON Parser thông minh hơn**: JsonParsingHelper với nhiều chiến lược dự phòng khi LLM trả về JSON lỗi
+- **💾 Code Health bền bỉ hơn**: Lưu kết quả phân tích ngay cả khi parse JSON thất bại (partial results vẫn OK!)
+- **🎯 Completion đơn giản hơn**: Bỏ logic phát hiện overlap phức tạp, gợi ý code ổn định hơn
+- **📊 Báo cáo tập trung hơn**: Chỉ hiện vấn đề nghiêm trọng nhất (max 5 issues/file)
+
 
 ## 🎁 Mình Có Thể Giúp Gì?
 
@@ -161,4 +170,4 @@ ZEST có thể không phải plugin AI tốt nhất, nhưng ít nhất mình ở
 
 **ZEST** - *Plugin nhỏ bé với ước mơ lớn lao: Giúp bạn code vui vẻ hơn!* 💚
 
-*Version 1.9.890 - Vẫn đang cố gắng từng ngày*
+*Version 1.9.898 - Vẫn đang cố gắng từng ngày*

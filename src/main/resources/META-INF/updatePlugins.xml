@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.895">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.898">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,34 +9,40 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
-            <h3>Version 1.9.895 - RAG Removal & Inline Completion Performance Boost 🚀</h3>
-            <h4>⚡ Major Performance Improvements</h4>
+            <h3>Version 1.9.898 - Smart JSON Parsing & Code Health Resilience 🛡️</h3>
+            <h4>🧠 Smart JSON Parsing</h4>
             <ul>
-                <li><b>RAG System Removed</b> - Eliminated 50-200ms latency from inline completions by removing RAG (Retrieval Augmented Generation)</li>
-                <li><b>Faster Context Collection</b> - Inline completions now rely purely on PSI-based analysis and direct code relationships</li>
-                <li><b>Reduced Memory Usage</b> - Removed RAG chunk caching and embedding computation overhead</li>
-                <li><b>Simplified Pipeline</b> - Cleaner, more reliable completion system with fewer failure points</li>
-                <li><b>Better Responsiveness</b> - Eliminated async RAG retrieval complexity from completion flow</li>
+                <li><b>JsonParsingHelper Added</b> - New utility class with multiple fallback strategies for handling malformed LLM responses</li>
+                <li><b>Resilient Parsing</b> - Gracefully handles JSON with missing commas, unclosed brackets, and embedded code blocks</li>
+                <li><b>Partial Results Preserved</b> - Code Health analysis now displays whatever it can parse, even from broken JSON</li>
+                <li><b>Better Error Recovery</b> - Multiple parsing attempts with different strategies ensure maximum data extraction</li>
             </ul>
-            
-            <h4>🧹 Code Quality Improvements</h4>
+
+            <h4>💪 Code Health Improvements</h4>
             <ul>
-                <li><b>Removed Files</b> - Deleted InlineCompletionRAG.java and cleaned up all RAG dependencies</li>
-                <li><b>Updated Context Collectors</b> - ZestLeanContextCollectorPSI no longer includes RAG chunks or retrieval</li>
-                <li><b>Streamlined Caching</b> - LeanContextCache simplified by removing RAG-specific caching logic</li>
-                <li><b>Cleaner Prompts</b> - Prompt builders no longer include RAG context sections</li>
-                <li><b>Simplified Services</b> - PreemptiveAsyncAnalyzerService and Quick Actions no longer use RAG</li>
+                <li><b>Partial Analysis Support</b> - Code Health now stores and displays results even when parsing partially fails</li>
+                <li><b>Issue Prioritization</b> - Shows only the most critical issues (max 5 per file) for better focus</li>
+                <li><b>Storage Reliability</b> - Fixed issue where partial analysis results weren't being stored properly</li>
+                <li><b>Better Notifications</b> - Replaced blocking dialogs with non-intrusive notifications</li>
             </ul>
-            
-            <h4>🎯 What You Get</h4>
+
+            <h4>🎯 Completion System Simplification</h4>
             <ul>
-                <li><b>Instant Completions</b> - Sub-millisecond inline completion context retrieval</li>
-                <li><b>More Reliable</b> - Fewer dependencies and potential failure points</li>
-                <li><b>Better Resource Usage</b> - Lower CPU and memory consumption</li>
-                <li><b>Cleaner Codebase</b> - Removed ~2000+ lines of RAG-related code</li>
+                <li><b>Removed Overlap Detection</b> - Eliminated complex overlap detection logic for more predictable completions</li>
+                <li><b>Stable Suggestions</b> - Code suggestions are now more consistent and reliable</li>
+                <li><b>Code Cleanup</b> - Removed ~400 lines of unnecessary overlap detector code</li>
+                <li><b>Better Performance</b> - Simpler logic means faster completion processing</li>
             </ul>
-            
-            <p><em>This release dramatically improves inline completion performance by removing the RAG bottleneck while maintaining all core functionality through PSI analysis and code relationships. 🚀</em></p>
+
+            <h4>🧹 Code Quality</h4>
+            <ul>
+                <li><b>Method Refactoring</b> - All methods now under 20 lines for better maintainability</li>
+                <li><b>Cleaner Architecture</b> - Simplified completion and Code Health systems</li>
+                <li><b>Better Separation</b> - JSON parsing logic centralized in JsonParsingHelper</li>
+                <li><b>Improved Testing</b> - More focused unit tests for critical components</li>
+            </ul>
+
+            <p><em>This release makes Zest more resilient when dealing with unpredictable LLM responses while simplifying core systems for better reliability. 🚀</em></p>
         ]]></change-notes>
         <vendor>Zingplay Game Studio</vendor>
     </plugin>

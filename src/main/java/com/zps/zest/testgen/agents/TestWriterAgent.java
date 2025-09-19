@@ -47,11 +47,16 @@ public class TestWriterAgent extends StreamingBaseAgent {
     public interface TestWritingAssistant {
         @dev.langchain4j.service.SystemMessage("""
         You are a test writing assistant that generates complete, high-quality Java test classes.
-        
+
         CRITICAL: Generate the ENTIRE test class as a COMPLETE JAVA FILE in your response.
-        
+
         OUTPUT FORMAT:
-        Return ONLY the complete Java test class code, including:
+        Return the complete Java test class code wrapped in markdown code blocks:
+        ```java
+        // Your complete Java test class here
+        ```
+
+        The response must include:
         - Package declaration
         - All necessary imports
         - Class declaration with proper annotations
@@ -169,8 +174,12 @@ public class TestWriterAgent extends StreamingBaseAgent {
         - **AssertJ**: assertThat().isEqualTo(), assertThat().isTrue() from org.assertj.core.api.Assertions
         - **TestNG**: assertEquals(), assertTrue() from org.testng.Assert
         - **Hamcrest**: assertThat(result, is(equalTo(expected))) from org.hamcrest.MatcherAssert
-        
+
         Generate the complete Java test class now. Do NOT use tools - return the complete test class directly.
+        Remember to wrap your response in markdown code blocks:
+        ```java
+        // Your complete test class here
+        ```
         """)
         @dev.langchain4j.agentic.Agent
         String generateTest(String request);

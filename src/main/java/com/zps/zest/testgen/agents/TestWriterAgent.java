@@ -851,7 +851,19 @@ public class TestWriterAgent extends StreamingBaseAgent {
             prompt.append((i + 1)).append(". ").append(scenario.getName()).append("\n");
             prompt.append("   Description: ").append(scenario.getDescription()).append("\n");
             prompt.append("   Type: ").append(scenario.getType().getDisplayName()).append("\n");
-            prompt.append("   Priority: ").append(scenario.getPriority().getDisplayName()).append("\n\n");
+            prompt.append("   Priority: ").append(scenario.getPriority().getDisplayName()).append("\n");
+
+            // Include test inputs if available
+            if (!scenario.getInputs().isEmpty()) {
+                prompt.append("   Test Inputs: \n");
+                for (String input : scenario.getInputs()) {
+                    prompt.append("      - ").append(input).append("\n");
+                }
+            }
+
+            // Include expected outcome
+            prompt.append("   Expected Outcome: ").append(scenario.getExpectedOutcome()).append("\n");
+            prompt.append("\n");
         }
         
         // Add context for code generation

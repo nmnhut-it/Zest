@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.testgen.ui.model.ScenarioDisplayData
@@ -26,7 +27,7 @@ class ScenarioDetailDialog(
     
     override fun createCenterPanel(): JComponent {
         val mainPanel = JPanel(BorderLayout())
-        mainPanel.preferredSize = JBUI.size(600, 500)
+        mainPanel.preferredSize = JBUI.size(700, 600) // Increased size for better readability
         
         val content = JPanel()
         content.layout = BoxLayout(content, BoxLayout.Y_AXIS)
@@ -42,9 +43,21 @@ class ScenarioDetailDialog(
         content.add(JSeparator())
         content.add(Box.createVerticalStrut(10))
         
-        // Description
-        addSection(content, "Description", scenario.description)
-        
+        // Description - use special handling for long text
+        addTextSection(content, "Description", scenario.description)
+
+        // Test inputs
+        if (scenario.inputs.isNotEmpty()) {
+            content.add(Box.createVerticalStrut(10))
+            addListSection(content, "Test Inputs", scenario.inputs)
+        }
+
+        // Expected outcome
+        if (scenario.expectedOutcome.isNotEmpty()) {
+            content.add(Box.createVerticalStrut(10))
+            addTextSection(content, "Expected Outcome", scenario.expectedOutcome)
+        }
+
         // Expected complexity
         addSection(content, "Expected Complexity", scenario.expectedComplexity)
         
@@ -77,16 +90,43 @@ class ScenarioDetailDialog(
         val panel = JPanel(BorderLayout())
         panel.isOpaque = false
         panel.border = EmptyBorder(5, 0, 5, 0)
-        
+
         val labelComponent = JBLabel("$label:")
         labelComponent.font = labelComponent.font.deriveFont(Font.BOLD)
         labelComponent.preferredSize = Dimension(120, labelComponent.preferredSize.height)
         panel.add(labelComponent, BorderLayout.WEST)
-        
+
         val valueComponent = JBLabel(value)
         valueComponent.foreground = UIUtil.getLabelForeground()
         panel.add(valueComponent, BorderLayout.CENTER)
-        
+
+        parent.add(panel)
+    }
+
+    private fun addTextSection(parent: JPanel, label: String, value: String) {
+        val panel = JPanel(BorderLayout())
+        panel.isOpaque = false
+        panel.border = EmptyBorder(5, 0, 5, 0)
+        panel.maximumSize = Dimension(Integer.MAX_VALUE, 100) // Limit height
+
+        val labelComponent = JBLabel("$label:")
+        labelComponent.font = labelComponent.font.deriveFont(Font.BOLD)
+        labelComponent.preferredSize = Dimension(120, labelComponent.preferredSize.height)
+        labelComponent.verticalAlignment = SwingConstants.TOP
+        panel.add(labelComponent, BorderLayout.WEST)
+
+        // Use JBTextArea for text wrapping
+        val textArea = JBTextArea(value)
+        textArea.isEditable = false
+        textArea.lineWrap = true
+        textArea.wrapStyleWord = true
+        textArea.background = UIUtil.getPanelBackground()
+        textArea.foreground = UIUtil.getLabelForeground()
+        textArea.font = UIUtil.getLabelFont()
+        textArea.border = EmptyBorder(0, 0, 0, 0)
+
+        panel.add(textArea, BorderLayout.CENTER)
+
         parent.add(panel)
     }
     
@@ -95,12 +135,31 @@ class ScenarioDetailDialog(
         titleLabel.font = titleLabel.font.deriveFont(Font.BOLD)
         titleLabel.alignmentX = Component.LEFT_ALIGNMENT
         parent.add(titleLabel)
-        
+
         items.forEachIndexed { index, item ->
-            val itemLabel = JBLabel("  ${index + 1}. $item")
-            itemLabel.alignmentX = Component.LEFT_ALIGNMENT
-            itemLabel.border = EmptyBorder(2, 20, 2, 0)
-            parent.add(itemLabel)
+            val itemPanel = JPanel(BorderLayout())
+            itemPanel.isOpaque = false
+            itemPanel.border = EmptyBorder(2, 20, 2, 0)
+            itemPanel.alignmentX = Component.LEFT_ALIGNMENT
+
+            // Number label
+            val numberLabel = JBLabel("${index + 1}. ")
+            numberLabel.verticalAlignment = SwingConstants.TOP
+            numberLabel.preferredSize = Dimension(25, numberLabel.preferredSize.height)
+            itemPanel.add(numberLabel, BorderLayout.WEST)
+
+            // Item text with wrapping
+            val itemText = JBTextArea(item)
+            itemText.isEditable = false
+            itemText.lineWrap = true
+            itemText.wrapStyleWord = true
+            itemText.background = UIUtil.getPanelBackground()
+            itemText.foreground = UIUtil.getLabelForeground()
+            itemText.font = UIUtil.getLabelFont()
+            itemText.border = EmptyBorder(0, 0, 0, 0)
+            itemPanel.add(itemText, BorderLayout.CENTER)
+
+            parent.add(itemPanel)
         }
     }
     

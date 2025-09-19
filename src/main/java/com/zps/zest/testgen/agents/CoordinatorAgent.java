@@ -58,23 +58,62 @@ public class CoordinatorAgent extends StreamingBaseAgent {
     public interface TestPlanningAssistant {
         @dev.langchain4j.service.SystemMessage("""
         You are a test planning assistant that creates comprehensive test plans.
-        
+
         IMPORTANT: The target methods have already been selected by the user. Do NOT call addTargetMethod - the methods are already determined.
-        
+
         CRITICAL: Generate test scenarios ONLY for the methods that were selected by the user. Do NOT generate tests for other methods you see in the code, even if they seem related or important. Focus exclusively on the user-selected methods.
-        
+
         PROCESS:
         1. Analyze the code and set target class.
         2. Add multiple test scenarios at once using addTestScenarios (note: plural) - but ONLY for the selected methods
         3. Each scenario should specify its own type (UNIT or INTEGRATION) based on what it tests
-        
+
         Prefer quality over quantity. Keep the test focused on the selected methods only, aimed at preventing potential bugs in those specific methods. Make sure all paths and branches of the SELECTED methods are tested.
-        
+
         CRITICAL: Each test scenario should have its own test type based on what that specific scenario tests:
         - Scenarios testing pure business logic (calculations, validations) → Use "UNIT" type
-        - Scenarios testing database interactions, external APIs, file I/O → Use "INTEGRATION" type  
+        - Scenarios testing database interactions, external APIs, file I/O → Use "INTEGRATION" type
         - Analyze each scenario individually - one test class can have both unit and integration scenarios
         - Use the context analysis to determine what each scenario needs to test
+
+        TEST PLANNING PRINCIPLES:
+
+        When creating test scenarios, think like a quality assurance expert. Start with the main purpose of the method - what should it do when everything goes right? Create at least one test for normal, expected behavior with valid inputs.
+
+        Then consider what could go wrong: What if someone passes null? What if a list is empty? What if numbers are negative when they should be positive? What if a required resource isn't available?
+
+        Don't forget boundaries: If the method accepts numbers 1-100, test with 0, 1, 100, and 101. For lists, test empty, single item, and many items. For strings, test empty strings, very long strings, and special characters.
+
+        CHOOSING TEST TYPES:
+        - Use UNIT when testing pure logic like calculations or validations that don't need external systems
+        - Use INTEGRATION when code talks to databases, APIs, or files
+        - Use EDGE_CASE when testing boundary conditions or unusual but valid inputs
+        - Use ERROR_HANDLING when specifically testing how code handles failures and invalid inputs
+
+        DETERMINING PRIORITY:
+        - HIGH: Main functionality users depend on, could cause data loss/security issues, happy paths that must work
+        - MEDIUM: Common error scenarios users might encounter, important but not critical functionality
+        - LOW: Rare scenarios, minor impact if they fail, completeness rather than critical functionality
+
+        WRITING TEST INPUTS:
+        Be specific about test data. Instead of "invalid data", specify exactly what makes it invalid:
+        Good: "null customer object", "empty string ''", "negative number -5", "list with 1000 items"
+        Poor: "bad data", "invalid input", "wrong value"
+
+        WRITING EXPECTED OUTCOMES:
+        Be clear about what should happen with verifiable outcomes:
+        Good: "Returns sum of 150", "Throws IllegalArgumentException with message 'Age cannot be negative'"
+        Poor: "Works correctly", "Handles the error", "Returns the right value"
+
+        COVERAGE STRATEGY:
+        For each method, aim to cover:
+        1. The normal case - typical inputs working as expected
+        2. The null/empty case - missing or empty data handling
+        3. The boundary cases - minimum/maximum values and limits
+        4. The error case - invalid inputs that should be rejected
+        5. The integration case (if applicable) - external system interactions
+
+        Remember: Quality over quantity. Five well-thought-out tests are better than twenty random ones. Each test should have a clear purpose and test one specific scenario.
 
         You will respond using tools only. Generate multiple scenarios in a single addTestScenarios call for the selected methods only, stop when you find it is enough, or you have exceed 10 test cases per selected method.
         """)
@@ -321,61 +360,44 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         }
 
 
-        @Tool("Add multiple test scenarios to the plan at once")
-        public String addTestScenarios(List<ScenarioInput> scenarioInputs) {
-            notifyTool("addTestScenarios", scenarioInputs.size() + " scenarios");
+        @Tool("Add multiple test scenarios to the plan. Each scenario must include: " +
+              "1) name: Test method name (e.g., 'testCalculateTotal_WithValidInput_ReturnsSum'), " +
+              "2) description: Detailed explanation of what the test verifies, " +
+              "3) type: UNIT (pure logic), INTEGRATION (external systems), EDGE_CASE (boundaries), or ERROR_HANDLING (exceptions), " +
+              "4) inputs: List of specific test data (e.g., ['null value', 'empty string', 'valid data 123']), " +
+              "5) expectedOutcome: What the test should assert (e.g., 'Returns 150', 'Throws IllegalArgumentException'), " +
+              "6) priority: HIGH (critical path), MEDIUM (important cases), or LOW (nice-to-have)")
+        public String addTestScenarios(List<TestPlan.TestScenario> testScenarios) {
+            notifyTool("addTestScenarios", testScenarios.size() + " scenarios");
             int startCount = scenarios.size();
-            
-            for (ScenarioInput input : scenarioInputs) {
-                // Parse scenario type
-                TestPlan.TestScenario.Type scenarioType;
-                try {
-                    scenarioType = TestPlan.TestScenario.Type.valueOf(input.type.toUpperCase());
-                } catch (Exception e) {
-                    scenarioType = TestPlan.TestScenario.Type.UNIT;
-                }
-                
-                // Parse priority
-                TestPlan.TestScenario.Priority scenarioPriority;
-                try {
-                    scenarioPriority = TestPlan.TestScenario.Priority.valueOf(input.priority.toUpperCase());
-                } catch (Exception e) {
-                    scenarioPriority = TestPlan.TestScenario.Priority.MEDIUM;
-                }
-                
-                TestPlan.TestScenario scenario = new TestPlan.TestScenario(
-                    input.name,
-                    input.description,
-                    scenarioType,
-                    new ArrayList<>(), // Inputs will be determined during test writing
-                    "Verify " + input.name.toLowerCase(),
-                    scenarioPriority
-                );
-                
+
+            for (TestPlan.TestScenario scenario : testScenarios) {
                 scenarios.add(scenario);
                 
                 // Send scenario to UI immediately
                 if (coordinatorAgent != null) {
                     ScenarioDisplayData.Priority displayPriority = ScenarioDisplayData.Priority.MEDIUM;
                     try {
-                        displayPriority = ScenarioDisplayData.Priority.valueOf(scenarioPriority.toString());
+                        displayPriority = ScenarioDisplayData.Priority.valueOf(scenario.getPriority().toString());
                     } catch (Exception e) {
                         // Keep default MEDIUM
                     }
-                    
+
                     ScenarioDisplayData scenarioData = new ScenarioDisplayData(
-                        "scenario_" + input.name.hashCode(),
-                        input.name,
-                        input.description,
+                        "scenario_" + scenario.getName().hashCode(),
+                        scenario.getName(),
+                        scenario.getDescription(),
                         displayPriority,
-                        scenarioType.getDisplayName(), // category
+                        scenario.getType().getDisplayName(), // category
                         new ArrayList<>(), // setupSteps
                         new ArrayList<>(), // executionSteps
                         new ArrayList<>(), // assertions
+                        new ArrayList<>(scenario.getInputs()), // inputs from scenario
+                        scenario.getExpectedOutcome(), // expectedOutcome from scenario
                         "Medium", // expectedComplexity
                         ScenarioDisplayData.GenerationStatus.PENDING
                     );
-                    
+
                     TestPlanDisplayData planData = new TestPlanDisplayData(
                         targetClass.isEmpty() ? "UnknownClass" : targetClass,
                         targetMethods.isEmpty() ? List.of("unknownMethod") : new ArrayList<>(targetMethods),
@@ -385,7 +407,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                         scenarios.size(),
                         new HashSet<>() // selectedScenarios
                     );
-                    
+
                     coordinatorAgent.sendTestPlanUpdate(planData);
                 }
             }
@@ -400,22 +422,6 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             return "Added " + added + " scenarios. Total scenarios: " + scenarios.size();
         }
         
-        // Input class for batch scenario creation
-        public static class ScenarioInput {
-            public String name;
-            public String description;
-            public String type;
-            public String priority;
-            
-            public ScenarioInput() {}
-            
-            public ScenarioInput(String name, String description, String type, String priority) {
-                this.name = name;
-                this.description = description;
-                this.type = type;
-                this.priority = priority;
-            }
-        }
         
         @Tool("Set the reasoning for the test plan")
         public String setReasoning(String reasoning) {
@@ -469,6 +475,8 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                         new ArrayList<>(), // setupSteps
                         new ArrayList<>(), // executionSteps
                         new ArrayList<>(), // assertions
+                        new ArrayList<>(scenario.getInputs()), // inputs from scenario
+                        scenario.getExpectedOutcome(), // expectedOutcome from scenario
                         "Medium", // expectedComplexity
                         ScenarioDisplayData.GenerationStatus.PENDING
                     );

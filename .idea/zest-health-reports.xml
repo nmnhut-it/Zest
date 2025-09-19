@@ -10,345 +10,210 @@
               <option name="results">
                 <list>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools.readFile" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.setReasoning" />
                     <option name="healthScore" value="85" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Reasoning input is passed directly to notifyTool without sanitization, risking exposure of sensitive or malformed content in UI." />
+                          <option name="impact" value="Could display malicious or confusing text in UI if LLM generates harmful reasoning." />
+                          <option name="issueCategory" value="Security" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Sanitize reasoning string before UI output, especially if it includes code, paths, or credentials." />
+                          <option name="title" value="Unfiltered reasoning in UI" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Analysis completed" />
+                    <option name="summary" value="Potential information disclosure" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools.getFrameworkInfo" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.determineOverallTestType" />
                     <option name="healthScore" value="80" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.85" />
-                          <option name="description" value="detectFramework() called on every getFrameworkInfo(), reprocessing all data repeatedly." />
-                          <option name="impact" value="Repeated string joins and scans on each access, unnecessary CPU usage." />
-                          <option name="issueCategory" value="Performance" />
-                          <option name="severity" value="3" />
-                          <option name="suggestedFix" value="Cache result after first detection or trigger detection once per session." />
-                          <option name="title" value="Redundant framework detection" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Returns detected testing framework" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools.createContextDisplayData" />
-                    <option name="healthScore" value="78" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
                           <option name="confidence" value="0.9" />
-                          <option name="description" value="Simple string parsing may extract invalid names due to lack of AST usage." />
-                          <option name="impact" value="Incorrect class/method names in UI, misleading context display." />
+                          <option name="description" value="When no scenarios exist or types are unclear, method defaults to INTEGRATION_TESTS, which may be inappropriate for pure logic classes." />
+                          <option name="impact" value="May generate unnecessarily heavy integration tests for unit-only code, increasing execution time and complexity." />
                           <option name="issueCategory" value="Logic" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Use PSI/AST parsing instead of regex-like string scanning for accurate results." />
-                          <option name="title" value="Inaccurate class/method extraction" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Default to UNIT_TESTS when no scenarios exist, or introduce UNKNOWN type to force explicit decision." />
+                          <option name="title" value="Ambiguous default test type" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Creates UI data from file analysis" />
+                    <option name="summary" value="Default to integration test may be unsafe" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.ContextAgent.gatherContext" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.buildTestPlan" />
                     <option name="healthScore" value="75" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.9" />
-                          <option name="description" value="Exception in assistant.gatherContext() is logged but execution continues silently." />
-                          <option name="impact" value="May proceed with incomplete context, leading to incorrect or missing test generation." />
-                          <option name="issueCategory" value="Error-Handling" />
+                          <option name="confidence" value="0.95" />
+                          <option name="description" value="coordinatorAgent is accessed directly without null check when sending UI updates, risking NPE if agent is disposed or uninitialized." />
+                          <option name="impact" value="UI update fails silently or causes crash if coordinatorAgent is null during plan finalization." />
+                          <option name="issueCategory" value="Logic" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Re-throw or fail future on critical errors; validate context completeness." />
-                          <option name="title" value="Swallowed exception in AI call" />
+                          <option name="suggestedFix" value="Add null check before calling coordinatorAgent.sendTestPlanUpdate()." />
+                          <option name="title" value="Null dereference risk" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Orchestrates context gathering asynchronously" />
+                    <option name="summary" value="Potential NPE on coordinatorAgent access" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.ContextAgent.buildContextRequest" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.TestWriterAgent.buildTestWritingRequest" />
+                    <option name="healthScore" value="75" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Uses StringBuilder but appends in loop without initial capacity; minor inefficiency" />
+                          <option name="impact" value="Increased GC pressure and memory usage for large test plans" />
+                          <option name="issueCategory" value="Performance" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Pre-estimate capacity or use Collectors.joining for scenario list" />
+                          <option name="title" value="Inefficient string concatenation" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="String concatenation in loop creates excessive objects" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.TestWriterAgent.extractBeforeEachCode" />
                     <option name="healthScore" value="70" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.95" />
-                          <option name="description" value="Direct call to getVirtualFile().getPath() without null check on getTargetFile() result." />
-                          <option name="impact" value="Null pointer exception if target file is null during test generation." />
+                          <option name="description" value="Relies on method name 'setUp' to detect @BeforeEach body; fails if method is named differently" />
+                          <option name="impact" value="Setup code not extracted, leading to incomplete test generation" />
                           <option name="issueCategory" value="Logic" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Add null check for request.getTargetFile() and handle case appropriately." />
-                          <option name="title" value="Potential NPE on null target file" />
+                          <option name="suggestedFix" value="Parse method signature after @BeforeEach annotation regardless of name using PSI" />
+                          <option name="title" value="Fragile method detection logic" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Builds context request for AI agent" />
+                    <option name="summary" value="Fails to detect JUnit 5 @BeforeEach in complex code" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler.executeState" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.addTestScenarios" />
+                    <option name="healthScore" value="70" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="description" value="Method accepts List&lt;TestScenario&gt; without @NotNull annotation or null check, risking NullPointerException during iteration." />
+                          <option name="impact" value="App crash if LangChain4j or external tool passes null list, breaking test generation flow." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add @NotNull annotation and validate input with Objects.requireNonNull or early guard clause." />
+                          <option name="title" value="Null list parameter not validated" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Missing null check on critical parameter" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.TestWriterAgent.extractAfterEachCode" />
                     <option name="healthScore" value="68" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.85" />
-                          <option name="description" value="The contextUpdateCallback lambda may throw but exceptions are not caught or logged." />
-                          <option name="impact" value="Errors in progress reporting may go unnoticed, masking underlying problems." />
-                          <option name="issueCategory" value="Error-Handling" />
+                          <option name="confidence" value="0.95" />
+                          <option name="description" value="Only recognizes 'tearDown' or 'cleanUp' for @AfterEach; misses other valid names like 'reset'" />
+                          <option name="impact" value="AfterEach logic may be omitted from parsing, breaking test isolation" />
+                          <option name="issueCategory" value="Logic" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Wrap lambda body in try-catch and log any exceptions that occur." />
-                          <option name="title" value="Exception silently caught in callback" />
+                          <option name="suggestedFix" value="Detect any method immediately following @AfterEach annotation using PSI parsing" />
+                          <option name="title" value="Limited teardown method names" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Swallows context update callback exceptions" />
+                    <option name="summary" value="Incomplete detection of teardown method names" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler.isRecoverableError" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.TestWriterAgent.generateTestsWithRetry" />
                     <option name="healthScore" value="65" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
                           <option name="confidence" value="0.95" />
-                          <option name="description" value="Relies on message.contains() checks for network errors which are locale and format sensitive." />
-                          <option name="impact" value="May fail to recognize valid errors or misclassify them due to message variation." />
-                          <option name="issueCategory" value="Error-Handling" />
+                          <option name="description" value="Thread.sleep(2000) used in retry loop without off-EDT guarantee; may freeze UI if called from EDT" />
+                          <option name="impact" value="UI unresponsiveness for 2 seconds per retry, perceived as app freeze" />
+                          <option name="issueCategory" value="Performance" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Use instanceof or error codes instead of parsing exception message strings." />
-                          <option name="title" value="Fragile error detection via strings" />
+                          <option name="suggestedFix" value="Use non-blocking delay via ModalityState or background timer instead of Thread.sleep" />
+                          <option name="title" value="Thread.sleep on EDT risk" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Uses string matching on exception messages" />
+                    <option name="summary" value="Blocking sleep in retry loop risks UI freeze" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler.triggerContextUIUpdates" />
-                    <option name="healthScore" value="55" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="description" value="Invokes uiEventListener.onFileAnalyzed() without ensuring execution on EDT." />
-                          <option name="impact" value="Risks race conditions, UI corruption, or exceptions in Swing-based IntelliJ UI." />
-                          <option name="issueCategory" value="Concurrency" />
-                          <option name="severity" value="5" />
-                          <option name="suggestedFix" value="Wrap uiEventListener calls with ApplicationManager.getApplication().invokeLater()." />
-                          <option name="title" value="UI update outside EDT" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Calls UI listener directly from background logic" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.StateMachineTestGenerationService.getStateMachine" />
-                    <option name="healthScore" value="65" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.85" />
-                          <option name="description" value="Returns direct reference to state machine which can be modified externally" />
-                          <option name="impact" value="External code can alter state machine behavior or corrupt session state" />
-                          <option name="issueCategory" value="API-Usage" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Return immutable view or defensive copy if modification is not intended" />
-                          <option name="title" value="Mutable state machine leaked" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Direct exposure of mutable internal state" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.StateMachineTestGenerationService.cleanupOldSessions" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.planTests" />
                     <option name="healthScore" value="60" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.9" />
-                          <option name="description" value="Iterates over all active sessions and performs blocking removal; no background dispatch" />
-                          <option name="impact" value="May cause UI lag or freeze if many sessions exist" />
-                          <option name="issueCategory" value="Performance" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Run cleanupOldSessions in a background thread using ApplicationManager.getApplication().executeOnPooledThread" />
-                          <option name="title" value="Synchronous session cleanup on main thread" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Potential long-running operation on EDT" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.StateMachineTestGenerationService.cancelGeneration" />
-                    <option name="healthScore" value="55" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.9" />
-                          <option name="description" value="Calls stateMachine.cancel() but does not remove session from active maps or listeners" />
-                          <option name="impact" value="Leads to memory leaks and zombie sessions in service maps" />
-                          <option name="issueCategory" value="Resource" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Call cleanupSession(sessionId) after cancel to release resources" />
-                          <option name="title" value="Session not cleaned up after cancel" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Missing cleanup after cancellation" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.StateMachineTestGenerationService.startTestGeneration" />
-                    <option name="healthScore" value="50" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.95" />
-                          <option name="description" value="State machine stored in activeStateMachines but no automatic disposal on completion or failure" />
-                          <option name="impact" value="Memory leak over time as sessions accumulate without cleanup" />
-                          <option name="issueCategory" value="Resource" />
-                          <option name="severity" value="5" />
-                          <option name="suggestedFix" value="Register a finalization callback to call cleanupSession when state machine reaches terminal state" />
-                          <option name="title" value="State machine leak risk" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Missing disposal of state machine resources" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.GitCommitMessageGeneratorAction.launchGitUIWithAutoActions" />
-                    <option name="healthScore" value="75" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.9" />
-                          <option name="description" value="Dialog creation and Git UI launch occur directly on EDT without offloading heavy work." />
-                          <option name="impact" value="May freeze the IDE UI if WebBrowserPanel initialization or network calls are slow." />
-                          <option name="issueCategory" value="Performance" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Move resource-heavy setup (like openGitUI) to background thread using pooled thread." />
-                          <option name="title" value="Potentially blocking UI" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="EDT misuse: Heavy operation without background threading" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.GitCommitMessageGeneratorAction.GitCommitDialog.refreshAndInjectAutoActions" />
-                    <option name="healthScore" value="70" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.95" />
-                          <option name="description" value="Uses Thread.sleep on pooled thread which wastes thread resources during wait." />
-                          <option name="impact" value="Reduces available thread pool capacity and hurts scalability under load." />
-                          <option name="issueCategory" value="Performance" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Replace with Alarm or ScheduledExecutorService for delayed execution." />
-                          <option name="title" value="Thread.sleep blocks pooled thread" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Improper threading: Sleep on pooled thread" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.GitCommitMessageGeneratorAction.actionPerformed" />
-                    <option name="healthScore" value="70" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.95" />
-                          <option name="description" value="GitStatusCollector is created but not closed or disposed; may lead to file/process leaks." />
-                          <option name="impact" value="Could cause resource accumulation over time, especially under high invocation frequency." />
-                          <option name="issueCategory" value="Resource" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Ensure GitStatusCollector implements AutoCloseable and use try-with-resources or explicit dispose." />
-                          <option name="title" value="Resource not disposed" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Potential resource leak due to missing disposal of GitStatusCollector" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.GitCommitMessageGeneratorAction.injectAutoActionsJavaScriptWithRetries" />
-                    <option name="healthScore" value="65" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.9" />
-                          <option name="description" value="executeOnPooledThread used recursively in retry loop may spawn excessive threads." />
-                          <option name="impact" value="Risk of thread pool exhaustion or high memory usage under failure conditions." />
+                          <option name="description" value="Swing UI updates via sendToUI are called from CompletableFuture.supplyAsync, which runs on a background thread, violating Swing's single-thread rule." />
+                          <option name="impact" value="Risk of UI freezes, race conditions, or undetected rendering defects in the test planning interface." />
                           <option name="issueCategory" value="Concurrency" />
                           <option name="severity" value="5" />
-                          <option name="suggestedFix" value="Use non-blocking delay via Alarm or ScheduledExecutorService instead of recursive pooling." />
-                          <option name="title" value="Unbounded thread creation" />
+                          <option name="suggestedFix" value="Wrap all sendToUI calls in SwingUtilities.invokeLater() to ensure UI updates occur on the Event Dispatch Thread." />
+                          <option name="title" value="EDT violation in background thread" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Thread safety risk in retry logic" />
+                    <option name="summary" value="Background task uses EDT-unsafe UI updates" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.GitCommitMessageGeneratorAction.GitCommitDialog.dispose" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.TestWriterAgent.generateTests" />
                     <option name="healthScore" value="60" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.85" />
-                          <option name="description" value="dispose() doesn't cancel scheduled injectAutoActions retries, risking use-after-dispose." />
-                          <option name="impact" value="May trigger JavaScript injection after dialog disposal, causing exceptions or leaks." />
-                          <option name="issueCategory" value="Resource" />
+                          <option name="description" value="CompletableFuture runs on background thread but calls sendToUI and notifyComplete without ApplicationManager.invokeLater" />
+                          <option name="impact" value="Causes UI freezes, race conditions, or exceptions in IntelliJ platform" />
+                          <option name="issueCategory" value="Concurrency" />
                           <option name="severity" value="5" />
-                          <option name="suggestedFix" value="Track and cancel scheduled tasks (e.g., via Alarm or Future) during dispose()." />
-                          <option name="title" value="Pending tasks not canceled" />
+                          <option name="suggestedFix" value="Wrap all UI calls like sendToUI and notifyComplete in ApplicationManager.getApplication().invokeLater()" />
+                          <option name="title" value="UI access from background thread" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Missing cleanup of ApplicationManager tasks" />
+                    <option name="summary" value="Background thread uses UI operations without EDT dispatch" />
                   </SerializableMethodResult>
                 </list>
               </option>

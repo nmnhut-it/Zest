@@ -62,6 +62,8 @@ data class ScenarioDisplayData(
     val setupSteps: List<String> = emptyList(),
     val executionSteps: List<String> = emptyList(),
     val assertions: List<String> = emptyList(),
+    val inputs: List<String> = emptyList(),  // Test input data for the scenario
+    val expectedOutcome: String = "",  // Expected result/assertion description
     val expectedComplexity: String = "Medium",
     val generationStatus: GenerationStatus = GenerationStatus.PENDING
 ) {
@@ -119,7 +121,9 @@ data class ScenarioDisplayData(
                     TestPlan.TestScenario.Priority.MEDIUM -> Priority.MEDIUM
                     TestPlan.TestScenario.Priority.LOW -> Priority.LOW
                 },
-                category = scenario.type.displayName  // Use type as category
+                category = scenario.type.displayName,  // Use type as category
+                inputs = scenario.inputs,  // Pass test inputs
+                expectedOutcome = scenario.expectedOutcome  // Pass expected outcome
             )
         }
     }

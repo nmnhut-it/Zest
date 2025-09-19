@@ -141,7 +141,7 @@ public class JavaScriptBridgeActions {
             if (browserPanel != null) {
                 currentMode = browserPanel.getCurrentMode();
                 isNotAgentMode = currentMode == null || !"Agent Mode".equals(currentMode.getName());
-                LOG.debug("Browser panel found, current mode: " + currentMode.getName());
+                LOG.debug("Browser panel found, current mode: " + (currentMode != null ? currentMode.getName() : "null"));
             } else {
                 // Fallback behavior when WebBrowserPanel is not available (e.g., in chat UI)
                 LOG.info("WebBrowserPanel not available, defaulting to Agent Mode behavior for compatibility");

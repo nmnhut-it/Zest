@@ -74,7 +74,7 @@ public class ContextAgent extends StreamingBaseAgent {
         this.assistant = AgenticServices
                 .agentBuilder(ContextGatheringAssistant.class)
                 .chatModel(getChatModelWithStreaming()) // Use wrapped model for streaming
-                .maxSequentialToolsInvocations(10) // Limit tool calls per response
+                .maxSequentialToolsInvocations(20) // Limit tool calls per response
                 .chatMemory(chatMemory)
                 .tools(contextTools)
                 .build();

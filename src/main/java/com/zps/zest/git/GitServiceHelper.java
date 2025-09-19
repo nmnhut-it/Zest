@@ -70,6 +70,14 @@ public class GitServiceHelper {
     public static String executeGitCommand(String workingDir, String command) throws Exception {
         return GitCommandExecutor.executeWithGenericException(workingDir, command);
     }
+
+    /**
+     * Executes a git command and returns the output.
+     * @param expectNonZeroExit Whether non-zero exit codes are expected (e.g., for git check-ignore)
+     */
+    public static String executeGitCommand(String workingDir, String command, boolean expectNonZeroExit) throws Exception {
+        return GitCommandExecutor.executeWithGenericException(workingDir, command, expectNonZeroExit);
+    }
     
     /**
      * Gets project path from a Project instance.
@@ -106,9 +114,9 @@ public class GitServiceHelper {
         try {
             // Use git check-ignore to test if file is ignored
             // Exit code 0 means the file is ignored
-            // Exit code 1 means the file is not ignored
+            // Exit code 1 means the file is not ignored (this is expected, not an error)
             String result = executeGitCommand(projectPath,
-                "git check-ignore -- " + GitCommandExecutor.escapeFilePath(filePath));
+                "git check-ignore -- " + GitCommandExecutor.escapeFilePath(filePath), true);
 
             // If command succeeds and returns the file path, it's ignored
             return result != null && result.trim().equals(filePath.trim());

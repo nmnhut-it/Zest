@@ -15,7 +15,7 @@ public class GitCommandExecutor {
 
     /**
      * Executes a git command and returns the output.
-     * 
+     *
      * @param workingDir The working directory where the command should be executed
      * @param command The git command to execute
      * @return The command output as a string
@@ -23,6 +23,20 @@ public class GitCommandExecutor {
      * @throws InterruptedException If the command is interrupted
      */
     public static String execute(String workingDir, String command) throws IOException, InterruptedException {
+        return execute(workingDir, command, false);
+    }
+
+    /**
+     * Executes a git command and returns the output.
+     *
+     * @param workingDir The working directory where the command should be executed
+     * @param command The git command to execute
+     * @param expectNonZeroExit Whether non-zero exit codes are expected (e.g., for git check-ignore)
+     * @return The command output as a string
+     * @throws IOException If the command execution fails
+     * @throws InterruptedException If the command is interrupted
+     */
+    public static String execute(String workingDir, String command, boolean expectNonZeroExit) throws IOException, InterruptedException {
         LOG.info("Executing git command: " + command + " in directory: " + workingDir);
 
         ProcessBuilder processBuilder = new ProcessBuilder();
@@ -59,7 +73,13 @@ public class GitCommandExecutor {
             }
 
             String errorMessage = "Git command exited with code " + exitCode + ": " + error.toString();
-            LOG.error(errorMessage);
+            // Only log as error if non-zero exit wasn't expected
+            // For commands like git check-ignore, exit code 1 is normal behavior
+            if (!expectNonZeroExit) {
+                LOG.error(errorMessage);
+            } else {
+                LOG.debug("Git command exited with expected non-zero code " + exitCode);
+            }
             throw new IOException(errorMessage);
         }
 
@@ -78,8 +98,22 @@ public class GitCommandExecutor {
      * @throws Exception If the command execution fails
      */
     public static String executeWithGenericException(String workingDir, String command) throws Exception {
+        return executeWithGenericException(workingDir, command, false);
+    }
+
+    /**
+     * Executes a git command and returns the output, with exception converted to a generic Exception.
+     * This is a convenience method for compatibility with existing code.
+     *
+     * @param workingDir The working directory where the command should be executed
+     * @param command The git command to execute
+     * @param expectNonZeroExit Whether non-zero exit codes are expected (e.g., for git check-ignore)
+     * @return The command output as a string
+     * @throws Exception If the command execution fails
+     */
+    public static String executeWithGenericException(String workingDir, String command, boolean expectNonZeroExit) throws Exception {
         try {
-            return execute(workingDir, command);
+            return execute(workingDir, command, expectNonZeroExit);
         } catch (IOException | InterruptedException e) {
             throw new Exception("Git command execution failed: " + e.getMessage(), e);
         }

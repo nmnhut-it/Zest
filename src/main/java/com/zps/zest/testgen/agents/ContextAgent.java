@@ -46,16 +46,26 @@ import java.util.stream.Collectors;
  */
 public class ContextAgent extends StreamingBaseAgent {
     private static final Logger LOG = Logger.getInstance(ContextAgent.class);
+    private static final int DEFAULT_MAX_TOOLS_PER_RESPONSE = 5;
 
     private final CodeExplorationToolRegistry toolRegistry;
     private final ContextGatheringTools contextTools;
     private final ContextGatheringAssistant assistant;
     private final MessageWindowChatMemory chatMemory;
+    private int maxToolsPerResponse = DEFAULT_MAX_TOOLS_PER_RESPONSE;
 
     public ContextAgent(@NotNull Project project,
                         @NotNull ZestLangChain4jService langChainService,
                         @NotNull NaiveLLMService naiveLlmService) {
+        this(project, langChainService, naiveLlmService, DEFAULT_MAX_TOOLS_PER_RESPONSE);
+    }
+
+    public ContextAgent(@NotNull Project project,
+                        @NotNull ZestLangChain4jService langChainService,
+                        @NotNull NaiveLLMService naiveLlmService,
+                        int maxToolsPerResponse) {
         super(project, langChainService, naiveLlmService, "ContextAgent");
+        this.maxToolsPerResponse = maxToolsPerResponse;
         this.toolRegistry = project.getService(CodeExplorationToolRegistry.class);
         this.contextTools = new ContextGatheringTools(project, toolRegistry, this::sendToUI, this);
 
@@ -87,20 +97,39 @@ You are a context gatherer for test generation. The class analyzer captures all 
 
 IMPORTANT: All tool usage examples in this conversation are for illustration only. You MUST follow the actual tool signatures and parameter names as defined.
 
-RESPONSE STYLE & CONSTRAINTS:
-- Be concise: Less talk, more action. Focus on tool usage over lengthy explanations.
-- Track your tool budget: Always state how many tool calls you have left (e.g., "3/5 tools remaining").
-- Smart file exploration: Instead of reading entire files, use searchCode() with beforeLines/afterLines to see specific functions/classes in context.
-  Example: searchCode("class ClassName", "*.java", null, 5, 10) gives you the class definition with surrounding context.
-- This is much more efficient than readFile() for understanding code structure.
+RESPONSE TEMPLATE (mandatory for each tool usage):
+📍 Phase: [Discovery|Analysis|Validation|Summary]
+🔍 Exploring: [What you're looking for]
+📊 Found: [Key findings - bullet points]
+🎯 Confidence: [High|Medium|Low]
+⚡ Next: [Specific next action]
+💰 Budget: [X/N tools used] (N is provided at session start)
+
+EXPLORATION THINKING GUIDE:
+Ask yourself before each exploration:
+- Why is this important for understanding the code under test?
+- What evidence do I have that this exists? (string literals, imports, patterns)
+- How directly does this impact test generation?
+- Is there a more efficient way to gather this information?
+
+State your reasoning: "Exploring [target] because [specific evidence/reason]"
+Avoid speculation - follow concrete leads from the code.
+
+CONTEXT AWARENESS:
+- Periodically assess: "Am I gathering essential or tangential information?"
+- After multiple discoveries, synthesize: "The key insights so far are..."
+- If you notice repetition, pivot to unexplored areas
+- Be mindful of information density vs. verbosity
+- Smart file exploration: use searchCode() with beforeLines/afterLines for specific functions/classes
+  Example: searchCode("class ClassName", "*.java", null, 5, 10) gives you the class definition with context
 
 CODE UNDERSTANDING APPROACH:
 1. Review the analysis and identify what additional context is needed. State your exploration plan briefly.
-2. Use appropriate tools to gather that context (max 5 tools per response). Always start with file listing or find file.
+2. Use appropriate tools to gather that context (tool limit per response will be provided at session start). Always start with file listing or find file.
 3. Do not assume file path. Search for file path before you want to read it, unless you are absolutely sure about the path.
 Do not read a file because you think it might exist - you need to prove that it is indeed used or is related to the code under test.
 4. Prefer searchCode() with context lines over readFile(). Only use readFile() for non-code files (config, properties, etc.).
-5. After gathering context, or using 5 tools, stop and use takeNote() to record key findings
+5. After gathering context, or reaching your tool limit, stop and use takeNote() to record key findings
 
 YOUR TASK: Find context needed to understand the code under test:
 - External APIs, services or script called dynamically
@@ -183,7 +212,8 @@ Stop when you can test the code without making assumptions about external resour
      */
     private String buildContextRequest(TestGenerationRequest request, TestPlan testPlan) {
         StringBuilder prompt = new StringBuilder();
-        prompt.append("Gather comprehensive context for test generation.\n\n");
+        prompt.append("Gather comprehensive context for test generation.\n");
+        prompt.append("Tool usage limit for this session: ").append(maxToolsPerResponse).append(" tools per response.\n\n");
 
         prompt.append("Target file: ").append(request.getTargetFile().getVirtualFile().getPath()).append("\n");
 
@@ -216,6 +246,20 @@ Stop when you can test the code without making assumptions about external resour
      */
     public MessageWindowChatMemory getChatMemory() {
         return chatMemory;
+    }
+
+    /**
+     * Get the maximum number of tools allowed per response.
+     */
+    public int getMaxToolsPerResponse() {
+        return maxToolsPerResponse;
+    }
+
+    /**
+     * Set the maximum number of tools allowed per response.
+     */
+    public void setMaxToolsPerResponse(int maxToolsPerResponse) {
+        this.maxToolsPerResponse = maxToolsPerResponse;
     }
 
     /**
@@ -452,7 +496,7 @@ Stop when you can test the code without making assumptions about external resour
             return searchCode(query, null, null, 0, 0);
         }
 
-        @Tool("Record important findings that impact test generation. Keep notes concise but complete.")
+        @Tool("Record findings with clear categorization and impact assessment. Consider: Is this a dependency, configuration, runtime resource, test pattern, or key insight? How critical is it for test generation? Suggested format: '[Category] Impact Level - Finding' where categories include Dependencies, Configurations, Runtime Resources, Test Patterns, Insights")
         public String takeNote(String note) {
             notifyTool("takeNote", note.length() > 50 ? note.substring(0, 50) + "..." : note);
             String result = takeNoteTool.takeNote(note);

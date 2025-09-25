@@ -181,7 +181,7 @@ class ChatMemoryDialog(
     }
     
     private fun showMessageDetails(message: ChatMessage) {
-        val dialog = MessageDetailDialog(project, message, agentName)
+        val dialog = MessageDetailDialog(project, message, agentName, chatMemory)
         dialog.show()
     }
     
@@ -352,7 +352,8 @@ class ChatMemoryDialog(
 private class MessageDetailDialog(
     private val project: Project,
     private val message: ChatMessage,
-    agentName: String
+    agentName: String,
+    private val chatMemory: MessageWindowChatMemory? = null
 ) : DialogWrapper(project) {
 
     init {
@@ -416,6 +417,46 @@ private class MessageDetailDialog(
             is ToolExecutionResultMessage -> {
                 val content = buildString {
                     appendLine("**Tool:** ${message.toolName()}")
+
+                    // Try to find the corresponding tool request to show arguments
+                    val toolId = message.id()
+                    if (toolId != null) {
+                        appendLine("**Tool ID:** $toolId")
+                    }
+
+                    // Look for the corresponding tool call in previous AI messages
+                    var foundArgs: String? = null
+                    if (chatMemory != null && toolId != null) {
+                        try {
+                            val messages = chatMemory.messages()
+                            // Search backwards from current message
+                            for (i in messages.size - 1 downTo 0) {
+                                val msg = messages[i]
+                                if (msg is AiMessage) {
+                                    // Check each tool execution request in this AI message
+                                    for (toolRequest in msg.toolExecutionRequests()) {
+                                        if (toolRequest.id() == toolId) {
+                                            foundArgs = toolRequest.arguments()
+                                            break
+                                        }
+                                    }
+                                    if (foundArgs != null) break
+                                }
+                            }
+                        } catch (e: Exception) {
+                            // Ignore errors during lookup
+                        }
+                    }
+
+                    // Display the arguments if found
+                    if (foundArgs != null) {
+                        appendLine()
+                        appendLine("**Original Arguments:**")
+                        appendLine("```json")
+                        appendLine(foundArgs)
+                        appendLine("```")
+                    }
+
                     appendLine()
                     appendLine("**Result:**")
 
@@ -782,7 +823,7 @@ class ChatMemoryPanel(
     }
 
     private fun showMessageDetails(message: ChatMessage) {
-        val dialog = MessageDetailDialog(project, message, agentName)
+        val dialog = MessageDetailDialog(project, message, agentName, chatMemory)
         dialog.show()
     }
 

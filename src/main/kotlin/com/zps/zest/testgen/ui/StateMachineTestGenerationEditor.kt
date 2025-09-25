@@ -41,8 +41,14 @@ class StateMachineTestGenerationEditor(
     
     private val testGenService = project.getService(StateMachineTestGenerationService::class.java)
     private val component: JPanel
+
+    // Thread-safe access to current session state
+    @Volatile
     private var currentSessionId: String? = null
+    @Volatile
     private var currentStateMachine: TestGenerationStateMachine? = null
+    private val stateMachineLock = Any()
+
     private var blinkTimer: javax.swing.Timer? = null
     private var chatMemoryUpdateTimer: javax.swing.Timer? = null
     
@@ -74,6 +80,11 @@ class StateMachineTestGenerationEditor(
     // Event listener for state machine events and streaming updates
     private val eventListener = object : TestGenerationEventListener, StreamingEventListener {
         override fun onStateChanged(event: TestGenerationEvent.StateChanged) {
+            // Validate session ID to prevent processing events from old/other sessions
+            if (event.sessionId != currentSessionId) {
+                LOG.debug("Ignoring state change event from different session: ${event.sessionId} != $currentSessionId")
+                return
+            }
             SwingUtilities.invokeLater {
                 updateStateDisplay(event.newState)
                 updateControlButtons()
@@ -95,6 +106,9 @@ class StateMachineTestGenerationEditor(
         }
         
         override fun onActivityLogged(event: TestGenerationEvent.ActivityLogged) {
+            // Validate session ID
+            if (event.sessionId != currentSessionId) return
+
             SwingUtilities.invokeLater {
                 // Show activity in the log
                 logEvent("Activity: ${event.message}")
@@ -106,6 +120,9 @@ class StateMachineTestGenerationEditor(
         }
         
         override fun onErrorOccurred(event: TestGenerationEvent.ErrorOccurred) {
+            // Validate session ID
+            if (event.sessionId != currentSessionId) return
+
             SwingUtilities.invokeLater {
                 updateControlButtons()
                 logEvent("ERROR: ${event.errorMessage}" + 
@@ -141,6 +158,9 @@ class StateMachineTestGenerationEditor(
         }
         
         override fun onStepCompleted(event: TestGenerationEvent.StepCompleted) {
+            // Validate session ID
+            if (event.sessionId != currentSessionId) return
+
             SwingUtilities.invokeLater {
                 updateControlButtons()
                 logEvent("✓ Completed: ${event.summary}")
@@ -153,6 +173,9 @@ class StateMachineTestGenerationEditor(
         }
         
         override fun onUserInputRequired(event: TestGenerationEvent.UserInputRequired) {
+            // Validate session ID
+            if (event.sessionId != currentSessionId) return
+
             SwingUtilities.invokeLater {
                 updateButtonForState(null, false) // Update buttons
                 logEvent("⚠️ USER ACTION REQUIRED: ${event.prompt}")
@@ -263,8 +286,11 @@ class StateMachineTestGenerationEditor(
         
         override fun onMergedTestClassUpdated(mergedClass: com.zps.zest.testgen.model.MergedTestClass) {
             SwingUtilities.invokeLater {
+                // Thread-safe access to currentStateMachine
+                val stateMachine = synchronized(stateMachineLock) { currentStateMachine }
+
                 // Get existing test code from AITestMergerAgent if available
-                val aiMergerAgent = currentStateMachine?.sessionData?.get("aiMergerAgent") as? com.zps.zest.testgen.agents.AITestMergerAgent
+                val aiMergerAgent = stateMachine?.sessionData?.get("aiMergerAgent") as? com.zps.zest.testgen.agents.AITestMergerAgent
                 val existingTestCode = aiMergerAgent?.lastExistingTestCode
 
                 // Update panel with merged code, existing code, AND the agent for chat memory
@@ -584,15 +610,17 @@ class StateMachineTestGenerationEditor(
     }
     
     private fun startTestGeneration(request: com.zps.zest.testgen.model.TestGenerationRequest) {
-        // Check if already running
-        if (currentSessionId != null && currentStateMachine != null) {
-            val currentState = currentStateMachine?.currentState
-            if (currentState != null && currentState.isActive) {
-                logEvent("Warning: Test generation already in progress (${currentState.displayName})")
-                Messages.showWarningDialog(project, 
-                    "Test generation is already in progress.\n\nCurrent state: ${currentState.displayName}", 
-                    "Already Running")
-                return
+        // Thread-safe check if already running
+        synchronized(stateMachineLock) {
+            if (currentSessionId != null && currentStateMachine != null) {
+                val currentState = currentStateMachine?.currentState
+                if (currentState != null && currentState.isActive) {
+                    logEvent("Warning: Test generation already in progress (${currentState.displayName})")
+                    Messages.showWarningDialog(project,
+                        "Test generation is already in progress.\n\nCurrent state: ${currentState.displayName}",
+                        "Already Running")
+                    return
+                }
             }
         }
         
@@ -611,8 +639,10 @@ class StateMachineTestGenerationEditor(
         
         testGenService.startTestGeneration(request, eventListener, ::processStreamingText).thenAccept { stateMachine ->
             SwingUtilities.invokeLater {
-                currentSessionId = stateMachine.sessionId
-                currentStateMachine = stateMachine
+                synchronized(stateMachineLock) {
+                    currentSessionId = stateMachine.sessionId
+                    currentStateMachine = stateMachine
+                }
                 updateStateDisplay(stateMachine.currentState)
                 updateControlButtons()
                 updateAgentChatMemories(stateMachine.sessionId)

@@ -112,6 +112,8 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             String userProvidedCode = (String) getSessionData(stateMachine, "userProvidedCode");
             @SuppressWarnings("unchecked")
             java.util.List<String> targetMethods = (java.util.List<String>) getSessionData(stateMachine, "targetMethods");
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, String> userProvidedFiles = (java.util.Map<String, String>) getSessionData(stateMachine, "userProvidedFiles");
 
             if (targetClassAnalysis != null) {
                 sessionData.put("targetClassAnalysis", targetClassAnalysis);
@@ -124,6 +126,9 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             }
             if (userProvidedCode != null) {
                 sessionData.put("userProvidedCode", userProvidedCode);
+            }
+            if (userProvidedFiles != null) {
+                sessionData.put("userProvidedFiles", userProvidedFiles);
             }
 
             // Execute context gathering with error handling
@@ -205,9 +210,15 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             setSessionData(stateMachine, "targetClassAnalysis", analysis);
             setSessionData(stateMachine, "targetClassPath", targetFilePath);
 
-            // Extract and store target methods for context focus
-            java.util.List<String> targetMethods = extractMethodsFromAnalysis(analysis);
-            setSessionData(stateMachine, "targetMethods", targetMethods);
+            // Ensure target class is also added to contextTools analyzedClasses for CoordinatorAgent
+            contextTools.getAnalyzedClasses().put(targetFilePath, analysis);
+
+            // Get actual target methods from the request (PsiMethod objects)
+            java.util.List<String> targetMethodNames = new java.util.ArrayList<>();
+            for (com.intellij.psi.PsiMethod method : request.getTargetMethods()) {
+                targetMethodNames.add(method.getName());
+            }
+            setSessionData(stateMachine, "targetMethods", targetMethodNames);
 
             if (streamingCallback != null) {
                 streamingCallback.accept("📋 Analyzed target class: " + request.getTargetFile().getName() + "\n");
@@ -270,10 +281,18 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             if (userFiles != null && !userFiles.isEmpty()) {
                 LOG.info("Pre-loading " + userFiles.size() + " user-provided files");
 
+                // Store user-provided files for inclusion in context prompt
+                java.util.Map<String, String> userProvidedFilesMap = new java.util.HashMap<>();
+
                 for (String filePath : userFiles) {
                     try {
                         String content = contextTools.readFile(filePath);
                         if (content != null) {
+                            // Add to user-provided files map (except target file which gets special handling)
+                            if (!filePath.equals(targetFilePath)) {
+                                userProvidedFilesMap.put(filePath, content);
+                            }
+
                             // Check if this is the target file and analyze it properly
                             if (filePath.equals(targetFilePath)) {
                                 LOG.info("User provided target file - analyzing with AnalyzeClassTool");
@@ -289,9 +308,15 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                                 setSessionData(stateMachine, "targetClassAnalysis", analysis);
                                 setSessionData(stateMachine, "targetClassPath", targetFilePath);
 
-                                // Extract methods from user-provided analysis
-                                java.util.List<String> targetMethods = extractMethodsFromAnalysis(analysis);
-                                setSessionData(stateMachine, "targetMethods", targetMethods);
+                                // Ensure target class is also added to contextTools analyzedClasses for CoordinatorAgent
+                                contextTools.getAnalyzedClasses().put(targetFilePath, analysis);
+
+                                // Get actual target methods from the request (PsiMethod objects)
+                                java.util.List<String> targetMethodNames = new java.util.ArrayList<>();
+                                for (com.intellij.psi.PsiMethod method : request.getTargetMethods()) {
+                                    targetMethodNames.add(method.getName());
+                                }
+                                setSessionData(stateMachine, "targetMethods", targetMethodNames);
                             }
                             // Note: User-provided files will be accessible via context tools
 
@@ -307,6 +332,11 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                     } catch (Exception e) {
                         LOG.warn("Failed to pre-load user file: " + filePath, e);
                     }
+                }
+
+                // Store user-provided files map in session data for inclusion in context prompt
+                if (!userProvidedFilesMap.isEmpty()) {
+                    setSessionData(stateMachine, "userProvidedFiles", userProvidedFilesMap);
                 }
             }
 

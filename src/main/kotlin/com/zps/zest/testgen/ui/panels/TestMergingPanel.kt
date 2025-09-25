@@ -179,7 +179,10 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
      * Show chat memory dialog for the merger agent
      */
     private fun showChatMemoryDialog() {
+        println("DEBUG: showChatMemoryDialog called - mergerAgent: $mergerAgent")
+
         if (mergerAgent == null) {
+            println("DEBUG: mergerAgent is null")
             Messages.showWarningDialog(
                 project,
                 "No AI chat history available yet.\nChat history will be available after merging starts.",
@@ -188,13 +191,22 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
             return
         }
 
-        mergerAgent?.chatMemory?.let { memory ->
-            val dialog = ChatMemoryDialog(project, memory, "Test Merger AI")
+        val chatMemory = mergerAgent?.chatMemory
+        println("DEBUG: chatMemory: $chatMemory")
+
+        if (chatMemory != null) {
+            val messages = chatMemory.messages()
+            println("DEBUG: Chat memory has ${messages.size} messages")
+
+            val dialog = ChatMemoryDialog(project, chatMemory, "Test Merger AI")
             dialog.show()
-        } ?: run {
+        } else {
+            println("DEBUG: Chat memory is null")
             Messages.showWarningDialog(
                 project,
-                "Chat memory is not available for this merging session.",
+                "Chat memory is not available for this merging session.\n" +
+                "This might happen if the AI agent hasn't started the conversation yet.\n" +
+                "Try running the merge again or check the logs for errors.",
                 "No Chat Memory"
             )
         }
@@ -207,13 +219,19 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
      * @param agent The merger agent for chat memory (optional)
      */
     fun updateMergedClass(mergedClass: MergedTestClass, existingCode: String? = null, agent: AITestMergerAgent? = null) {
+        println("DEBUG: updateMergedClass called - agent: $agent")
+
         SwingUtilities.invokeLater {
             currentMergedClass = mergedClass
             existingTestCode = existingCode
 
             // Store the merger agent for chat memory access
             agent?.let {
+                println("DEBUG: Setting mergerAgent to: $it")
+                println("DEBUG: Agent chat memory: ${it.chatMemory}")
                 this.mergerAgent = it
+            } ?: run {
+                println("DEBUG: No agent provided to updateMergedClass")
             }
 
             // Update existing code editor

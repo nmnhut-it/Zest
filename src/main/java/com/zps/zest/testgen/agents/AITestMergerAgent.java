@@ -595,9 +595,39 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                     testCode
                 );
 
-                // Run code smell detection
-                CodeSmellDetector detector = CodeSmellDetector.getInstance(project);
-                java.util.List<CodeSmellInfo> issues = detector.findCodeSmells(java.util.Arrays.asList(virtualFile));
+                // Run validation with ProgressManager in a background task
+                java.util.concurrent.CompletableFuture<java.util.List<CodeSmellInfo>> future =
+                    new java.util.concurrent.CompletableFuture<>();
+
+                com.intellij.openapi.progress.ProgressManager.getInstance().run(
+                    new com.intellij.openapi.progress.Task.Backgroundable(project, "Validating test code", false) {
+                        @Override
+                        public void run(@org.jetbrains.annotations.NotNull com.intellij.openapi.progress.ProgressIndicator indicator) {
+                            try {
+                                indicator.setText("Analyzing test code for issues...");
+                                indicator.setIndeterminate(true);
+
+                                CodeSmellDetector detector = CodeSmellDetector.getInstance(project);
+                                java.util.List<CodeSmellInfo> detectedIssues = detector.findCodeSmells(
+                                    java.util.Arrays.asList(virtualFile)
+                                );
+                                future.complete(detectedIssues);
+                            } catch (Exception e) {
+                                LOG.warn("Error in code smell detection", e);
+                                future.complete(java.util.Collections.emptyList());
+                            }
+                        }
+                    }
+                );
+
+                // Wait for the result with a timeout
+                java.util.List<CodeSmellInfo> issues;
+                try {
+                    issues = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    LOG.warn("Validation timeout", e);
+                    return "VALIDATION_SKIPPED: Timeout during validation";
+                }
 
                 if (issues.isEmpty()) {
                     return "VALIDATION_PASSED: No issues found";

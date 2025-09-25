@@ -95,13 +95,21 @@ public class ContextAgent extends StreamingBaseAgent {
 You are a context gatherer for test generation. The class analyzer captures all static dependencies. Your goal is to understand the code under test without any assumption
 
 IMPORTANT: All tool usage examples in this conversation are for illustration only. You MUST follow the actual tool signatures and parameter names as defined.
+IMPORTANT: You MUST call markContextCollectionDone when you have gathered sufficient context to test the code without assumptions.
 
-RESPONSE TEMPLATE (mandatory for each tool usage):
+INITIAL EXPLORATION PLAN (mandatory before any tool usage):
+📋 What needs exploring, for example:
+• [Item 1: specific file/pattern/config to find]
+• [Item 2: dependencies or callers to trace]
+• [Item 3: external resources or configs or API contracts]
+• [Continue listing all items that need investigation]
+
+RESPONSE TEMPLATE (mandatory for each subsequent tool usage):
 📍 Phase: [Discovery|Analysis|Validation|Summary]
-🔍 Exploring: [What you're looking for]
+🔍 Exploring: [What you're looking for from the plan above]
 📊 Found: [Key findings - bullet points]
 🎯 Confidence: [High|Medium|Low]
-⚡ Next: [Specific next action]
+⚡ Next: [Specific next action from plan or new discovery]
 💰 Budget: [X/N tool calls used] (N is provided at session start)
 
 EXPLORATION THINKING GUIDE:
@@ -141,6 +149,8 @@ YOUR TASK: Find context needed to understand the code under test:
 - Database schemas or migration files
 - Message formats or protocol definitions
 - Existing test classes of the code under test, if such classes exist.
+- Read *.iml (Intelij project file), pom (maven), gradle or ./lib(s) folders to understand what frameworks are being used and takeNote accordingly. 
+
 
 AVOID:
 - Classes already in the static dependency graph
@@ -195,15 +205,45 @@ Stop when you can test the code without making assumptions about external resour
                 sendToUI("🤖 Assistant Response:\n");
                 sendToUI("-".repeat(40) + "\n");
 
-                // Let LangChain4j handle the entire conversation with streaming
-                try {
-                    String response = assistant.gatherContext(contextRequest);
-                    sendToUI(response);
-                    sendToUI("\n" + "-".repeat(40) + "\n");
-                } catch (Exception e) {
-                    LOG.warn("Context agent encountered an error but continuing", e);
-                    sendToUI("\n⚠️ Context agent stopped: " + e.getMessage());
-                    sendToUI("\nContinuing with available context...\n");
+                // Keep gathering context until explicitly marked as done
+                int maxIterations = 10; // Safety limit to prevent infinite loops
+                int iteration = 0;
+
+                while (!contextTools.isContextCollectionDone() && iteration < maxIterations) {
+                    iteration++;
+
+                    try {
+                        // For first iteration, use full context request; for subsequent iterations, just continue
+                        String promptToUse = (iteration == 1) ? contextRequest :
+                            "Continue gathering context. Remember to call markContextCollectionDone when you have sufficient context.";
+
+                        // Let LangChain4j handle the conversation with streaming
+                        String response = assistant.gatherContext(promptToUse);
+                        sendToUI(response);
+                        sendToUI("\n" + "-".repeat(40) + "\n");
+
+                        // Check if context collection is now done
+                        if (contextTools.isContextCollectionDone()) {
+                            sendToUI("✅ Context collection marked as complete by assistant.\n");
+                            break;
+                        }
+
+                        // If not done and not at max iterations, show continuation message
+                        if (!contextTools.isContextCollectionDone() && iteration < maxIterations) {
+                            sendToUI("\n🔄 Continuing context gathering (iteration " + (iteration + 1) + ")...\n");
+                        }
+
+                    } catch (Exception e) {
+                        LOG.warn("Context agent encountered an error but continuing", e);
+                        sendToUI("\n⚠️ Context agent stopped: " + e.getMessage());
+                        sendToUI("\nContinuing with available context...\n");
+                        break; // Exit loop on error
+                    }
+                }
+
+                if (iteration >= maxIterations && !contextTools.isContextCollectionDone()) {
+                    LOG.warn("Context gathering reached maximum iterations without completion");
+                    sendToUI("\n⚠️ Context gathering reached maximum iterations. Proceeding with gathered context.\n");
                 }
 
                 return null;
@@ -245,6 +285,19 @@ Stop when you can test the code without making assumptions about external resour
                 prompt.append("\n=== USER PROVIDED CODE ===\n");
                 prompt.append(userProvidedCode).append("\n");
                 prompt.append("=== END USER PROVIDED CODE ===\n\n");
+            }
+
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, String> userProvidedFiles = (java.util.Map<String, String>) sessionData.get("userProvidedFiles");
+            if (userProvidedFiles != null && !userProvidedFiles.isEmpty()) {
+                prompt.append("\n=== USER PROVIDED FILES ===\n");
+                for (java.util.Map.Entry<String, String> entry : userProvidedFiles.entrySet()) {
+                    prompt.append("File: ").append(entry.getKey()).append("\n");
+                    prompt.append(entry.getValue()).append("\n");
+                    prompt.append("---\n");
+                }
+                prompt.append("=== END USER PROVIDED FILES ===\n\n");
+                prompt.append("The files above were provided by the user. Use them as context but do not re-read them.\n");
             }
         }
 
@@ -328,11 +381,12 @@ Stop when you can test the code without making assumptions about external resour
         private Consumer<Map<String, Object>> contextUpdateCallback;
         private ContextAgent contextAgent; // Reference to parent agent
 
-        // Shared data storage
+        // Shared data storage - thread-safe collections for concurrent access
         private final Map<String, String> analyzedClasses = new ConcurrentHashMap<>();
-        private final List<String> contextNotes = new ArrayList<>();
+        private final List<String> contextNotes = Collections.synchronizedList(new ArrayList<>());
         private final Map<String, String> readFiles = new ConcurrentHashMap<>();
         private String frameworkInfo = "";
+        private volatile boolean contextCollectionDone = false;
 
         // Individual tool instances
         private final AnalyzeClassTool analyzeClassTool;
@@ -363,6 +417,11 @@ Stop when you can test the code without making assumptions about external resour
             contextNotes.clear();
             readFiles.clear();
             frameworkInfo = "";
+            contextCollectionDone = false;
+        }
+
+        public boolean isContextCollectionDone() {
+            return contextCollectionDone;
         }
 
         public void setSessionId(String sessionId) {
@@ -568,6 +627,20 @@ Stop when you can test the code without making assumptions about external resour
 
             notifyContextUpdate();
             return result;
+        }
+
+        @Tool("Mark context collection as complete when you have gathered sufficient context to test the code without assumptions. " +
+              "Call this tool when you are confident that you have all necessary information.")
+        public String markContextCollectionDone() {
+            notifyTool("markContextCollectionDone", "");
+            contextCollectionDone = true;
+
+            int totalItems = analyzedClasses.size() + contextNotes.size() + readFiles.size();
+            String summary = String.format("✅ Context collection completed: %d classes analyzed, %d notes taken, %d files read",
+                                         analyzedClasses.size(), contextNotes.size(), readFiles.size());
+
+            notifyContextUpdate();
+            return summary;
         }
 
         public ContextDisplayData createContextDisplayData(String filePath, String analysisResult) {

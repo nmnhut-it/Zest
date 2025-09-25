@@ -51,7 +51,6 @@ public class TestPlanningHandler extends AbstractStateHandler {
                 (com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools) getSessionData(stateMachine, "contextTools");
             
             // Create coordinator agent with contextTools reference
-            // Note: We create a new CoordinatorAgent here because the one created at session start doesn't have contextTools
             ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
             NaiveLLMService naiveLlmService = getProject(stateMachine).getService(NaiveLLMService.class);
             

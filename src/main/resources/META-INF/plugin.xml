@@ -247,7 +247,8 @@
         <!-- Test Generation Help Action -->
         <action id="Zest.ShowTestGenerationHelp"
                 class="com.zps.zest.testgen.actions.ShowTestGenerationHelpAction"
-                text="📖 Test Generation Guide / Hướng dẫn tạo test"
+                icon="AllIcons.Actions.MoveToWindow"
+                text="Test Generation Guide / Hướng dẫn tạo test"
                 description="View comprehensive test generation documentation / Xem tài liệu chi tiết về tạo test">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateTests"/>
         </action>

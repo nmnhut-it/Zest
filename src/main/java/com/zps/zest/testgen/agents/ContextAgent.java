@@ -74,7 +74,7 @@ public class ContextAgent extends StreamingBaseAgent {
         this.assistant = AgenticServices
                 .agentBuilder(ContextGatheringAssistant.class)
                 .chatModel(getChatModelWithStreaming()) // Use wrapped model for streaming
-                .maxSequentialToolsInvocations(20) // Limit tool calls per response
+                .maxSequentialToolsInvocations(40) // Limit tool calls per response
                 .chatMemory(chatMemory)
                 .tools(contextTools)
                 .build();
@@ -131,13 +131,13 @@ Do not read a file because you think it might exist - you need to prove that it 
 5. After gathering context, or reaching your tool limit, stop and use takeNote() to record key findings
 
 YOUR TASK: Find context needed to understand the code under test:
+- IMPORTANT: Find where and how other classes call or depend on the method(s) being tested.
 - External APIs, services or script called dynamically
 - Unknown function/method implementation that is crucial to code understanding or writing correct test code.
 - Configuration files (JSON, XML, YAML, properties) referenced by string literals
 - Resource files loaded at runtime
 - Database schemas or migration files
 - Message formats or protocol definitions
-- Usage of the method under test throughout the project.
 - Existing test classes of the code under test, if such classes exist.
 
 AVOID:

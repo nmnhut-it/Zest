@@ -10,6 +10,7 @@ import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.tools.AnalyzeClassTool;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.model.openai.internal.chat.ToolMessage;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -61,8 +62,8 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             // Pre-load user-provided context if available (must be done first to check for target file)
             preloadUserContext(stateMachine, contextAgent);
 
-            // Analyze the target class and add to chat memory (will skip if already in user context)
-            analyzeTargetClass(stateMachine, contextAgent);
+            // Analyze target class and store in session data for later use in context prompt
+            analyzeAndStoreTargetClass(stateMachine);
 
             // Set up UI event listener for real-time context tab updates
             if (uiEventListener != null) {
@@ -104,11 +105,32 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                 streamingCallback.accept("🔍 Starting context analysis...\n");
             }
             
+            // Prepare session data for context agent
+            Map<String, Object> sessionData = new java.util.HashMap<>();
+            String targetClassAnalysis = (String) getSessionData(stateMachine, "targetClassAnalysis");
+            String targetClassPath = (String) getSessionData(stateMachine, "targetClassPath");
+            String userProvidedCode = (String) getSessionData(stateMachine, "userProvidedCode");
+            @SuppressWarnings("unchecked")
+            java.util.List<String> targetMethods = (java.util.List<String>) getSessionData(stateMachine, "targetMethods");
+
+            if (targetClassAnalysis != null) {
+                sessionData.put("targetClassAnalysis", targetClassAnalysis);
+            }
+            if (targetClassPath != null) {
+                sessionData.put("targetClassPath", targetClassPath);
+            }
+            if (targetMethods != null) {
+                sessionData.put("targetMethods", targetMethods);
+            }
+            if (userProvidedCode != null) {
+                sessionData.put("userProvidedCode", userProvidedCode);
+            }
+
             // Execute context gathering with error handling
             CompletableFuture<Void> contextFuture = contextAgent.gatherContext(
                 request,
-                    // No test plan at this stage
-                    contextUpdateCallback
+                contextUpdateCallback,
+                sessionData
             );
             
             // Wait for context gathering to complete
@@ -152,13 +174,14 @@ public class ContextGatheringHandler extends AbstractStateHandler {
     }
 
     /**
-     * Analyze the target class and add to chat memory for the context agent.
+     * Analyze the target class and store in session data for later inclusion in context prompt.
+     * Also adds to ContextAgent tools for proper tracking and UI updates.
      */
-    private void analyzeTargetClass(@NotNull TestGenerationStateMachine stateMachine,
-                                   @NotNull ContextAgent contextAgent) {
+    private void analyzeAndStoreTargetClass(@NotNull TestGenerationStateMachine stateMachine) {
         try {
             TestGenerationRequest request = (TestGenerationRequest) getSessionData(stateMachine, "request");
-            if (request == null) return;
+            ContextAgent contextAgent = (ContextAgent) getSessionData(stateMachine, "contextAgent");
+            if (request == null || contextAgent == null) return;
 
             String targetFilePath = request.getTargetFile().getVirtualFile().getPath();
 
@@ -174,14 +197,17 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             // Create AnalyzeClassTool and analyze the target class
             AnalyzeClassTool analyzeClassTool = new AnalyzeClassTool(
                 getProject(stateMachine),
-                contextTools.getAnalyzedClasses()
+                contextTools.getAnalyzedClasses() // Use ContextAgent's map for proper tracking
             );
             String analysis = analyzeClassTool.analyzeClass(targetFilePath);
 
-            // Add to chat memory so the agent sees it in conversation
-            contextAgent.getChatMemory().add(UserMessage.from(
-                "Target class analysis:\n" + analysis
-            ));
+            // Store analysis in session data for later use in buildContextRequest
+            setSessionData(stateMachine, "targetClassAnalysis", analysis);
+            setSessionData(stateMachine, "targetClassPath", targetFilePath);
+
+            // Extract and store target methods for context focus
+            java.util.List<String> targetMethods = extractMethodsFromAnalysis(analysis);
+            setSessionData(stateMachine, "targetMethods", targetMethods);
 
             if (streamingCallback != null) {
                 streamingCallback.accept("📋 Analyzed target class: " + request.getTargetFile().getName() + "\n");
@@ -195,6 +221,33 @@ public class ContextGatheringHandler extends AbstractStateHandler {
         } catch (Exception e) {
             LOG.warn("Failed to analyze target class, continuing with context gathering", e);
         }
+    }
+
+    /**
+     * Extract method names from class analysis for context focus.
+     */
+    private java.util.List<String> extractMethodsFromAnalysis(@NotNull String analysis) {
+        java.util.List<String> methods = new java.util.ArrayList<>();
+
+        // Look for method signatures in the analysis
+        String[] lines = analysis.split("\n");
+        for (String line : lines) {
+            if ((line.contains("public ") || line.contains("private ") || line.contains("protected "))
+                && line.contains("(") && line.contains(")") && !line.contains("class ")) {
+                // Try to extract method name
+                int parenIndex = line.indexOf('(');
+                if (parenIndex > 0) {
+                    int spaceBeforeParen = line.lastIndexOf(' ', parenIndex);
+                    if (spaceBeforeParen >= 0 && spaceBeforeParen < parenIndex) {
+                        String methodName = line.substring(spaceBeforeParen + 1, parenIndex).trim();
+                        if (!methodName.isEmpty() && !methodName.contains(" ")) {
+                            methods.add(methodName);
+                        }
+                    }
+                }
+            }
+        }
+        return methods;
     }
 
     /**
@@ -232,16 +285,15 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                                 );
                                 String analysis = analyzeClassTool.analyzeClass(targetFilePath);
 
-                                // Add analyzed version to chat memory
-                                contextAgent.getChatMemory().add(UserMessage.from(
-                                    "Target class analysis (user-provided):\n" + analysis
-                                ));
-                            } else {
-                                // Regular file, just add content
-                                contextAgent.getChatMemory().add(UserMessage.from(
-                                    "File: " + filePath + "\n" + content
-                                ));
+                                // Store user-provided target analysis in session data (will override automatic analysis)
+                                setSessionData(stateMachine, "targetClassAnalysis", analysis);
+                                setSessionData(stateMachine, "targetClassPath", targetFilePath);
+
+                                // Extract methods from user-provided analysis
+                                java.util.List<String> targetMethods = extractMethodsFromAnalysis(analysis);
+                                setSessionData(stateMachine, "targetMethods", targetMethods);
                             }
+                            // Note: User-provided files will be accessible via context tools
 
                             if (streamingCallback != null) {
                                 streamingCallback.accept("📂 Loaded: " + filePath + "\n");
@@ -261,7 +313,8 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             // Pre-load user code snippets
             if (userCode != null && !userCode.trim().isEmpty()) {
                 contextTools.takeNote("User context: " + userCode);
-                contextAgent.getChatMemory().add(UserMessage.from("User code:\n" + userCode));
+                // Store user code in session data for inclusion in context prompt
+                setSessionData(stateMachine, "userProvidedCode", userCode);
 
                 if (streamingCallback != null) {
                     streamingCallback.accept("📝 Added code snippets\n");

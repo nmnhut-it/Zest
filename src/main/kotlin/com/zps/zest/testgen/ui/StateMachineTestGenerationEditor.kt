@@ -266,10 +266,10 @@ class StateMachineTestGenerationEditor(
                 // Get existing test code from AITestMergerAgent if available
                 val aiMergerAgent = currentStateMachine?.sessionData?.get("aiMergerAgent") as? com.zps.zest.testgen.agents.AITestMergerAgent
                 val existingTestCode = aiMergerAgent?.lastExistingTestCode
-                
-                // Update panel with both merged and existing code
-                testMergingPanel.updateMergedClass(mergedClass, existingTestCode)
-                
+
+                // Update panel with merged code, existing code, AND the agent for chat memory
+                testMergingPanel.updateMergedClass(mergedClass, existingTestCode, aiMergerAgent)
+
                 // Switch to test merging tab
                 tabbedPane.selectedIndex = 3
             }

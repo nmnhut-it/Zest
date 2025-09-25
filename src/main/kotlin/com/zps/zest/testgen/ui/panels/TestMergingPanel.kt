@@ -14,6 +14,8 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.zps.zest.langchain4j.ui.ChatMemoryDialog
+import com.zps.zest.testgen.agents.AITestMergerAgent
 import com.zps.zest.testgen.model.MergedTestClass
 import java.awt.*
 import java.awt.datatransfer.StringSelection
@@ -29,7 +31,8 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val statusLabel = JBLabel("No merged test class yet")
     private var existingCodeEditor: EditorEx? = null
     private var mergedCodeEditor: EditorEx? = null
-    
+    private var mergerAgent: AITestMergerAgent? = null
+
     // Current merged test class
     private var currentMergedClass: MergedTestClass? = null
     private var existingTestCode: String? = null
@@ -40,15 +43,15 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
     
     private fun setupUI() {
         background = UIUtil.getPanelBackground()
-        
+
         // Header with status
         val headerPanel = createHeaderPanel()
         add(headerPanel, BorderLayout.NORTH)
-        
-        // Main content - side by side comparison
+
+        // Main content - side by side comparison (back to original layout)
         val comparisonPanel = createComparisonPanel()
         add(comparisonPanel, BorderLayout.CENTER)
-        
+
         // Bottom action panel
         val actionPanel = createActionPanel()
         add(actionPanel, BorderLayout.SOUTH)
@@ -146,7 +149,7 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
         val panel = JPanel(FlowLayout(FlowLayout.CENTER, 10, 10))
         panel.border = JBUI.Borders.empty(10)
         panel.background = UIUtil.getPanelBackground()
-        
+
         // Primary action - Write to File
         val writeButton = JButton("💾 Write Merged Test to File")
         writeButton.font = writeButton.font.deriveFont(Font.BOLD, 14f)
@@ -154,25 +157,65 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
         writeButton.addActionListener { writeMergedTestToFile() }
         writeButton.toolTipText = "Save the merged test class to your project"
         panel.add(writeButton)
-        
-        // Secondary action - Copy
+
+        // View AI Chat Memory
+        val chatMemoryButton = JButton("💬 View AI Chat")
+        chatMemoryButton.preferredSize = JBUI.size(150, 40)
+        chatMemoryButton.addActionListener { showChatMemoryDialog() }
+        chatMemoryButton.toolTipText = "View AI conversation and validation process"
+        panel.add(chatMemoryButton)
+
+        // Copy to Clipboard
         val copyButton = JButton("📋 Copy to Clipboard")
         copyButton.preferredSize = JBUI.size(180, 40)
         copyButton.addActionListener { copyMergedClassToClipboard() }
         copyButton.toolTipText = "Copy the merged test code to clipboard"
         panel.add(copyButton)
-        
+
         return panel
     }
     
     /**
-     * Update the display with existing and merged test classes
+     * Show chat memory dialog for the merger agent
      */
-    fun updateMergedClass(mergedClass: MergedTestClass, existingCode: String? = null) {
+    private fun showChatMemoryDialog() {
+        if (mergerAgent == null) {
+            Messages.showWarningDialog(
+                project,
+                "No AI chat history available yet.\nChat history will be available after merging starts.",
+                "No Chat History"
+            )
+            return
+        }
+
+        mergerAgent?.chatMemory?.let { memory ->
+            val dialog = ChatMemoryDialog(project, memory, "Test Merger AI")
+            dialog.show()
+        } ?: run {
+            Messages.showWarningDialog(
+                project,
+                "Chat memory is not available for this merging session.",
+                "No Chat Memory"
+            )
+        }
+    }
+
+    /**
+     * Update the display with existing and merged test classes
+     * @param mergedClass The merged test result
+     * @param existingCode Existing test code if any
+     * @param agent The merger agent for chat memory (optional)
+     */
+    fun updateMergedClass(mergedClass: MergedTestClass, existingCode: String? = null, agent: AITestMergerAgent? = null) {
         SwingUtilities.invokeLater {
             currentMergedClass = mergedClass
             existingTestCode = existingCode
-            
+
+            // Store the merger agent for chat memory access
+            agent?.let {
+                this.mergerAgent = it
+            }
+
             // Update existing code editor
             existingCodeEditor?.let { editor ->
                 ApplicationManager.getApplication().runWriteAction {
@@ -180,19 +223,25 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
                     editor.document.setText(text)
                 }
             }
-            
+
             // Update merged code editor
             mergedCodeEditor?.let { editor ->
                 ApplicationManager.getApplication().runWriteAction {
                     editor.document.setText(mergedClass.fullContent)
                 }
             }
-            
-            // Update status
+
+            // Update status with validation indicator
+            val validationStatus = when {
+                mergedClass.fullContent.contains("VALIDATION_PASSED") -> " ✅ Validated"
+                mergedClass.fullContent.contains("VALIDATION_FAILED") -> " ⚠️ Has issues"
+                else -> ""
+            }
+
             val statusText = if (existingCode != null) {
-                "Merged: ${mergedClass.className} (${mergedClass.methodCount} methods)"
+                "Merged: ${mergedClass.className} (${mergedClass.methodCount} methods)$validationStatus"
             } else {
-                "New: ${mergedClass.className} (${mergedClass.methodCount} methods)"
+                "New: ${mergedClass.className} (${mergedClass.methodCount} methods)$validationStatus"
             }
             statusLabel.text = statusText
         }
@@ -366,13 +415,14 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
      * Dispose of editor resources
      */
     fun dispose() {
-        existingCodeEditor?.let { 
+        existingCodeEditor?.let {
             EditorFactory.getInstance().releaseEditor(it)
             existingCodeEditor = null
         }
-        mergedCodeEditor?.let { 
+        mergedCodeEditor?.let {
             EditorFactory.getInstance().releaseEditor(it)
             mergedCodeEditor = null
         }
+        mergerAgent = null
     }
 }

@@ -1,6 +1,9 @@
 package com.zps.zest.testgen.agents;
 
+import com.intellij.codeInsight.CodeSmellInfo;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vcs.CodeSmellDetector;
+import com.intellij.testFramework.LightVirtualFile;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.*;
@@ -87,16 +90,26 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         - Import conflicts: Use fully qualified names when needed
         - Setup conflicts: Merge or use separate setup methods
 
-        AFTER MERGING:
+        VALIDATION WORKFLOW (MANDATORY):
+        5. After merging, call validateTestCode() with className and your merged code
+        6. If validation returns VALIDATION_FAILED:
+           - Analyze each issue
+           - Fix the issues in your working copy of the code
+           - You may use applySimpleFix() to verify replacements are unique
+           - After fixing all issues in your copy, call validateTestCode() again with the fixed code
+        7. Repeat until VALIDATION_PASSED
+        8. Only call recordMergedResult() with your final VALIDATED code
+
+        AFTER VALIDATION:
         Call recordMergedResult with these parameters:
         - className: The final test class name
         - packageName: The package declaration
-        - fullContent: The complete merged Java code
+        - fullContent: The VALIDATED complete merged Java code
         - fileName: The .java filename
         - methodCount: String count of @Test methods (e.g., "12")
         - framework: "JUnit5", "JUnit4", or "TestNG"
 
-        The merged class should be complete, compilable, and follow best practices.
+        IMPORTANT: The merged test MUST pass validation before recording.
         """)
         @dev.langchain4j.agentic.Agent
         String mergeAndFixTestClass(String request);
@@ -138,15 +151,93 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                 if (lastMergedResult == null) {
                     // Fallback: AI didn't use recordMergedResult tool properly
                     LOG.warn("AI did not record merged result, creating fallback");
+
+                    // Extract the merged code from response (assuming it's the test code)
+                    String mergedCode = response;
+
+                    // Force validation before creating the result
+                    sendToUI("\n🔍 Enforcing validation...\n");
+                    String validationResult = mergingTools.validateTestCode(result.getClassName(), mergedCode);
+                    sendToUI("Validation result: " + validationResult + "\n");
+
+                    // If validation failed, attempt auto-fix
+                    if (validationResult.startsWith("VALIDATION_FAILED")) {
+                        sendToUI("⚠️ Validation failed, attempting auto-fix...\n");
+
+                        // Ask AI to fix the issues
+                        String fixRequest = "Fix these validation issues in the test class:\n\n" +
+                                          validationResult + "\n\n" +
+                                          "Test class to fix:\n```java\n" + mergedCode + "\n```\n\n" +
+                                          "Return ONLY the fixed Java code, no explanations.";
+
+                        String fixedCode = assistant.mergeAndFixTestClass(fixRequest);
+
+                        // Validate again
+                        String revalidationResult = mergingTools.validateTestCode(result.getClassName(), fixedCode);
+                        sendToUI("Re-validation result: " + revalidationResult + "\n");
+
+                        if (revalidationResult.startsWith("VALIDATION_PASSED")) {
+                            mergedCode = fixedCode;
+                            sendToUI("✅ Validation passed after auto-fix\n");
+                        } else {
+                            sendToUI("⚠️ Validation still has issues, proceeding with best effort\n");
+                            // Use the fixed version even if not perfect
+                            mergedCode = fixedCode;
+                        }
+                    }
+
+                    // Count actual test methods in the merged code
+                    int actualMethodCount = countTestMethods(mergedCode);
+
                     lastMergedResult = new MergedTestClass(
                         result.getClassName(),
                         result.getPackageName(),
-                        response, // Assume the response is the merged code
+                        mergedCode,
                         result.getClassName() + ".java",
                         mergingTools.determineOutputPath(result.getClassName(), result.getPackageName()),
-                        result.getMethodCount(),
+                        actualMethodCount,
                         result.getFramework()
                     );
+                } else {
+                    // AI used recordMergedResult, but let's still validate
+                    sendToUI("\n🔍 Validating AI-merged result...\n");
+                    String validationResult = mergingTools.validateTestCode(
+                        lastMergedResult.getClassName(),
+                        lastMergedResult.getFullContent()
+                    );
+
+                    if (validationResult.startsWith("VALIDATION_FAILED")) {
+                        sendToUI("⚠️ AI-merged result has validation issues:\n" + validationResult + "\n");
+
+                        // Attempt to fix
+                        String fixRequest = "Fix these validation issues in the test class:\n\n" +
+                                          validationResult + "\n\n" +
+                                          "Test class to fix:\n```java\n" + lastMergedResult.getFullContent() + "\n```\n\n" +
+                                          "Return ONLY the fixed Java code, no explanations.";
+
+                        String fixedCode = assistant.mergeAndFixTestClass(fixRequest);
+
+                        // Re-validate
+                        String revalidationResult = mergingTools.validateTestCode(lastMergedResult.getClassName(), fixedCode);
+
+                        if (revalidationResult.startsWith("VALIDATION_PASSED")) {
+                            // Update the merged result with fixed code
+                            lastMergedResult = new MergedTestClass(
+                                lastMergedResult.getClassName(),
+                                lastMergedResult.getPackageName(),
+                                fixedCode,
+                                lastMergedResult.getFileName(),
+                                lastMergedResult.getFullFilePath(),
+                                lastMergedResult.getMethodCount(),
+                                lastMergedResult.getFramework()
+                            );
+                            sendToUI("✅ Validation passed after auto-fix\n");
+                        } else {
+                            sendToUI("⚠️ Could not fully resolve validation issues\n");
+                        }
+                    } else {
+                        sendToUI("✅ Validation passed\n");
+                    }
                 }
 
                 // Summary
@@ -338,49 +429,21 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         // Default to standard Maven/Gradle structure
         return new java.io.File(baseDir, "src/test/java").getAbsolutePath();
     }
-    
+
     /**
-     * Review test class for issues and return detailed analysis
+     * Count the number of @Test methods in the code
      */
-    @NotNull
-    public CompletableFuture<String> reviewTestClass(@NotNull String testClassCode) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                LOG.debug("Starting test class review");
-                
-                String reviewRequest = "REVIEW TASK: Analyze this test class for issues\n\n" +
-                    "Please identify:\n" +
-                    "1. COMPILATION_ERRORS: Missing imports, syntax errors, undefined references\n" +
-                    "2. LOGICAL_ISSUES: Missing assertions, empty methods, incomplete setup\n" +
-                    "3. QUALITY_IMPROVEMENTS: Poor naming, missing annotations, no documentation\n\n" +
-                    "Test Class:\n```java\n" + testClassCode + "\n```\n\n" +
-                    "Format your response EXACTLY as:\n" +
-                    "COMPILATION_ERRORS:\n" +
-                    "- Line X: Description\n\n" +
-                    "LOGICAL_ISSUES:\n" +
-                    "- Line X: Description\n\n" +
-                    "QUALITY_IMPROVEMENTS:\n" +
-                    "- Line X: Description\n\n" +
-                    "SUGGESTIONS:\n" +
-                    "- Suggestion text";
-                
-                // Use the AI assistant to review
-                String reviewResult = assistant.mergeAndFixTestClass(reviewRequest);
-                
-                // If AI returns code instead of review, extract issues from the improvements made
-                if (reviewResult.startsWith("package ")) {
-                    return extractIssuesFromComparison(testClassCode, reviewResult);
-                }
-                
-                return reviewResult;
-                
-            } catch (Exception e) {
-                LOG.error("Test review failed", e);
-                return "REVIEW_ERROR:\n- Failed to analyze test class: " + e.getMessage();
+    private int countTestMethods(String code) {
+        int count = 0;
+        String[] lines = code.split("\n");
+        for (String line : lines) {
+            if (line.trim().startsWith("@Test")) {
+                count++;
             }
-        });
+        }
+        return count;
     }
-    
+
     /**
      * Auto-fix issues in test class
      */
@@ -511,6 +574,70 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             try {
                 String path = determineOutputPath(className, packageName);
                 return "PATH: " + path;
+            } catch (Exception e) {
+                return "ERROR: " + e.getMessage();
+            }
+        }
+
+        @Tool("Validate test code using IntelliJ's code analysis")
+        public String validateTestCode(String className, String testCode) {
+            notifyTool("validateTestCode", className);
+
+            try {
+                // Get Java file type
+                com.intellij.openapi.fileTypes.FileType javaFileType =
+                    com.intellij.openapi.fileTypes.FileTypeManager.getInstance().getFileTypeByExtension("java");
+
+                // Create virtual file for validation
+                LightVirtualFile virtualFile = new LightVirtualFile(
+                    className + ".java",
+                    javaFileType,
+                    testCode
+                );
+
+                // Run code smell detection
+                CodeSmellDetector detector = CodeSmellDetector.getInstance(project);
+                java.util.List<CodeSmellInfo> issues = detector.findCodeSmells(java.util.Arrays.asList(virtualFile));
+
+                if (issues.isEmpty()) {
+                    return "VALIDATION_PASSED: No issues found";
+                }
+
+                // Format issues for AI to fix
+                StringBuilder result = new StringBuilder("VALIDATION_FAILED:\n");
+                for (CodeSmellInfo issue : issues) {
+                    result.append(String.format("Line %d: %s\n",
+                        issue.getStartLine(),
+                        issue.getDescription()));
+                }
+                return result.toString();
+
+            } catch (Exception e) {
+                LOG.warn("Error validating test code", e);
+                // Don't block on validation errors - let the code proceed
+                return "VALIDATION_SKIPPED: " + e.getMessage();
+            }
+        }
+
+        @Tool("Apply simple text replacement to fix code issue")
+        public String applySimpleFix(String testCode, String oldText, String newText) {
+            notifyTool("applySimpleFix", "Replacing text");
+
+            try {
+                if (!testCode.contains(oldText)) {
+                    return "ERROR: Text not found. Check exact match including whitespace.";
+                }
+
+                // Check for uniqueness
+                int firstIndex = testCode.indexOf(oldText);
+                int lastIndex = testCode.lastIndexOf(oldText);
+                if (firstIndex != lastIndex) {
+                    return "ERROR: Multiple occurrences found. Be more specific.";
+                }
+
+                // Just confirm the fix can be applied, don't return the whole code
+                return "SUCCESS: Replacement confirmed. Apply this change to your working copy.";
+
             } catch (Exception e) {
                 return "ERROR: " + e.getMessage();
             }

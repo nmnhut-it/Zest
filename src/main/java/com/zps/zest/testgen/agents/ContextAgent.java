@@ -74,7 +74,7 @@ public class ContextAgent extends StreamingBaseAgent {
         this.assistant = AgenticServices
                 .agentBuilder(ContextGatheringAssistant.class)
                 .chatModel(getChatModelWithStreaming()) // Use wrapped model for streaming
-                .maxSequentialToolsInvocations(40) // Limit tool calls per response
+                .maxSequentialToolsInvocations(maxToolsPerResponse*2) // Use the same limit as told to AI
                 .chatMemory(chatMemory)
                 .tools(contextTools)
                 .build();
@@ -102,7 +102,7 @@ RESPONSE TEMPLATE (mandatory for each tool usage):
 📊 Found: [Key findings - bullet points]
 🎯 Confidence: [High|Medium|Low]
 ⚡ Next: [Specific next action]
-💰 Budget: [X/N tools used] (N is provided at session start)
+💰 Budget: [X/N tool calls used] (N is provided at session start)
 
 EXPLORATION THINKING GUIDE:
 Ask yourself before each exploration:
@@ -164,6 +164,15 @@ Stop when you can test the code without making assumptions about external resour
      */
     public CompletableFuture<Void> gatherContext(Object request,
                                                  Consumer<Map<String, Object>> updateCallback) {
+        return gatherContext(request, updateCallback, null);
+    }
+
+    /**
+     * Gather context for test generation with session data.
+     */
+    public CompletableFuture<Void> gatherContext(Object request,
+                                                 Consumer<Map<String, Object>> updateCallback,
+                                                 Map<String, Object> sessionData) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.debug("Starting context gathering with LangChain4j orchestration");
@@ -175,7 +184,7 @@ Stop when you can test the code without making assumptions about external resour
                 // Build the context request
                 String contextRequest;
                 if (request instanceof TestGenerationRequest) {
-                    contextRequest = buildContextRequest((TestGenerationRequest) request, null);
+                    contextRequest = buildContextRequest((TestGenerationRequest) request, null, sessionData);
                 } else {
                     contextRequest = request.toString();
                 }
@@ -210,12 +219,34 @@ Stop when you can test the code without making assumptions about external resour
     /**
      * Build the initial context request.
      */
-    private String buildContextRequest(TestGenerationRequest request, TestPlan testPlan) {
+    private String buildContextRequest(TestGenerationRequest request, TestPlan testPlan, Map<String, Object> sessionData) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("Gather comprehensive context for test generation.\n");
         prompt.append("Tool usage limit for this session: ").append(maxToolsPerResponse).append(" tool calls per response.\n\n");
 
-        prompt.append("Target class analysis is already provided in the chat history above. Do not re-analyze it.\n");
+        // Include target class analysis from session data if available
+        if (sessionData != null) {
+            String targetClassAnalysis = (String) sessionData.get("targetClassAnalysis");
+            if (targetClassAnalysis != null && !targetClassAnalysis.trim().isEmpty()) {
+                prompt.append("=== TARGET CLASS ANALYSIS ===\n");
+                prompt.append(targetClassAnalysis).append("\n");
+                prompt.append("=== END TARGET CLASS ANALYSIS ===\n\n");
+                prompt.append("The target class analysis above is complete. Do not re-analyze this class.\n");
+            }
+
+            @SuppressWarnings("unchecked")
+            java.util.List<String> targetMethods = (java.util.List<String>) sessionData.get("targetMethods");
+            if (targetMethods != null && !targetMethods.isEmpty()) {
+                prompt.append("Target methods to focus on: ").append(String.join(", ", targetMethods)).append("\n");
+            }
+
+            String userProvidedCode = (String) sessionData.get("userProvidedCode");
+            if (userProvidedCode != null && !userProvidedCode.trim().isEmpty()) {
+                prompt.append("\n=== USER PROVIDED CODE ===\n");
+                prompt.append(userProvidedCode).append("\n");
+                prompt.append("=== END USER PROVIDED CODE ===\n\n");
+            }
+        }
 
         // Check if user has provided context
         if (request.hasUserProvidedContext()) {

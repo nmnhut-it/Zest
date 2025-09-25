@@ -110,7 +110,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
         
         ADAPT YOUR OUTPUT to use the DETECTED framework, not a default assumption.
         
-        F.I.R.S.T Principles:
+        F.I.R.S.T Principles: 
         - Fast: Tests should run quickly 
         - Independent: Tests shouldn't depend on each other
         - Repeatable: Same result every time

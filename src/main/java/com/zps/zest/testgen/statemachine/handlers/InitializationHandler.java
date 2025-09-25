@@ -23,10 +23,10 @@ public class InitializationHandler extends AbstractStateHandler {
         try {
             String[] steps = {
                 "Validating test generation request",
-                "Setting up session data", 
+                "Setting up session data",
                 "Preparing workflow"
             };
-            
+
             executeWithActivityLogging(stateMachine, steps, (stepIndex, stepDescription) -> {
                 switch (stepIndex) {
                     case 0:
@@ -40,10 +40,10 @@ public class InitializationHandler extends AbstractStateHandler {
                         break;
                 }
             });
-            
-            return StateResult.success(null, "Initialization completed successfully", 
+
+            return StateResult.success(null, "Initialization completed successfully",
                                      TestGenerationState.GATHERING_CONTEXT);
-            
+
         } catch (Exception e) {
             return StateResult.failure(e, true, "Failed to initialize test generation session");
         }
@@ -88,7 +88,7 @@ public class InitializationHandler extends AbstractStateHandler {
         // Set up any workflow-specific data or configurations
         setSessionData(stateMachine, "workflowPhase", "initialization");
         setSessionData(stateMachine, "retryCount", 0);
-        
+
         LOG.info("Workflow preparation completed");
     }
 }

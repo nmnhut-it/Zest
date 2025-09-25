@@ -15,114 +15,88 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * AI-based test merger that generates complete, merged test classes
- * Replaces complex PSI-based merging with intelligent LLM-based merging
+ * Uses agentic architecture with tools for file access and result recording
  */
 public class AITestMergerAgent extends StreamingBaseAgent {
     private final TestMergingAssistant assistant;
     private final MessageWindowChatMemory chatMemory;
-    private final ExistingTestAnalyzer existingTestAnalyzer;
+    private final TestMergingTools mergingTools;
     private String lastExistingTestCode = null; // Store for UI display
-    
+    private MergedTestClass lastMergedResult = null; // Store the merged result
+
     public AITestMergerAgent(@NotNull Project project,
                             @NotNull ZestLangChain4jService langChainService,
                             @NotNull NaiveLLMService naiveLlmService) {
         super(project, langChainService, naiveLlmService, "AITestMergerAgent");
-        this.existingTestAnalyzer = new ExistingTestAnalyzer(project);
-        
+        this.mergingTools = new TestMergingTools(project, this::sendToUI);
+
         // Build the agent with streaming support
         this.chatMemory = MessageWindowChatMemory.withMaxMessages(50);
         this.assistant = AgenticServices
                 .agentBuilder(TestMergingAssistant.class)
                 .chatModel(getChatModelWithStreaming())
-                .maxSequentialToolsInvocations(5) // Simple merging, fewer tools needed
+                .maxSequentialToolsInvocations(10) // Allow multiple tool calls for the workflow
                 .chatMemory(chatMemory)
-                .tools(new DummyTool()) // Dummy tool to satisfy parallelToolCalls requirement
+                .tools(mergingTools) // Use the actual merging tools
                 .build();
     }
     
     /**
-     * AI assistant for intelligent test class merging with integrated error review and fixing
+     * AI assistant for intelligent test class merging using tools
      */
     public interface TestMergingAssistant {
         @dev.langchain4j.service.SystemMessage("""
-        You are an intelligent test merging and review assistant that creates complete, well-structured test classes.
-        
-        CRITICAL OUTPUT REQUIREMENT:
-        You must return ONLY pure Java code - NO tool calls, NO explanations, NO markdown blocks.
-        
-        CORE RESPONSIBILITIES:
-        1. **Merge Tests**: Generate complete Java test class that intelligently merges new/existing tests
-        2. **Review Code**: Analyze merged test class for compilation and logical errors  
-        3. **Fix Issues**: Automatically correct detected problems
-        
+        You are an intelligent test merging coordinator that orchestrates test class merging using tools.
+
+        WORKFLOW:
+        1. Use findExistingTest(targetClass) to check for existing test class
+        2. Analyze the new test class and existing test (if found)
+        3. Intelligently merge them following the rules below
+        4. Call recordMergedResult() with the merged test details
+
         MERGING RULES:
         1. **Preserve Existing Tests**: Never remove or modify existing test methods
-        2. **Avoid Duplicates**: Don't add methods that already exist (check method names)
+        2. **Avoid Duplicates**: Skip test methods that already exist (same method name)
         3. **Framework Consistency**: Use the same testing framework as existing tests
-        4. **Import Management**: Deduplicate imports, keep existing ones, add new ones as needed
+        4. **Import Management**: Merge imports intelligently (remove duplicates, keep all needed)
         5. **Code Style**: Match the existing code style and patterns
-        6. **Setup/Teardown**: Consolidate setup/teardown methods intelligently
-        
-        ERROR DETECTION & FIXING (automatically applied during merging):
-        1. **Compilation Errors**:
-           - Missing imports (add required imports)
-           - Syntax errors (fix brackets, semicolons, etc.)
-           - Type mismatches (correct variable types)
-           - Undefined references (fix class/method names)
-           
-        2. **Logical Errors**:
-           - Missing assertions (add appropriate assertEquals, assertTrue, etc.)
-           - Empty test methods (implement Given-When-Then pattern)
-           - Incomplete test setup (ensure proper initialization)
-           - Unused fields/methods (remove or utilize properly)
-           - Missing exception testing (add assertThrows where appropriate)
-           
-        3. **Quality Issues**:
-           - Inconsistent naming (standardize method names)
-           - Missing @Test annotations (add where needed)
-           - Poor assertion messages (add meaningful failure messages)
-           - Missing test documentation (add comments for complex scenarios)
-        
+        6. **Setup/Teardown**: Consolidate @BeforeEach/@AfterEach methods intelligently
+
+        TEST WRITING PRINCIPLES (apply when merging):
+        1. **PREFER TESTCONTAINERS over mocking** for:
+           - Database interactions (PostgreSQL, MySQL, MongoDB containers)
+           - Message queues (Kafka, RabbitMQ containers)
+           - External services (Redis, Elasticsearch containers)
+
+        2. **F.I.R.S.T Principles**:
+           - Fast: Tests should run quickly
+           - Independent: No test dependencies
+           - Repeatable: Same result every time
+           - Self-validating: Clear pass/fail
+           - Timely: Right test approach for dependencies
+
+        3. **Test Method Standards**:
+           - Name format: testMethod_WhenCondition_ThenExpectedResult
+           - Test ONE scenario per method
+           - Use Given-When-Then pattern
+           - Include meaningful assertions
+
         CONFLICT RESOLUTION:
-        - If method names conflict: Add suffix like "2" or rename descriptively  
-        - If framework conflicts: Prefer existing framework, adapt new tests
-        - If import conflicts: Use fully qualified names when necessary
-        - If setup conflicts: Merge setup code or use separate setup methods
-        
-        STRICT OUTPUT FORMAT:
-        Return ONLY the complete Java test class code starting with package declaration:
-        
-        package com.example.test;
-        
-        import org.junit.jupiter.api.Test;
-        // ... other imports
-        
-        public class ExampleTest {
-            // ... field declarations
-            
-            @BeforeEach
-            void setUp() {
-                // setup code
-            }
-            
-            @Test
-            void testMethod_WhenCondition_ThenExpectedResult() {
-                // test implementation with assertions
-            }
-            
-            // ... other test methods
-        }
-        
-        CRITICAL RULES:
-        - NO tool calls like markDone() or markMergeDone()
-        - NO explanations before or after the code
-        - NO markdown code blocks (```java)
-        - NO comments about what you're doing
-        - START immediately with "package" statement
-        - END immediately after closing brace "}"
-        - The merged class should be PRODUCTION-READY with all issues automatically resolved
-        
-        RESPOND WITH PURE JAVA CODE ONLY.
+        - Method name conflicts: Add numeric suffix or rename descriptively
+        - Framework conflicts: Prefer existing framework
+        - Import conflicts: Use fully qualified names when needed
+        - Setup conflicts: Merge or use separate setup methods
+
+        AFTER MERGING:
+        Call recordMergedResult with these parameters:
+        - className: The final test class name
+        - packageName: The package declaration
+        - fullContent: The complete merged Java code
+        - fileName: The .java filename
+        - methodCount: String count of @Test methods (e.g., "12")
+        - framework: "JUnit5", "JUnit4", or "TestNG"
+
+        The merged class should be complete, compilable, and follow best practices.
         """)
         @dev.langchain4j.agentic.Agent
         String mergeAndFixTestClass(String request);
@@ -132,59 +106,61 @@ public class AITestMergerAgent extends StreamingBaseAgent {
      * Merge generated test class with existing test file (if any)
      */
     @NotNull
-    public CompletableFuture<MergedTestClass> mergeTests(@NotNull TestGenerationResult result, 
+    public CompletableFuture<MergedTestClass> mergeTests(@NotNull TestGenerationResult result,
                                                          @NotNull ContextAgent.ContextGatheringTools contextTools) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.debug("Starting AI-based test merging for: " + result.getClassName());
-                
+
+                // Reset the last merged result
+                lastMergedResult = null;
+
                 // Notify UI
                 notifyStart();
                 sendToUI("🤖 AI-based test merging starting...\n\n");
-                
+
                 // Build the merging request
-                String mergeRequest = buildMergeRequest(result, contextTools);
-                
+                String mergeRequest = buildMergeRequest(result);
+
                 // Send the request to UI
                 sendToUI("📋 Merge Request:\n" + mergeRequest + "\n\n");
                 sendToUI("🤖 Assistant Response:\n");
                 sendToUI("-".repeat(40) + "\n");
-                
-                // Let AI generate the complete merged and reviewed test class
-                String mergedTestCode = assistant.mergeAndFixTestClass(mergeRequest);
-                
+
+                // Let the AI orchestrate the merging using tools
+                String response = assistant.mergeAndFixTestClass(mergeRequest);
+
                 // Send response to UI
-                sendToUI(mergedTestCode);
+                sendToUI(response);
                 sendToUI("\n" + "-".repeat(40) + "\n");
-                
-                // Extract metadata from the merged result
-                String className = extractClassName(mergedTestCode, result.getClassName());
-                String packageName = extractPackageName(mergedTestCode, result.getPackageName());
-                int methodCount = countTestMethods(mergedTestCode);
-                
-                // Create the merged test class result
-                MergedTestClass mergedTestClass = new MergedTestClass(
-                    className,
-                    packageName,
-                    mergedTestCode,
-                    className + ".java",
-                    determineOutputPath(result, contextTools),
-                    methodCount,
-                    result.getFramework()
-                );
-                
+
+                // Check if the AI successfully recorded the result
+                if (lastMergedResult == null) {
+                    // Fallback: AI didn't use recordMergedResult tool properly
+                    LOG.warn("AI did not record merged result, creating fallback");
+                    lastMergedResult = new MergedTestClass(
+                        result.getClassName(),
+                        result.getPackageName(),
+                        response, // Assume the response is the merged code
+                        result.getClassName() + ".java",
+                        mergingTools.determineOutputPath(result.getClassName(), result.getPackageName()),
+                        result.getMethodCount(),
+                        result.getFramework()
+                    );
+                }
+
                 // Summary
                 sendToUI("\n📊 Merge Summary:\n");
-                sendToUI("  • Final class: " + className + "\n");
-                sendToUI("  • Package: " + packageName + "\n");
-                sendToUI("  • Total methods: " + methodCount + "\n");
-                sendToUI("  • Framework: " + result.getFramework() + "\n");
+                sendToUI("  • Final class: " + lastMergedResult.getClassName() + "\n");
+                sendToUI("  • Package: " + lastMergedResult.getPackageName() + "\n");
+                sendToUI("  • Total methods: " + lastMergedResult.getMethodCount() + "\n");
+                sendToUI("  • Framework: " + lastMergedResult.getFramework() + "\n");
                 notifyComplete();
-                
-                LOG.debug("AI test merging complete: " + methodCount + " total methods");
-                
-                return mergedTestClass;
-                
+
+                LOG.debug("AI test merging complete: " + lastMergedResult.getMethodCount() + " total methods");
+
+                return lastMergedResult;
+
             } catch (Exception e) {
                 LOG.error("AI test merging failed", e);
                 sendToUI("\n❌ AI test merging failed: " + e.getMessage() + "\n");
@@ -196,76 +172,36 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     /**
      * Build the merge request with all necessary context
      */
-    private String buildMergeRequest(TestGenerationResult result, ContextAgent.ContextGatheringTools contextTools) {
+    private String buildMergeRequest(TestGenerationResult result) {
         StringBuilder request = new StringBuilder();
-        
-        request.append("MERGE TASK: Create a complete test class by intelligently merging new and existing tests\n\n");
-        
-        // New test class information
-        request.append("=== NEW TEST CLASS TO MERGE ===\n");
+
+        request.append("MERGE TASK: Intelligently merge the new test class with any existing test class\n\n");
+
+        // Target class information
+        request.append("Target Class: ").append(result.getTargetClass()).append("\n");
+        request.append("Test Class Name: ").append(result.getClassName()).append("\n");
         request.append("Package: ").append(result.getPackageName()).append("\n");
-        request.append("Class: ").append(result.getClassName()).append("\n");
-        request.append("Framework: ").append(result.getFramework()).append("\n");
-        request.append("Methods to add: ").append(result.getMethodCount()).append("\n\n");
-        
+        request.append("Framework: ").append(result.getFramework()).append("\n\n");
+
+        // New test class to merge
+        request.append("NEW TEST CLASS TO MERGE:\n");
+        request.append("```java\n");
+
         // Use the complete test class from TestWriterAgent if available
         String newTestClass = result.getCompleteTestClass();
         if (newTestClass == null || newTestClass.isEmpty()) {
             // Fallback to generating from components if complete class not available
             newTestClass = generateCompleteTestClass(result);
         }
-        request.append("NEW TEST CLASS CODE:\n");
-        request.append("```java\n").append(newTestClass).append("\n```\n\n");
-        
-        // Check for existing test file
-        try {
-            ExistingTestAnalyzer.ExistingTestClass existingTest = 
-                com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
-                    (com.intellij.openapi.util.Computable<ExistingTestAnalyzer.ExistingTestClass>) () -> 
-                        existingTestAnalyzer.findExistingTestClass(result.getTargetClass())
-                );
-            
-            if (existingTest != null) {
-                request.append("=== EXISTING TEST CLASS FOUND ===\n");
-                request.append("Existing file: ").append(existingTest.getFilePath()).append("\n");
-                request.append("Existing class: ").append(existingTest.getClassName()).append("\n");
-                request.append("Existing methods: ").append(existingTest.getTestMethodCount()).append("\n");
-                
-                // Get source code from PSI class
-                String existingCode = com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
-                    (com.intellij.openapi.util.Computable<String>) () -> 
-                        getSourceCodeFromPsiClass(existingTest.getPsiClass())
-                );
-                if (existingCode != null && !existingCode.isEmpty()) {
-                    lastExistingTestCode = existingCode; // Store for UI
-                    request.append("\nEXISTING TEST CLASS CODE:\n");
-                    request.append("```java\n").append(existingCode).append("\n```\n\n");
-                } else {
-                    lastExistingTestCode = null;
-                    request.append("(Could not read existing test class code)\n\n");
-                }
-                
-                request.append("MERGE INSTRUCTIONS:\n");
-                request.append("1. Keep ALL existing test methods exactly as they are\n");
-                request.append("2. Add new test methods from the new class, avoiding duplicates\n");
-                request.append("3. Merge imports (deduplicate, keep all necessary ones)\n");
-                request.append("4. Consolidate setup/teardown methods intelligently\n");
-                request.append("5. Use the existing framework and code style\n");
-                request.append("6. Resolve any naming conflicts by renaming new methods\n");
-            } else {
-                request.append("=== NO EXISTING TEST CLASS FOUND ===\n");
-                request.append("This is a new test class - return the new test class as-is.\n");
-                lastExistingTestCode = null; // No existing test
-            }
-        } catch (Exception e) {
-            LOG.warn("Could not analyze existing test class", e);
-            request.append("=== EXISTING TEST ANALYSIS FAILED ===\n");
-            request.append("Could not check for existing tests: ").append(e.getMessage()).append("\n");
-            request.append("Proceeding with new test class only.\n");
-        }
-        
-        request.append("\nGenerate the complete merged Java test class.");
-        
+        request.append(newTestClass);
+        request.append("\n```\n\n");
+
+        request.append("INSTRUCTIONS:\n");
+        request.append("1. First use findExistingTest(\"").append(result.getTargetClass()).append("\") to check for existing tests\n");
+        request.append("2. If existing test is found, merge intelligently following the merging rules\n");
+        request.append("3. If no existing test, the new test class becomes the final result\n");
+        request.append("4. Call recordMergedResult() with the final merged test class details\n");
+
         return request.toString();
     }
     
@@ -354,95 +290,6 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     }
     
     /**
-     * Extract class name from merged test code
-     */
-    private String extractClassName(String testCode, String fallback) {
-        // Look for class declaration
-        String[] lines = testCode.split("\n");
-        for (String line : lines) {
-            if (line.contains("class ") && line.contains("{")) {
-                String[] parts = line.split("\\s+");
-                for (int i = 0; i < parts.length - 1; i++) {
-                    if (parts[i].equals("class")) {
-                        String className = parts[i + 1].replaceAll("[^a-zA-Z0-9_]", "");
-                        if (!className.isEmpty()) {
-                            return className;
-                        }
-                    }
-                }
-            }
-        }
-        return fallback;
-    }
-    
-    /**
-     * Extract package name from merged test code
-     */
-    private String extractPackageName(String testCode, String fallback) {
-        // Look for package declaration
-        String[] lines = testCode.split("\n");
-        for (String line : lines) {
-            if (line.trim().startsWith("package ")) {
-                String packageLine = line.trim();
-                if (packageLine.endsWith(";")) {
-                    return packageLine.substring(8, packageLine.length() - 1).trim();
-                }
-            }
-        }
-        return fallback;
-    }
-    
-    /**
-     * Count test methods in merged test code
-     */
-    private int countTestMethods(String testCode) {
-        int count = 0;
-        String[] lines = testCode.split("\n");
-        for (String line : lines) {
-            if (line.trim().startsWith("@Test")) {
-                count++;
-            }
-        }
-        return count;
-    }
-    
-    /**
-     * Determine output path for the test file
-     */
-    private String determineOutputPath(TestGenerationResult result, ContextAgent.ContextGatheringTools contextTools) {
-        // Check if existing test file has a different path
-        try {
-            ExistingTestAnalyzer.ExistingTestClass existingTest = 
-                com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
-                    (com.intellij.openapi.util.Computable<ExistingTestAnalyzer.ExistingTestClass>) () -> 
-                        existingTestAnalyzer.findExistingTestClass(result.getTargetClass())
-                );
-            if (existingTest != null) {
-                // Return the existing test's absolute path
-                return existingTest.getFilePath();
-            }
-        } catch (Exception e) {
-            LOG.warn("Could not determine existing test path", e);
-        }
-        
-        // Find the best test source root
-        String testSourceRoot = findBestTestSourceRoot();
-        
-        // Build the full absolute path using File to handle path separators correctly
-        java.io.File testDir = new java.io.File(testSourceRoot);
-        
-        // Create package directories path
-        String packagePath = result.getPackageName().replace('.', java.io.File.separatorChar);
-        java.io.File packageDir = packagePath.isEmpty() ? testDir : new java.io.File(testDir, packagePath);
-        
-        // Create the full file path
-        java.io.File testFile = new java.io.File(packageDir, result.getClassName() + ".java");
-        
-        // Return the absolute path
-        return testFile.getAbsolutePath();
-    }
-    
-    /**
      * Find the best test source root from project modules
      */
     private String findBestTestSourceRoot() {
@@ -490,28 +337,6 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         
         // Default to standard Maven/Gradle structure
         return new java.io.File(baseDir, "src/test/java").getAbsolutePath();
-    }
-    
-    
-    /**
-     * Get source code from PSI class
-     */
-    private String getSourceCodeFromPsiClass(com.intellij.psi.PsiClass psiClass) {
-        if (psiClass == null) {
-            return null;
-        }
-        
-        try {
-            // Get the containing file and extract its text
-            com.intellij.psi.PsiFile containingFile = psiClass.getContainingFile();
-            if (containingFile != null) {
-                return containingFile.getText();
-            }
-        } catch (Exception e) {
-            LOG.warn("Could not extract source code from PSI class: " + psiClass.getName(), e);
-        }
-        
-        return null;
     }
     
     /**
@@ -582,41 +407,6 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         });
     }
     
-    /**
-     * Extract issues by comparing original and improved code
-     */
-    private String extractIssuesFromComparison(String original, String improved) {
-        StringBuilder issues = new StringBuilder();
-        
-        issues.append("DETECTED_IMPROVEMENTS:\n");
-        
-        // Check for added imports
-        if (!original.contains("import org.junit") && improved.contains("import org.junit")) {
-            issues.append("- Line 1: Added missing JUnit imports\n");
-        }
-        
-        // Check for assertion additions
-        int originalAsserts = countOccurrences(original, "assert");
-        int improvedAsserts = countOccurrences(improved, "assert");
-        if (improvedAsserts > originalAsserts) {
-            issues.append("- Multiple lines: Added missing assertions to test methods\n");
-        }
-        
-        // Generic improvement message
-        issues.append("- Overall: Code has been improved and fixed\n");
-        
-        return issues.toString();
-    }
-    
-    private int countOccurrences(String text, String pattern) {
-        int count = 0;
-        int index = 0;
-        while ((index = text.indexOf(pattern, index)) != -1) {
-            count++;
-            index += pattern.length();
-        }
-        return count;
-    }
     
     @NotNull
     public MessageWindowChatMemory getChatMemory() {
@@ -633,13 +423,141 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     }
     
     /**
-     * Dummy tool to satisfy parallelToolCalls requirement when no real tools are needed
+     * Test merging tools - concrete implementations for file access and result recording
      */
-    public static class DummyTool {
-        
-        @Tool("Mark merge task as done - no-op tool for compatibility")
-        public String markMergeDone(String status) {
-            return "Merge status: " + status;
+    public class TestMergingTools {
+        private final Project project;
+        private final ExistingTestAnalyzer existingTestAnalyzer;
+        private final java.util.function.Consumer<String> toolNotifier;
+
+        public TestMergingTools(@NotNull Project project,
+                               @Nullable java.util.function.Consumer<String> toolNotifier) {
+            this.project = project;
+            this.existingTestAnalyzer = new ExistingTestAnalyzer(project);
+            this.toolNotifier = toolNotifier;
+        }
+
+        private void notifyTool(String toolName, String params) {
+            if (toolNotifier != null) {
+                toolNotifier.accept(String.format("🔧 %s(%s)\n", toolName, params));
+            }
+        }
+
+        @Tool("Find existing test class for the target class if it exists")
+        public String findExistingTest(String targetClassName) {
+            notifyTool("findExistingTest", targetClassName);
+
+            try {
+                ExistingTestAnalyzer.ExistingTestClass existingTest =
+                    com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
+                        (com.intellij.openapi.util.Computable<ExistingTestAnalyzer.ExistingTestClass>) () ->
+                            existingTestAnalyzer.findExistingTestClass(targetClassName)
+                    );
+
+                if (existingTest != null) {
+                    String existingCode = com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
+                        (com.intellij.openapi.util.Computable<String>) () ->
+                            getSourceCodeFromPsiClass(existingTest.getPsiClass())
+                    );
+
+                    if (existingCode != null && !existingCode.isEmpty()) {
+                        lastExistingTestCode = existingCode;
+                        return "EXISTING_TEST_FOUND:\n" + existingCode;
+                    }
+                }
+
+                lastExistingTestCode = null;
+                return "NO_EXISTING_TEST";
+
+            } catch (Exception e) {
+                LOG.warn("Error finding existing test for: " + targetClassName, e);
+                return "ERROR: " + e.getMessage();
+            }
+        }
+
+        @Tool("Record the merged test class result")
+        public String recordMergedResult(String className, String packageName,
+                                        String fullContent, String fileName,
+                                        String methodCount, String framework) {
+            notifyTool("recordMergedResult", className);
+
+            try {
+                // Determine the output path
+                String outputPath = determineOutputPath(className, packageName);
+
+                // Create MergedTestClass object
+                lastMergedResult = new MergedTestClass(
+                    className,
+                    packageName,
+                    fullContent,
+                    fileName,
+                    outputPath,
+                    Integer.parseInt(methodCount),
+                    framework
+                );
+
+                return "RECORDED: " + className + " with " + methodCount + " test methods";
+
+            } catch (Exception e) {
+                LOG.error("Failed to record merged result", e);
+                return "ERROR: " + e.getMessage();
+            }
+        }
+
+        @Tool("Validate and determine the output path for the test class")
+        public String validateTestPath(String packageName, String className) {
+            notifyTool("validateTestPath", className);
+
+            try {
+                String path = determineOutputPath(className, packageName);
+                return "PATH: " + path;
+            } catch (Exception e) {
+                return "ERROR: " + e.getMessage();
+            }
+        }
+
+        private String determineOutputPath(String className, String packageName) {
+            // Check if existing test file has a path
+            try {
+                ExistingTestAnalyzer.ExistingTestClass existingTest =
+                    com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
+                        (com.intellij.openapi.util.Computable<ExistingTestAnalyzer.ExistingTestClass>) () ->
+                            existingTestAnalyzer.findExistingTestClass(className.replace("Test", ""))
+                    );
+                if (existingTest != null) {
+                    return existingTest.getFilePath();
+                }
+            } catch (Exception e) {
+                LOG.warn("Could not determine existing test path", e);
+            }
+
+            // Find the best test source root
+            String testSourceRoot = findBestTestSourceRoot();
+
+            // Build the full path
+            java.io.File testDir = new java.io.File(testSourceRoot);
+            String packagePath = packageName.replace('.', java.io.File.separatorChar);
+            java.io.File packageDir = packagePath.isEmpty() ? testDir : new java.io.File(testDir, packagePath);
+            java.io.File testFile = new java.io.File(packageDir, className + ".java");
+
+            return testFile.getAbsolutePath();
+        }
+
+        private String getSourceCodeFromPsiClass(com.intellij.psi.PsiClass psiClass) {
+            if (psiClass == null) {
+                return null;
+            }
+
+            try {
+                com.intellij.psi.PsiFile containingFile = psiClass.getContainingFile();
+                if (containingFile != null) {
+                    return containingFile.getText();
+                }
+            } catch (Exception e) {
+                LOG.warn("Could not extract source code from PSI class: " + psiClass.getName(), e);
+            }
+
+            return null;
         }
     }
 }

@@ -19,6 +19,8 @@ public class TestGenerationRequest {
     private final String selectedCode; // Selected code snippet
     private final TestType testType;
     private final Map<String, String> additionalContext;
+    private final List<String> userProvidedFiles; // User-selected related files
+    private final String userProvidedCode; // User-provided code snippets
     
     public enum TestType {
         UNIT_TESTS("Generate unit tests"),
@@ -45,11 +47,26 @@ public class TestGenerationRequest {
                                 @Nullable String selectedCode,
                                 @NotNull TestType testType,
                                 @Nullable Map<String, String> additionalContext) {
+        this(targetFile, targetMethods, selectedCode, testType, additionalContext, null, null);
+    }
+
+    /**
+     * Full constructor with user-provided context support.
+     */
+    public TestGenerationRequest(@NotNull PsiFile targetFile,
+                                 @NotNull List<PsiMethod> targetMethods,
+                                @Nullable String selectedCode,
+                                @NotNull TestType testType,
+                                @Nullable Map<String, String> additionalContext,
+                                @Nullable List<String> userProvidedFiles,
+                                @Nullable String userProvidedCode) {
         this.targetFile = targetFile;
         this.targetMethods = targetMethods != null ? new ArrayList<>(targetMethods) : new ArrayList<>();
         this.selectedCode = selectedCode;
         this.testType = testType;
         this.additionalContext = additionalContext != null ? additionalContext : Map.of();
+        this.userProvidedFiles = userProvidedFiles != null ? new ArrayList<>(userProvidedFiles) : new ArrayList<>();
+        this.userProvidedCode = userProvidedCode;
     }
     
     @NotNull
@@ -82,11 +99,25 @@ public class TestGenerationRequest {
         return selectedCode != null && !selectedCode.isEmpty();
     }
 
+    @NotNull
+    public List<String> getUserProvidedFiles() {
+        return new ArrayList<>(userProvidedFiles);
+    }
+
+    @Nullable
+    public String getUserProvidedCode() {
+        return userProvidedCode;
+    }
+
+    public boolean hasUserProvidedContext() {
+        return !userProvidedFiles.isEmpty() || (userProvidedCode != null && !userProvidedCode.trim().isEmpty());
+    }
+
     @Nullable
     public String getOption(@NotNull String key) {
         return additionalContext.get(key);
     }
-    
+
     public boolean getBooleanOption(@NotNull String key, boolean defaultValue) {
         String value = additionalContext.get(key);
         return value != null ? Boolean.parseBoolean(value) : defaultValue;

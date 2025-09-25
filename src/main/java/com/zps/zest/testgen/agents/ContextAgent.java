@@ -45,7 +45,7 @@ import java.util.function.Consumer;
  */
 public class ContextAgent extends StreamingBaseAgent {
     private static final Logger LOG = Logger.getInstance(ContextAgent.class);
-    private static final int DEFAULT_MAX_TOOLS_PER_RESPONSE = 5;
+    private static final int DEFAULT_MAX_TOOLS_PER_RESPONSE = 20;
 
     private final CodeExplorationToolRegistry toolRegistry;
     private final ContextGatheringTools contextTools;
@@ -106,6 +106,8 @@ RESPONSE TEMPLATE (mandatory for each tool usage):
 
 EXPLORATION THINKING GUIDE:
 Ask yourself before each exploration:
+- What context do I have up to now?
+- What is missing or left to be explored?
 - Why is this important for understanding the code under test?
 - What evidence do I have that this exists? (string literals, imports, patterns)
 - How directly does this impact test generation?
@@ -132,7 +134,7 @@ Do not read a file because you think it might exist - you need to prove that it 
 
 YOUR TASK: Find context needed to understand the code under test:
 - IMPORTANT: Find where and how other classes call or depend on the method(s) being tested.
-- External APIs, services or script called dynamically
+- External APIs, services or script called dynamically. This should be noted via takeNote tools
 - Unknown function/method implementation that is crucial to code understanding or writing correct test code.
 - Configuration files (JSON, XML, YAML, properties) referenced by string literals
 - Resource files loaded at runtime
@@ -211,7 +213,14 @@ Stop when you can test the code without making assumptions about external resour
     private String buildContextRequest(TestGenerationRequest request, TestPlan testPlan) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("Gather comprehensive context for test generation.\n");
-        prompt.append("Tool usage limit for this session: ").append(maxToolsPerResponse).append(" tools per response.\n\n");
+        prompt.append("Tool usage limit for this session: ").append(maxToolsPerResponse).append(" tool calls per response.\n\n");
+
+        prompt.append("Target class analysis is already provided in the chat history above. Do not re-analyze it.\n");
+
+        // Check if user has provided context
+        if (request.hasUserProvidedContext()) {
+            prompt.append("User provided context is also in chat history above. Prioritize it.\n\n");
+        }
 
         prompt.append("Target file: ").append(request.getTargetFile().getVirtualFile().getPath()).append("\n");
 
@@ -494,7 +503,11 @@ Stop when you can test the code without making assumptions about external resour
             return searchCode(query, null, null, 0, 0);
         }
 
-        @Tool("Record findings with clear categorization and impact assessment. Consider: Is this a dependency, configuration, runtime resource, test pattern, or key insight? How critical is it for test generation? Suggested format: '[Category] Impact Level - Finding' where categories include Dependencies, Configurations, Runtime Resources, Test Patterns, Insights")
+        @Tool("Record crucial technical details needed for precise" +
+                " test writing. Focus on missing information not provided in initial context " +
+                "- concrete values, behaviors, contracts, or dependencies that tests must account for. " +
+                "Be specific: exact values, paths, formats, or behaviors rather than general observations. " +
+                "Format: '[Relevance] Finding - Specific detail/value'")
         public String takeNote(String note) {
             notifyTool("takeNote", note.length() > 50 ? note.substring(0, 50) + "..." : note);
             String result = takeNoteTool.takeNote(note);
@@ -526,7 +539,7 @@ Stop when you can test the code without making assumptions about external resour
             return result;
         }
 
-        private ContextDisplayData createContextDisplayData(String filePath, String analysisResult) {
+        public ContextDisplayData createContextDisplayData(String filePath, String analysisResult) {
             // Extract file name
             String fileName = filePath;
             int lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));

@@ -15,6 +15,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.zps.zest.testgen.model.TestGenerationRequest;
 import com.zps.zest.testgen.ui.MethodSelectionDialog;
 import com.zps.zest.testgen.ui.TestGenerationVirtualFile;
+import com.zps.zest.testgen.ui.UserContextDialog;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -216,24 +217,36 @@ public class GenerateTestAction extends AnAction {
                                             @Nullable String selectedCode,
                                             @NotNull List<PsiMethod> targetMethods) {
         try {
-            // Create test generation request
+            // Show user context dialog
+            List<String> userFiles = null;
+            String userCode = null;
+
+            UserContextDialog contextDialog = new UserContextDialog(project);
+            if (contextDialog.showAndGet()) {
+                userFiles = contextDialog.getSelectedFiles();
+                userCode = contextDialog.getProvidedCode();
+            }
+
+            // Create test generation request with user context
             TestGenerationRequest.TestType testType = TestGenerationRequest.TestType.UNIT_TESTS;
-            
+
             TestGenerationRequest request = new TestGenerationRequest(
                 psiFile,
-                    targetMethods,
+                targetMethods,
                 selectedCode,
                 testType,
-                null // Additional context
+                null, // Additional context
+                userFiles,
+                userCode
             );
-            
+
             // Create virtual file for the editor
             TestGenerationVirtualFile virtualFile = new TestGenerationVirtualFile(
                 psiFile.getName() + " - Test Generation",
                 request
             );
-            
-            // Open in editor
+
+            // Open in editor - test generation will auto-start
             FileEditorManager.getInstance(project).openFile(virtualFile, true);
             
             LOG.info("Test generation request created for " + 

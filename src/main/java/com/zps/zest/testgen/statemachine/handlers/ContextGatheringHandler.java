@@ -12,6 +12,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.openai.internal.chat.ToolMessage;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Map;
@@ -23,9 +24,10 @@ import java.util.function.Consumer;
  * Analyzes target files and collects relevant context information.
  */
 public class ContextGatheringHandler extends AbstractStateHandler {
-    
+
     private final Consumer<String> streamingCallback;
     private final com.zps.zest.testgen.ui.StreamingEventListener uiEventListener;
+    private ContextAgent contextAgent;
     
     public ContextGatheringHandler() {
         this(null, null);
@@ -46,9 +48,9 @@ public class ContextGatheringHandler extends AbstractStateHandler {
     @Override
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
         try {
-            TestGenerationRequest request = (TestGenerationRequest) getSessionData(stateMachine, "request");
+            TestGenerationRequest request = stateMachine.getRequest();
             if (request == null) {
-                return StateResult.failure("No request found in session data", false);
+                return StateResult.failure("No request found", false);
             }
             
             // Initialize context agent
@@ -56,8 +58,8 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             NaiveLLMService naiveLlmService = getProject(stateMachine).getService(NaiveLLMService.class);
             ContextAgent contextAgent = new ContextAgent(getProject(stateMachine), langChainService, naiveLlmService);
 
-            // Store the ContextAgent in session data for UI access
-            stateMachine.setSessionData("contextAgent", contextAgent);
+            // Store as field for direct access
+            this.contextAgent = contextAgent;
 
             // Pre-load user-provided context if available (must be done first to check for target file)
             preloadUserContext(stateMachine, contextAgent);
@@ -105,37 +107,13 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                 streamingCallback.accept("🔍 Starting context analysis...\n");
             }
             
-            // Prepare session data for context agent
-            Map<String, Object> sessionData = new java.util.HashMap<>();
-            String targetClassAnalysis = (String) getSessionData(stateMachine, "targetClassAnalysis");
-            String targetClassPath = (String) getSessionData(stateMachine, "targetClassPath");
-            String userProvidedCode = (String) getSessionData(stateMachine, "userProvidedCode");
-            @SuppressWarnings("unchecked")
-            java.util.List<String> targetMethods = (java.util.List<String>) getSessionData(stateMachine, "targetMethods");
-            @SuppressWarnings("unchecked")
-            java.util.Map<String, String> userProvidedFiles = (java.util.Map<String, String>) getSessionData(stateMachine, "userProvidedFiles");
-
-            if (targetClassAnalysis != null) {
-                sessionData.put("targetClassAnalysis", targetClassAnalysis);
-            }
-            if (targetClassPath != null) {
-                sessionData.put("targetClassPath", targetClassPath);
-            }
-            if (targetMethods != null) {
-                sessionData.put("targetMethods", targetMethods);
-            }
-            if (userProvidedCode != null) {
-                sessionData.put("userProvidedCode", userProvidedCode);
-            }
-            if (userProvidedFiles != null) {
-                sessionData.put("userProvidedFiles", userProvidedFiles);
-            }
+            // All context data is now available through contextAgent.getContextTools()
+            // No need for session data - data passes through contextAgent directly
 
             // Execute context gathering with error handling
             CompletableFuture<Void> contextFuture = contextAgent.gatherContext(
                 request,
-                contextUpdateCallback,
-                sessionData
+                contextUpdateCallback
             );
             
             // Wait for context gathering to complete
@@ -146,9 +124,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                 triggerContextUIUpdates(contextAgent);
             }
 
-            // Store contextTools in session data instead of TestContext
-            setSessionData(stateMachine, "contextTools", contextAgent.getContextTools());
-            setSessionData(stateMachine, "workflowPhase", "context");
+            // Context data available via getContextAgent().getContextTools()
             
             int totalItems = contextAgent.getContextTools().getAnalyzedClasses().size() + 
                             contextAgent.getContextTools().getContextNotes().size() + 
@@ -184,8 +160,8 @@ public class ContextGatheringHandler extends AbstractStateHandler {
      */
     private void analyzeAndStoreTargetClass(@NotNull TestGenerationStateMachine stateMachine) {
         try {
-            TestGenerationRequest request = (TestGenerationRequest) getSessionData(stateMachine, "request");
-            ContextAgent contextAgent = (ContextAgent) getSessionData(stateMachine, "contextAgent");
+            TestGenerationRequest request = stateMachine.getRequest();
+            ContextAgent contextAgent = this.contextAgent;
             if (request == null || contextAgent == null) return;
 
             String targetFilePath = request.getTargetFile().getVirtualFile().getPath();
@@ -206,11 +182,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             );
             String analysis = analyzeClassTool.analyzeClass(targetFilePath);
 
-            // Store analysis in session data for later use in buildContextRequest
-            setSessionData(stateMachine, "targetClassAnalysis", analysis);
-            setSessionData(stateMachine, "targetClassPath", targetFilePath);
-
-            // Ensure target class is also added to contextTools analyzedClasses for CoordinatorAgent
+            // Target class analysis is stored in contextTools.analyzedClasses for CoordinatorAgent access
             contextTools.getAnalyzedClasses().put(targetFilePath, analysis);
 
             // Get actual target methods from the request (PsiMethod objects)
@@ -218,7 +190,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             for (com.intellij.psi.PsiMethod method : request.getTargetMethods()) {
                 targetMethodNames.add(method.getName());
             }
-            setSessionData(stateMachine, "targetMethods", targetMethodNames);
+            // Target methods available via request.getTargetMethods()
 
             if (streamingCallback != null) {
                 streamingCallback.accept("📋 Analyzed target class: " + request.getTargetFile().getName() + "\n");
@@ -268,7 +240,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                                    @NotNull ContextAgent contextAgent) {
         try {
             // Get user-provided files from the request
-            TestGenerationRequest request = (TestGenerationRequest) getSessionData(stateMachine, "request");
+            TestGenerationRequest request = stateMachine.getRequest();
             if (request == null) return;
 
             List<String> userFiles = request.getUserProvidedFiles();
@@ -304,11 +276,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                                 );
                                 String analysis = analyzeClassTool.analyzeClass(targetFilePath);
 
-                                // Store user-provided target analysis in session data (will override automatic analysis)
-                                setSessionData(stateMachine, "targetClassAnalysis", analysis);
-                                setSessionData(stateMachine, "targetClassPath", targetFilePath);
-
-                                // Ensure target class is also added to contextTools analyzedClasses for CoordinatorAgent
+                                // Target class analysis stored in contextTools.analyzedClasses for CoordinatorAgent access
                                 contextTools.getAnalyzedClasses().put(targetFilePath, analysis);
 
                                 // Get actual target methods from the request (PsiMethod objects)
@@ -316,7 +284,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                                 for (com.intellij.psi.PsiMethod method : request.getTargetMethods()) {
                                     targetMethodNames.add(method.getName());
                                 }
-                                setSessionData(stateMachine, "targetMethods", targetMethodNames);
+                                // Target methods available via request.getTargetMethods()
                             }
                             // Note: User-provided files will be accessible via context tools
 
@@ -334,17 +302,13 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                     }
                 }
 
-                // Store user-provided files map in session data for inclusion in context prompt
-                if (!userProvidedFilesMap.isEmpty()) {
-                    setSessionData(stateMachine, "userProvidedFiles", userProvidedFilesMap);
-                }
+                // User-provided files are accessible via contextTools.getReadFiles()
             }
 
             // Pre-load user code snippets
             if (userCode != null && !userCode.trim().isEmpty()) {
                 contextTools.takeNote("User context: " + userCode);
-                // Store user code in session data for inclusion in context prompt
-                setSessionData(stateMachine, "userProvidedCode", userCode);
+                // User code is accessible via contextTools.getContextNotes()
 
                 if (streamingCallback != null) {
                     streamingCallback.accept("📝 Added code snippets\n");
@@ -403,13 +367,21 @@ public class ContextGatheringHandler extends AbstractStateHandler {
     }
     
     /**
+     * Get the context agent (direct access instead of session data)
+     */
+    @Nullable
+    public ContextAgent getContextAgent() {
+        return contextAgent;
+    }
+
+    /**
      * Trigger UI updates for context gathering using direct tool access
      */
     private void triggerContextUIUpdates(ContextAgent contextAgent) {
         try {
             if (contextAgent != null) {
                 com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = contextAgent.getContextTools();
-                
+
                 // Get analyzed classes and trigger file analyzed events
                 Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
                 for (Map.Entry<String, String> entry : analyzedClasses.entrySet()) {
@@ -425,7 +397,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                 }
             }
 
-            
+
         } catch (Exception e) {
             LOG.warn("Error triggering context UI updates", e);
         }

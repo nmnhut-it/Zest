@@ -8,6 +8,7 @@ import com.zps.zest.testgen.statemachine.TestGenerationStateMachine;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -18,9 +19,12 @@ import java.util.function.Consumer;
  * Creates actual test methods based on selected scenarios.
  */
 public class TestGenerationHandler extends AbstractStateHandler {
-    
+
     private final Consumer<String> streamingCallback;
     private final com.zps.zest.testgen.ui.StreamingEventListener uiEventListener;
+    private TestWriterAgent testWriterAgent;
+    private TestGenerationResult testGenerationResult;
+    private TestPlan filteredTestPlan;
     
     public TestGenerationHandler() {
         this(null, null);
@@ -41,25 +45,26 @@ public class TestGenerationHandler extends AbstractStateHandler {
     @Override
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
         try {
-            // Validate required data
-            if (!hasRequiredData(stateMachine, "testPlan", "contextTools", "selectedScenarios")) {
-                return StateResult.failure("Missing required data for test generation", false);
-            }
+            // Validate required data - no session data checks needed
             
-            TestPlan originalPlan = (TestPlan) getSessionData(stateMachine, "testPlan");
-            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = 
-                (com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools) getSessionData(stateMachine, "contextTools");
-            @SuppressWarnings("unchecked")
-            List<TestPlan.TestScenario> selectedScenarios = 
-                (List<TestPlan.TestScenario>) getSessionData(stateMachine, "selectedScenarios");
+            // Get data from other handlers
+            com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler planningHandler =
+                stateMachine.getHandler(TestGenerationState.PLANNING_TESTS, com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler.class);
+            com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler contextHandler =
+                stateMachine.getHandler(TestGenerationState.GATHERING_CONTEXT, com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler.class);
+
+            TestPlan originalPlan = planningHandler != null ? planningHandler.getTestPlan() : null;
+            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools =
+                contextHandler != null && contextHandler.getContextAgent() != null ? contextHandler.getContextAgent().getContextTools() : null;
+            List<TestPlan.TestScenario> selectedScenarios = planningHandler != null ? planningHandler.getSelectedScenarios() : null;
             
             // Initialize test writer agent
             ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
             NaiveLLMService naiveLlmService = getProject(stateMachine).getService(NaiveLLMService.class);
             TestWriterAgent testWriterAgent = new TestWriterAgent(getProject(stateMachine), langChainService, naiveLlmService);
-            
-            // Store the TestWriterAgent in session data for UI access
-            stateMachine.setSessionData("testWriterAgent", testWriterAgent);
+
+            // Store as field for direct access
+            this.testWriterAgent = testWriterAgent;
             
             logToolActivity(stateMachine, "TestWriterAgent", "Preparing test generation");
 
@@ -103,10 +108,9 @@ public class TestGenerationHandler extends AbstractStateHandler {
                 return StateResult.failure("No test methods were generated", true);
             }
             
-            // Store results in session data
-            setSessionData(stateMachine, "testGenerationResult", result);
-            setSessionData(stateMachine, "filteredTestPlan", filteredPlan);
-            setSessionData(stateMachine, "workflowPhase", "generation");
+            // Store results in handler fields
+            this.testGenerationResult = result;
+            this.filteredTestPlan = filteredPlan;
             
             // Trigger UI updates for generated tests
             if (uiEventListener != null) {
@@ -252,6 +256,30 @@ public class TestGenerationHandler extends AbstractStateHandler {
         }
     }
     
+    /**
+     * Get the test writer agent (direct access instead of session data)
+     */
+    @Nullable
+    public TestWriterAgent getTestWriterAgent() {
+        return testWriterAgent;
+    }
+
+    /**
+     * Get the test generation result
+     */
+    @Nullable
+    public TestGenerationResult getTestGenerationResult() {
+        return testGenerationResult;
+    }
+
+    /**
+     * Get the filtered test plan
+     */
+    @Nullable
+    public TestPlan getFilteredTestPlan() {
+        return filteredTestPlan;
+    }
+
     /**
      * Extract test method name from generated code
      */

@@ -217,6 +217,8 @@ public class CoordinatorAgent extends StreamingBaseAgent {
      */
     private String buildPlanningRequest(TestGenerationRequest request) {
         StringBuilder prompt = new StringBuilder();
+
+
         prompt.append("Create a comprehensive test plan for the following code.\n\n");
         
         // File information

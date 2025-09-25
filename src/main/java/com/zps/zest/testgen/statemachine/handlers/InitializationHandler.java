@@ -50,7 +50,7 @@ public class InitializationHandler extends AbstractStateHandler {
     }
     
     private void validateRequest(@NotNull TestGenerationStateMachine stateMachine) throws Exception {
-        TestGenerationRequest request = (TestGenerationRequest) getSessionData(stateMachine, "request");
+        TestGenerationRequest request = stateMachine.getRequest();
         
         if (request == null) {
             throw new IllegalStateException("No test generation request provided");
@@ -68,7 +68,7 @@ public class InitializationHandler extends AbstractStateHandler {
     }
     
     private void setupSessionData(@NotNull TestGenerationStateMachine stateMachine) throws Exception {
-        TestGenerationRequest request = (TestGenerationRequest) getSessionData(stateMachine, "request");
+        TestGenerationRequest request = stateMachine.getRequest();
         
         // Create session object
         TestGenerationSession session = new TestGenerationSession(
@@ -77,17 +77,14 @@ public class InitializationHandler extends AbstractStateHandler {
             TestGenerationSession.Status.INITIALIZING
         );
         
-        setSessionData(stateMachine, "session", session);
-        setSessionData(stateMachine, "startTime", System.currentTimeMillis());
-        setSessionData(stateMachine, "errors", new java.util.ArrayList<String>());
+        // Session and timing data no longer stored in session data
         
         LOG.info("Session data initialized for session: " + stateMachine.getSessionId());
     }
     
     private void prepareWorkflow(@NotNull TestGenerationStateMachine stateMachine) throws Exception {
         // Set up any workflow-specific data or configurations
-        setSessionData(stateMachine, "workflowPhase", "initialization");
-        setSessionData(stateMachine, "retryCount", 0);
+        // Workflow phase tracking removed - use state machine state instead
 
         LOG.info("Workflow preparation completed");
     }

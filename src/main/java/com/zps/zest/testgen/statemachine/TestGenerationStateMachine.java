@@ -22,8 +22,8 @@ public class TestGenerationStateMachine {
     private TestGenerationState currentState;
     private final Map<TestGenerationState, StateHandler> stateHandlers;
     private final List<TestGenerationEventListener> listeners;
-    private final Map<String, Object> sessionData;
     private final Set<TestGenerationState> validTransitions;
+    private com.zps.zest.testgen.model.TestGenerationRequest request;
     
     // State execution tracking
     private volatile boolean isExecuting = false;
@@ -39,7 +39,6 @@ public class TestGenerationStateMachine {
         this.currentState = TestGenerationState.IDLE;
         this.stateHandlers = new HashMap<>();
         this.listeners = new CopyOnWriteArrayList<>();
-        this.sessionData = new HashMap<>();
         this.validTransitions = initializeValidTransitions();
         
         LOG.info("State machine created for session: " + sessionId);
@@ -320,31 +319,12 @@ public class TestGenerationStateMachine {
         }
         
         currentState = TestGenerationState.IDLE;
-        sessionData.clear();
         lastError = null;
         
         LOG.info("State machine reset to IDLE");
         fireEvent(new TestGenerationEvent.StateChanged(sessionId, currentState, TestGenerationState.IDLE, "Reset"));
     }
     
-    /**
-     * Get session data
-     */
-    @NotNull
-    public Map<String, Object> getSessionData() {
-        return Collections.unmodifiableMap(sessionData);
-    }
-    
-    /**
-     * Set session data
-     */
-    public void setSessionData(@NotNull String key, @Nullable Object value) {
-        if (value == null) {
-            sessionData.remove(key);
-        } else {
-            sessionData.put(key, value);
-        }
-    }
     
     /**
      * Get last error (if any)
@@ -451,5 +431,38 @@ public class TestGenerationStateMachine {
      */
     public boolean isAutoFlowEnabled() {
         return autoFlowEnabled;
+    }
+
+    /**
+     * Get the current handler for the current state with type safety
+     */
+    @Nullable
+    public <T extends StateHandler> T getCurrentHandler(@NotNull Class<T> handlerType) {
+        StateHandler handler = stateHandlers.get(currentState);
+        return handlerType.isInstance(handler) ? handlerType.cast(handler) : null;
+    }
+
+    /**
+     * Get the handler for any state with type safety
+     */
+    @Nullable
+    public <T extends StateHandler> T getHandler(@NotNull TestGenerationState state, @NotNull Class<T> handlerType) {
+        StateHandler handler = stateHandlers.get(state);
+        return handlerType.isInstance(handler) ? handlerType.cast(handler) : null;
+    }
+
+    /**
+     * Set the test generation request
+     */
+    public void setRequest(@NotNull com.zps.zest.testgen.model.TestGenerationRequest request) {
+        this.request = request;
+    }
+
+    /**
+     * Get the test generation request
+     */
+    @Nullable
+    public com.zps.zest.testgen.model.TestGenerationRequest getRequest() {
+        return request;
     }
 }

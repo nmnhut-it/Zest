@@ -9,6 +9,7 @@ import com.zps.zest.testgen.statemachine.TestGenerationStateMachine;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
@@ -18,9 +19,12 @@ import java.util.function.Consumer;
  * Creates test scenarios and determines the testing approach.
  */
 public class TestPlanningHandler extends AbstractStateHandler {
-    
+
     private final Consumer<String> streamingCallback;
     private final com.zps.zest.testgen.ui.StreamingEventListener uiEventListener;
+    private CoordinatorAgent coordinatorAgent;
+    private TestPlan testPlan;
+    private java.util.List<TestPlan.TestScenario> selectedScenarios;
     
     public TestPlanningHandler() {
         this(null, null);
@@ -41,21 +45,24 @@ public class TestPlanningHandler extends AbstractStateHandler {
     @Override
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
         try {
-            // Validate required data
-            if (!hasRequiredData(stateMachine, "request", "contextTools")) {
-                return StateResult.failure("Missing required data: request or contextTools", false);
+            // Validate required data - no session data checks needed
+
+            TestGenerationRequest request = stateMachine.getRequest();
+
+            // Get contextTools directly from ContextGatheringHandler instead of session data
+            com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler contextHandler =
+                stateMachine.getHandler(TestGenerationState.GATHERING_CONTEXT, com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler.class);
+            if (contextHandler == null || contextHandler.getContextAgent() == null) {
+                return StateResult.failure("ContextGatheringHandler or ContextAgent not available", false);
             }
-            
-            TestGenerationRequest request = (TestGenerationRequest) getSessionData(stateMachine, "request");
-            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = 
-                (com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools) getSessionData(stateMachine, "contextTools");
+            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = contextHandler.getContextAgent().getContextTools();
             
             // Create coordinator agent with contextTools reference
             ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
             NaiveLLMService naiveLlmService = getProject(stateMachine).getService(NaiveLLMService.class);
             
             CoordinatorAgent coordinatorAgent = new CoordinatorAgent(getProject(stateMachine), langChainService, naiveLlmService, contextTools);
-            setSessionData(stateMachine, "coordinatorAgent", coordinatorAgent); // Update session data with new instance
+            this.coordinatorAgent = coordinatorAgent; // Store as field for direct access
             
             logToolActivity(stateMachine, "CoordinatorAgent", "Analyzing testing requirements");
 
@@ -106,9 +113,8 @@ public class TestPlanningHandler extends AbstractStateHandler {
                 return StateResult.failure("No test scenarios were generated", true);
             }
             
-            // Store test plan in session data (coordinatorAgent already stored at session start)
-            setSessionData(stateMachine, "testPlan", testPlan);
-            setSessionData(stateMachine, "workflowPhase", "planning");
+            // Store test plan in handler field
+            this.testPlan = testPlan;
             
             String summary = String.format("Test plan created: %d scenarios for %s", 
                 testPlan.getScenarioCount(), testPlan.getTargetClass());
@@ -129,7 +135,7 @@ public class TestPlanningHandler extends AbstractStateHandler {
             } else {
                 // Single scenario - proceed directly to generation (keep auto-flow)
                 nextState = TestGenerationState.GENERATING_TESTS;
-                setSessionData(stateMachine, "selectedScenarios", testPlan.getTestScenarios());
+                this.selectedScenarios = testPlan.getTestScenarios();
             }
             
             return StateResult.success(testPlan, summary, nextState);
@@ -187,17 +193,48 @@ public class TestPlanningHandler extends AbstractStateHandler {
     }
     
     /**
+     * Get the coordinator agent (direct access instead of session data)
+     */
+    @Nullable
+    public CoordinatorAgent getCoordinatorAgent() {
+        return coordinatorAgent;
+    }
+
+    /**
+     * Get the test plan
+     */
+    @Nullable
+    public TestPlan getTestPlan() {
+        return testPlan;
+    }
+
+    /**
+     * Get selected scenarios
+     */
+    @Nullable
+    public java.util.List<TestPlan.TestScenario> getSelectedScenarios() {
+        return selectedScenarios;
+    }
+
+    /**
+     * Set selected scenarios (called from service when user makes selection)
+     */
+    public void setSelectedScenarios(@NotNull java.util.List<TestPlan.TestScenario> selectedScenarios) {
+        this.selectedScenarios = selectedScenarios;
+    }
+
+    /**
      * Trigger UI updates for test plan
      */
     private void triggerTestPlanUIUpdates(TestPlan testPlan) {
         try {
             // Use the existing factory method to create display data (Kotlin companion object)
-            com.zps.zest.testgen.ui.model.TestPlanDisplayData planDisplayData = 
+            com.zps.zest.testgen.ui.model.TestPlanDisplayData planDisplayData =
                 com.zps.zest.testgen.ui.model.TestPlanDisplayData.Companion.fromTestPlan(testPlan);
-            
+
             // Trigger UI update
             uiEventListener.onTestPlanUpdated(planDisplayData);
-            
+
         } catch (Exception e) {
             LOG.warn("Error triggering test plan UI updates", e);
         }

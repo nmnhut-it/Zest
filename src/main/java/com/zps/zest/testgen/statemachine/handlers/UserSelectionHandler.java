@@ -14,7 +14,9 @@ import java.util.List;
  * This handler doesn't do much work itself - it mainly waits for external input.
  */
 public class UserSelectionHandler extends AbstractStateHandler {
-    
+
+    private boolean selectionRequested = false;
+
     public UserSelectionHandler() {
         super(TestGenerationState.AWAITING_USER_SELECTION);
     }
@@ -23,19 +25,17 @@ public class UserSelectionHandler extends AbstractStateHandler {
     @Override
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
         try {
-            // Validate required data
-            if (!hasRequiredData(stateMachine, "testPlan")) {
-                return StateResult.failure("Missing test plan for user selection", false);
-            }
+            // Validate required data - no session data checks needed
             
-            TestPlan testPlan = (TestPlan) getSessionData(stateMachine, "testPlan");
+            // Get testPlan from TestPlanningHandler
+            com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler planningHandler =
+                stateMachine.getHandler(TestGenerationState.PLANNING_TESTS, com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler.class);
+            TestPlan testPlan = planningHandler != null ? planningHandler.getTestPlan() : null;
             
             logToolActivity(stateMachine, "UserSelection", "Waiting for user scenario selection");
             
             // Check if user has already made a selection
-            @SuppressWarnings("unchecked")
-            List<TestPlan.TestScenario> selectedScenarios = 
-                (List<TestPlan.TestScenario>) getSessionData(stateMachine, "selectedScenarios");
+            List<TestPlan.TestScenario> selectedScenarios = planningHandler != null ? planningHandler.getSelectedScenarios() : null;
             
             if (selectedScenarios != null && !selectedScenarios.isEmpty()) {
                 // User has already selected scenarios - proceed to generation
@@ -43,7 +43,7 @@ public class UserSelectionHandler extends AbstractStateHandler {
                     selectedScenarios.size(), testPlan.getScenarioCount());
                 LOG.info(summary);
                 
-                setSessionData(stateMachine, "workflowPhase", "user_selection");
+                // Workflow phase tracking removed
                 
                 return StateResult.success(selectedScenarios, summary, TestGenerationState.GENERATING_TESTS);
             }
@@ -52,11 +52,11 @@ public class UserSelectionHandler extends AbstractStateHandler {
             // The handler will be re-executed when user makes a selection
             
             // Request user input if not already requested
-            if (getSessionData(stateMachine, "selectionRequested") == null) {
+            if (!selectionRequested) {
                 requestUserInput(stateMachine, "scenario_selection",
                     String.format("Please select from %d available test scenarios", testPlan.getScenarioCount()),
                     testPlan);
-                setSessionData(stateMachine, "selectionRequested", true);
+                selectionRequested = true;
             }
             
             // Return success but don't transition - wait for external input
@@ -79,7 +79,7 @@ public class UserSelectionHandler extends AbstractStateHandler {
         }
         
         LOG.info("User selected " + selectedScenarios.size() + " scenarios");
-        setSessionData(stateMachine, "selectedScenarios", selectedScenarios);
+        // Selection is now handled by StateMachineTestGenerationService.setUserSelection()
         
         // Enable auto-flow for remaining states after user selection
         stateMachine.enableAutoFlow();

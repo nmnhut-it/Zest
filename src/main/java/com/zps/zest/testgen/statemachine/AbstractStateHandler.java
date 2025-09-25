@@ -67,22 +67,7 @@ public abstract class AbstractStateHandler implements StateHandler {
         return stateMachine.getProject();
     }
     
-    /**
-     * Helper method to get session data
-     */
-    @Nullable
-    protected final Object getSessionData(@NotNull TestGenerationStateMachine stateMachine, @NotNull String key) {
-        return stateMachine.getSessionData().get(key);
-    }
-    
-    /**
-     * Helper method to set session data
-     */
-    protected final void setSessionData(@NotNull TestGenerationStateMachine stateMachine, 
-                                       @NotNull String key, @Nullable Object value) {
-        stateMachine.setSessionData(key, value);
-    }
-    
+
     /**
      * Log state execution start
      */
@@ -131,21 +116,7 @@ public abstract class AbstractStateHandler implements StateHandler {
     protected final boolean shouldCancel(@NotNull TestGenerationStateMachine stateMachine) {
         return stateMachine.getCurrentState() == TestGenerationState.CANCELLED;
     }
-    
-    /**
-     * Helper method to validate required session data
-     */
-    protected final boolean hasRequiredData(@NotNull TestGenerationStateMachine stateMachine, 
-                                           @NotNull String... keys) {
-        for (String key : keys) {
-            if (getSessionData(stateMachine, key) == null) {
-                LOG.warn("Missing required session data: " + key);
-                return false;
-            }
-        }
-        return true;
-    }
-    
+     
     /**
      * Helper method to execute steps with activity logging
      */

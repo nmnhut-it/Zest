@@ -1,6 +1,5 @@
 package com.zps.zest.testgen.ui
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorLocation
@@ -10,7 +9,6 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBColor
-import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.*
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -24,7 +22,6 @@ import java.awt.*
 import java.beans.PropertyChangeListener
 import javax.swing.*
 import javax.swing.border.EmptyBorder
-import javax.swing.border.TitledBorder
 
 /**
  * Clean state machine-based test generation editor.
@@ -289,8 +286,9 @@ class StateMachineTestGenerationEditor(
                 // Thread-safe access to currentStateMachine
                 val stateMachine = synchronized(stateMachineLock) { currentStateMachine }
 
-                // Get existing test code from AITestMergerAgent if available
-                val aiMergerAgent = stateMachine?.sessionData?.get("aiMergerAgent") as? com.zps.zest.testgen.agents.AITestMergerAgent
+                // Get existing test code from AITestMergerAgent via direct handler access
+                val mergingHandler = stateMachine?.getCurrentHandler(com.zps.zest.testgen.statemachine.handlers.TestMergingHandler::class.java)
+                val aiMergerAgent = mergingHandler?.getAITestMergerAgent()
                 val existingTestCode = aiMergerAgent?.lastExistingTestCode
 
                 // Update panel with merged code, existing code, AND the agent for chat memory
@@ -862,161 +860,30 @@ class StateMachineTestGenerationEditor(
             }
         }
     }
-    
-    private fun saveTestFile() {
-        currentStateMachine?.let { stateMachine ->
-            val mergedTestClass = stateMachine.sessionData["mergedTestClass"] as? 
-                com.zps.zest.testgen.model.MergedTestClass
-            
-            if (mergedTestClass != null) {
-                try {
-                    val filePath = writeMergedTestToFile(mergedTestClass)
-                    
-                    val message = buildString {
-                        appendLine("Test file written successfully!")
-                        appendLine()
-                        appendLine("File: ${mergedTestClass.fileName}")
-                        appendLine("Location: $filePath")
-                        if (mergedTestClass.hasInferredPath()) {
-                            appendLine("Path source: AI-inferred from project structure analysis")
-                        } else {
-                            appendLine("Path source: Convention-based fallback")
-                        }
-                        appendLine("Methods: ${mergedTestClass.methodCount} test methods")
-                        appendLine("Framework: ${mergedTestClass.framework}")
-                    }
-                    
-                    // Open the saved file in IntelliJ editor
-                    openFileInEditor(filePath)
-                    
-                    logEvent("💾 Test file saved and opened: $filePath")
-                    hideActionBanner()
-                    
-                    // Update button to show completion
-                    primaryActionButton.apply {
-                        text = "✅ File Opened"
-                        background = Color(76, 175, 80) // Green
-                        isEnabled = false
-                    }
-                    
-                } catch (e: Exception) {
-                    logEvent("ERROR: Failed to save test file: ${e.message}")
-                    Messages.showErrorDialog(
-                        project,
-                        "Failed to write test file:\n${e.message}",
-                        "Write Error"
-                    )
-                }
-            } else {
-                logEvent("ERROR: No merged test class available to save")
-                Messages.showErrorDialog(
-                    project,
-                    "No merged test class available for saving",
-                    "Save Error"
-                )
-            }
-        }
-    }
-    
-    /**
-     * Write a merged test class to file using AI-inferred path or fallback to standard structure
-     */
-    private fun writeMergedTestToFile(mergedTest: com.zps.zest.testgen.model.MergedTestClass): String {
-        val targetFile: java.io.File
-        
-        if (mergedTest.hasInferredPath()) {
-            // Use AI-inferred path from merger agent
-            val inferredPath = mergedTest.fullFilePath!!
-            targetFile = java.io.File(inferredPath)
-            
-            // Ensure parent directories exist
-            val parentDir = targetFile.parentFile
-            if (!parentDir.exists()) {
-                parentDir.mkdirs()
-            }
-            
-        } else {
-            // Fallback to convention-based approach (legacy behavior)
-            val basePath = project.basePath ?: throw IllegalStateException("Project base path is null")
-            
-            // Try standard test source root first
-            var testSourceRoot = "$basePath/src/test/java"
-            var testDir = java.io.File(testSourceRoot)
-            
-            if (!testDir.exists()) {
-                // Fallback to simple test directory
-                testSourceRoot = "$basePath/test"
-                testDir = java.io.File(testSourceRoot)
-                if (!testDir.exists()) {
-                    testDir.mkdirs()
-                }
-            }
-            
-            // Create package directories
-            val packagePath = mergedTest.packageName.replace('.', java.io.File.separatorChar)
-            val packageDir = java.io.File(testDir, packagePath)
-            if (!packageDir.exists()) {
-                packageDir.mkdirs()
-            }
-            
-            targetFile = java.io.File(packageDir, mergedTest.fileName)
-        }
-        
-        // Write the test file
-        targetFile.writeText(mergedTest.fullContent)
-        
-        return targetFile.absolutePath
-    }
-    
-    /**
-     * Open the saved test file in IntelliJ's editor
-     */
-    private fun openFileInEditor(filePath: String) {
-        ApplicationManager.getApplication().invokeLater {
-            try {
-                val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(filePath)
-                if (virtualFile != null) {
-                    // Refresh the file system to ensure the file is recognized
-                    virtualFile.refresh(false, false)
-                    
-                    // Open the file in editor
-                    com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).openFile(virtualFile, true)
-                    
-                    logEvent("✅ Test file opened in editor: ${virtualFile.name}")
-                } else {
-                    logEvent("ERROR: Could not find virtual file for: $filePath")
-                }
-            } catch (e: Exception) {
-                logEvent("ERROR: Failed to open file in editor: ${e.message}")
-            }
-        }
-    }
-    
+
     private fun showFinalResult() {
         currentStateMachine?.let { stateMachine ->
-            val mergedTestClass = stateMachine.sessionData["mergedTestClass"] as? 
-                com.zps.zest.testgen.model.MergedTestClass
-            
+            // Get merged test class from TestMergingHandler
+            val mergingHandler = stateMachine.getHandler(
+                com.zps.zest.testgen.statemachine.TestGenerationState.MERGING_TESTS,
+                com.zps.zest.testgen.statemachine.handlers.TestMergingHandler::class.java
+            )
+            val mergedTestClass = mergingHandler?.mergedTestClass
+
             if (mergedTestClass != null) {
                 logEvent("Showing preview dialog for: ${mergedTestClass.className}")
-                
-                // Create or get session
-                var session = stateMachine.sessionData["session"] as? 
-                    com.zps.zest.testgen.model.TestGenerationSession
-                
-                if (session == null) {
-                    // Create a minimal session for the dialog
-                    val request = stateMachine.sessionData["request"] as? 
-                        com.zps.zest.testgen.model.TestGenerationRequest
-                    if (request != null) {
-                        session = com.zps.zest.testgen.model.TestGenerationSession(
-                            stateMachine.sessionId,
-                            request,
-                            com.zps.zest.testgen.model.TestGenerationSession.Status.COMPLETED
-                        )
-                    }
+
+                // Create a minimal session for the dialog
+                val request = stateMachine.request
+                var session: com.zps.zest.testgen.model.TestGenerationSession? = null
+                if (request != null) {
+                    session = com.zps.zest.testgen.model.TestGenerationSession(
+                        stateMachine.sessionId,
+                        request,
+                        com.zps.zest.testgen.model.TestGenerationSession.Status.COMPLETED
+                    )
                 }
-                
+
                 if (session != null) {
                     session.setMergedTestClass(mergedTestClass)
                     val dialog = MergedTestPreviewDialog(project, session)
@@ -1066,8 +933,9 @@ class StateMachineTestGenerationEditor(
         try {
             val stateMachine = testGenService.getStateMachine(sessionId)
             
-            // Get ContextAgent memory
-            val contextAgent = stateMachine?.sessionData?.get("contextAgent") as? com.zps.zest.testgen.agents.ContextAgent
+            // Get ContextAgent memory via direct handler access
+            val contextHandler = stateMachine?.getCurrentHandler(com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler::class.java)
+            val contextAgent = contextHandler?.getContextAgent()
             val contextMemory = contextAgent?.getChatMemory()
             val contextMessageCount = contextMemory?.messages()?.size ?: 0
             
@@ -1083,12 +951,14 @@ class StateMachineTestGenerationEditor(
             
             contextDisplayPanel.setChatMemory(contextMemory)
             
-            // Get TestWriterAgent memory  
-            val testWriterAgent = stateMachine?.sessionData?.get("testWriterAgent") as? com.zps.zest.testgen.agents.TestWriterAgent
+            // Get TestWriterAgent memory via direct handler access
+            val generationHandler = stateMachine?.getCurrentHandler(com.zps.zest.testgen.statemachine.handlers.TestGenerationHandler::class.java)
+            val testWriterAgent = generationHandler?.getTestWriterAgent()
             generatedTestsPanel.setChatMemory(testWriterAgent?.getChatMemory(), "TestWriter")
             
-            // Get CoordinatorAgent memory for planning
-            val coordinatorAgent = stateMachine?.sessionData?.get("coordinatorAgent") as? com.zps.zest.testgen.agents.CoordinatorAgent
+            // Get CoordinatorAgent memory via direct handler access
+            val planningHandler = stateMachine?.getCurrentHandler(com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler::class.java)
+            val coordinatorAgent = planningHandler?.getCoordinatorAgent()
             testPlanDisplayPanel.setChatMemory(coordinatorAgent?.getChatMemory(), "Coordinator")
             
             // AITestMergerAgent is now accessed directly in onMergedTestClassUpdated

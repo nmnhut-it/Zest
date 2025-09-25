@@ -63,8 +63,8 @@ public final class StateMachineTestGenerationService {
         // Register all state handlers with streaming support and UI event listener
         setupStateHandlers(stateMachine, streamingCallback, eventListener);
         
-        // Store initial request in session data
-        stateMachine.setSessionData("request", request);
+        // Store initial request in state machine
+        stateMachine.setRequest(request);
         
         // Note: CoordinatorAgent will be created later in TestPlanningHandler when contextTools are available
         // This ensures the CoordinatorAgent has proper access to analyzed classes and context
@@ -182,8 +182,12 @@ public final class StateMachineTestGenerationService {
         
         LOG.info("Setting user selection for session: " + sessionId + " - " + selectedScenarios.size() + " scenarios");
         
-        // Set the selection in session data
-        stateMachine.setSessionData("selectedScenarios", selectedScenarios);
+        // Pass selection to TestPlanningHandler
+        com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler planningHandler =
+            stateMachine.getCurrentHandler(com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler.class);
+        if (planningHandler != null) {
+            planningHandler.setSelectedScenarios(selectedScenarios);
+        }
         
         // Re-enable auto-flow after user selection
         stateMachine.enableAutoFlow();
@@ -297,10 +301,9 @@ public final class StateMachineTestGenerationService {
             
             // Remove terminal sessions that are older than 1 hour
             if (stateMachine.getCurrentState().isTerminal()) {
-                Long startTime = (Long) stateMachine.getSessionData().get("startTime");
-                if (startTime != null && System.currentTimeMillis() - startTime > 3600000) { // 1 hour
-                    toRemove.add(entry.getKey());
-                }
+                // TODO: Track session start time differently since sessionData removed
+                // For now, clean up all terminal sessions
+                toRemove.add(entry.getKey());
             }
         }
         

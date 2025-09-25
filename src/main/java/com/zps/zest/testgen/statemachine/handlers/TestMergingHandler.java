@@ -8,6 +8,7 @@ import com.zps.zest.testgen.statemachine.TestGenerationStateMachine;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
@@ -17,9 +18,11 @@ import java.util.function.Consumer;
  * Uses AI-based merging to create complete, merged test classes.
  */
 public class TestMergingHandler extends AbstractStateHandler {
-    
+
     private final Consumer<String> streamingCallback;
     private final com.zps.zest.testgen.ui.StreamingEventListener uiEventListener;
+    private AITestMergerAgent aiTestMergerAgent;
+    private MergedTestClass mergedTestClass;
     
     public TestMergingHandler() {
         this(null, null);
@@ -40,14 +43,17 @@ public class TestMergingHandler extends AbstractStateHandler {
     @Override
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
         try {
-            // Validate required data
-            if (!hasRequiredData(stateMachine, "testGenerationResult", "contextTools")) {
-                return StateResult.failure("Missing required data for test merging", false);
-            }
+            // Validate required data - no session data checks needed
             
-            TestGenerationResult result = (TestGenerationResult) getSessionData(stateMachine, "testGenerationResult");
-            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = 
-                (com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools) getSessionData(stateMachine, "contextTools");
+            // Get data from other handlers
+            com.zps.zest.testgen.statemachine.handlers.TestGenerationHandler generationHandler =
+                stateMachine.getHandler(TestGenerationState.GENERATING_TESTS, com.zps.zest.testgen.statemachine.handlers.TestGenerationHandler.class);
+            com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler contextHandler =
+                stateMachine.getHandler(TestGenerationState.GATHERING_CONTEXT, com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler.class);
+
+            TestGenerationResult result = generationHandler != null ? generationHandler.getTestGenerationResult() : null;
+            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools =
+                contextHandler != null && contextHandler.getContextAgent() != null ? contextHandler.getContextAgent().getContextTools() : null;
             
             logToolActivity(stateMachine, "TestMerger", "Preparing test merging");
 
@@ -67,9 +73,9 @@ public class TestMergingHandler extends AbstractStateHandler {
             ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
             NaiveLLMService naiveLlmService = getProject(stateMachine).getService(NaiveLLMService.class);
             AITestMergerAgent aiMerger = new AITestMergerAgent(getProject(stateMachine), langChainService, naiveLlmService);
-            
-            // Store AITestMergerAgent in session data for chat memory access
-            setSessionData(stateMachine, "aiMergerAgent", aiMerger);
+
+            // Store as field for direct access
+            this.aiTestMergerAgent = aiMerger;
             
             CompletableFuture<MergedTestClass> mergeFuture = aiMerger.mergeTests(result, contextTools);
             
@@ -88,17 +94,10 @@ public class TestMergingHandler extends AbstractStateHandler {
                 );
             }
             
-            // Store merged result in session data
-            setSessionData(stateMachine, "mergedTestClass", mergedTestClass);
-            setSessionData(stateMachine, "workflowPhase", "merging");
-            setSessionData(stateMachine, "mergerUsed", "AI");  // Using AI-based merging
+            // Store merged result in handler field
+            this.mergedTestClass = mergedTestClass;
             
-            // Update session with final result
-            TestGenerationSession session = (TestGenerationSession) getSessionData(stateMachine, "session");
-            if (session != null) {
-                session.setMergedTestClass(mergedTestClass);
-                session.setStatus(TestGenerationSession.Status.COMPLETED);
-            }
+            // Session management removed - data available via handler getter
             
             String summary = String.format("AI test merging and review completed: %s with %d methods", 
                 mergedTestClass.getClassName(), 
@@ -154,11 +153,27 @@ public class TestMergingHandler extends AbstractStateHandler {
         return future.join();
     }
     
+    /**
+     * Get the AI test merger agent (direct access instead of session data)
+     */
+    @Nullable
+    public AITestMergerAgent getAITestMergerAgent() {
+        return aiTestMergerAgent;
+    }
+
+    /**
+     * Get the merged test class
+     */
+    @Nullable
+    public MergedTestClass getMergedTestClass() {
+        return mergedTestClass;
+    }
+
     @Override
     public boolean isRetryable() {
         return true;
     }
-    
+
     @Override
     public boolean isSkippable() {
         return false; // Merging cannot be skipped - it's required for final output

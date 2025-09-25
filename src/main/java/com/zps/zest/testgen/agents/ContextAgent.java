@@ -11,7 +11,6 @@ import com.zps.zest.langchain4j.tools.impl.ReadFileTool;
 import com.zps.zest.explanation.tools.RipgrepCodeTool;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.TestGenerationRequest;
-import com.zps.zest.testgen.model.TestPlan;
 import com.zps.zest.testgen.ui.model.ContextDisplayData;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.AgenticServices;
@@ -172,17 +171,8 @@ Stop when you can test the code without making assumptions about external resour
      * Gather context for test generation using the AI assistant.
      * Returns a completed future since the AI handles everything.
      */
-    public CompletableFuture<Void> gatherContext(Object request,
+    public CompletableFuture<Void> gatherContext(TestGenerationRequest request,
                                                  Consumer<Map<String, Object>> updateCallback) {
-        return gatherContext(request, updateCallback, null);
-    }
-
-    /**
-     * Gather context for test generation with session data.
-     */
-    public CompletableFuture<Void> gatherContext(Object request,
-                                                 Consumer<Map<String, Object>> updateCallback,
-                                                 Map<String, Object> sessionData) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.debug("Starting context gathering with LangChain4j orchestration");
@@ -192,12 +182,7 @@ Stop when you can test the code without making assumptions about external resour
                 contextTools.setContextUpdateCallback(updateCallback);
 
                 // Build the context request
-                String contextRequest;
-                if (request instanceof TestGenerationRequest) {
-                    contextRequest = buildContextRequest((TestGenerationRequest) request, null, sessionData);
-                } else {
-                    contextRequest = request.toString();
-                }
+                String contextRequest = buildContextRequest(request);
 
                 // Send initial request to UI
                 sendToUI("🔍 Gathering context for test generation...\n\n");
@@ -257,48 +242,63 @@ Stop when you can test the code without making assumptions about external resour
     }
 
     /**
-     * Build the initial context request.
+     * Build the initial context request with complete target class information.
      */
-    private String buildContextRequest(TestGenerationRequest request, TestPlan testPlan, Map<String, Object> sessionData) {
+    private String buildContextRequest(TestGenerationRequest request) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("Gather comprehensive context for test generation.\n");
         prompt.append("Tool usage limit for this session: ").append(maxToolsPerResponse).append(" tool calls per response.\n\n");
 
-        // Include target class analysis from session data if available
-        if (sessionData != null) {
-            String targetClassAnalysis = (String) sessionData.get("targetClassAnalysis");
-            if (targetClassAnalysis != null && !targetClassAnalysis.trim().isEmpty()) {
-                prompt.append("=== TARGET CLASS ANALYSIS ===\n");
-                prompt.append(targetClassAnalysis).append("\n");
-                prompt.append("=== END TARGET CLASS ANALYSIS ===\n\n");
-                prompt.append("The target class analysis above is complete. Do not re-analyze this class.\n");
-            }
+        // Include target class analysis if available from contextTools
+        String targetFilePath = request.getTargetFile().getVirtualFile().getPath();
 
-            @SuppressWarnings("unchecked")
-            java.util.List<String> targetMethods = (java.util.List<String>) sessionData.get("targetMethods");
-            if (targetMethods != null && !targetMethods.isEmpty()) {
-                prompt.append("Target methods to focus on: ").append(String.join(", ", targetMethods)).append("\n");
-            }
+        String targetClassAnalysis = contextTools.getAnalyzedClasses().get(targetFilePath);
+        if (targetClassAnalysis == null){
+            contextTools.analyzeClass(targetFilePath);
+            targetClassAnalysis = contextTools.getAnalyzedClasses().get(targetFilePath);
+        }
+        if (targetClassAnalysis != null && !targetClassAnalysis.trim().isEmpty()) {
+            prompt.append("=== TARGET CLASS ANALYSIS ===\n");
+            prompt.append(targetClassAnalysis).append("\n");
+            prompt.append("=== END TARGET CLASS ANALYSIS ===\n\n");
+            prompt.append("The target class analysis above is complete. Do not re-analyze this class.\n");
+        }
 
-            String userProvidedCode = (String) sessionData.get("userProvidedCode");
-            if (userProvidedCode != null && !userProvidedCode.trim().isEmpty()) {
-                prompt.append("\n=== USER PROVIDED CODE ===\n");
-                prompt.append(userProvidedCode).append("\n");
-                prompt.append("=== END USER PROVIDED CODE ===\n\n");
+        // Include target method names from request
+        if (!request.getTargetMethods().isEmpty()) {
+            java.util.List<String> targetMethodNames = new java.util.ArrayList<>();
+            for (com.intellij.psi.PsiMethod method : request.getTargetMethods()) {
+                targetMethodNames.add(method.getName());
             }
+            prompt.append("Target methods to focus on: ").append(String.join(", ", targetMethodNames)).append("\n");
+        }
 
-            @SuppressWarnings("unchecked")
-            java.util.Map<String, String> userProvidedFiles = (java.util.Map<String, String>) sessionData.get("userProvidedFiles");
-            if (userProvidedFiles != null && !userProvidedFiles.isEmpty()) {
-                prompt.append("\n=== USER PROVIDED FILES ===\n");
-                for (java.util.Map.Entry<String, String> entry : userProvidedFiles.entrySet()) {
-                    prompt.append("File: ").append(entry.getKey()).append("\n");
-                    prompt.append(entry.getValue()).append("\n");
+
+        // Include user-provided files from contextTools
+        @NotNull List<String> userProvidedFiles = request.getUserProvidedFiles();
+        if (!userProvidedFiles.isEmpty()) {
+            prompt.append("\n=== USER PROVIDED FILES ===\n");
+            for (String entry : userProvidedFiles) {
+                // Skip target file as it's already analyzed above
+                if (!entry.equals(targetFilePath)) {
+                    prompt.append("File: ").append(entry).append("\n");
+                    contextTools.readFile(entry);
+                    prompt.append(contextTools.readFiles.get(entry)).append("\n");
                     prompt.append("---\n");
                 }
-                prompt.append("=== END USER PROVIDED FILES ===\n\n");
-                prompt.append("The files above were provided by the user. Use them as context but do not re-read them.\n");
             }
+            prompt.append("=== END USER PROVIDED FILES ===\n\n");
+            prompt.append("The files above were provided by the user. Use them as context but do not re-read them.\n");
+        }
+
+        // Include context notes if any exist
+        java.util.List<String> contextNotes = contextTools.getContextNotes();
+        if (!contextNotes.isEmpty()) {
+            prompt.append("\n=== EXISTING CONTEXT NOTES ===\n");
+            for (String note : contextNotes) {
+                prompt.append("• ").append(note).append("\n");
+            }
+            prompt.append("=== END EXISTING CONTEXT NOTES ===\n\n");
         }
 
         // Check if user has provided context
@@ -306,21 +306,14 @@ Stop when you can test the code without making assumptions about external resour
             prompt.append("User provided context is also in chat history above. Prioritize it.\n\n");
         }
 
-        prompt.append("Target file: ").append(request.getTargetFile().getVirtualFile().getPath()).append("\n");
+        prompt.append("Target file: ").append(targetFilePath).append("\n");
 
-        if (testPlan != null) {
-            prompt.append("Target class: ").append(testPlan.getTargetClass()).append("\n");
-            if (testPlan.getTargetMethods() != null && !testPlan.getTargetMethods().isEmpty()) {
-                prompt.append("Target methods: ").append(String.join(", ", testPlan.getTargetMethods())).append("\n");
-            }
-        }
 
         if (request.hasSelection()) {
             prompt.append("Note: User has selected specific code to test.\n");
         }
 
         prompt.append("\nAnalyze the provided class info and gather additional context needed for test generation.");
-//        prompt.append("\nFocus on external dependencies, configurations, and runtime resources.");
 
         return prompt.toString();
     }
@@ -492,7 +485,19 @@ Stop when you can test the code without making assumptions about external resour
             }
         }
 
-        @Tool("Analyze a Java class to extract its complete structure, dependencies, and relationships")
+        @Tool("""
+            Analyze a Java class to extract complete structure, methods, fields, and dependencies.
+            ⚠️ EXPENSIVE: This performs deep analysis - use sparingly for key classes only.
+
+            INPUT FORMATS (tries in order):
+            1. Fully qualified name: "com.example.service.UserService" (best)
+            2. File path: "/src/main/java/com/example/UserService.java"
+            3. Simple name: "UserService" (may find wrong class if multiple exist)
+
+            RETURNS: Complete class source code, structure, javadoc, and all dependencies.
+
+            TIPS: Use findFiles() or searchCode() first if unsure of exact class name.
+            """)
         public String analyzeClass(String filePathOrClassName) {
             notifyTool("analyzeClass", filePathOrClassName);
             String result = analyzeClassTool.analyzeClass(filePathOrClassName);
@@ -529,7 +534,31 @@ Stop when you can test the code without making assumptions about external resour
             return listFilesTool.listFiles(directoryPath, recursiveLevel);
         }
 
-        @Tool("Find files matching a pattern in the project")
+        @Tool("""
+            Find files by NAME/PATH that match a specific glob pattern using ripgrep.
+            This searches for file names/paths, NOT file contents. Use searchCode() to search inside files.
+
+            🔍 EFFICIENT PATTERNS USING | (OR) OPERATOR:
+
+            BUILD & CONFIG FILES (single search):
+            - "pom.xml|build.gradle*|*.properties|application*.yml|*.json" → All config files at once
+
+            TEST FILES (single search):
+            - "*Test.java|*Tests.java|*IT.java|test-*.xml" → All test-related files
+
+            RESOURCE FILES (single search):
+            - "*.sql|*.yaml|*.yml|*.md|*.iml" → All resource/doc files
+
+            JAVA SOURCE FILES:
+            - "*Service.java|*Repository.java|*Controller.java" → Common Spring components
+            - "*Entity.java|*Model.java|*Dto.java" → Data classes
+
+            Examples:
+            - findFiles("pom.xml|build.gradle") → Find build files efficiently
+            - findFiles("*Test.java|*Tests.java") → Find all test classes in one search
+            - findFiles("*.properties|*.yml|*.yaml") → Find all config files together
+            - findFiles("**/*Service.java|**/*Repository.java") → Find service/repo classes
+            """)
         public String findFiles(String pattern) {
             notifyTool("findFiles", pattern);
             return ripgrepCodeTool.findFiles(pattern);
@@ -537,9 +566,10 @@ Stop when you can test the code without making assumptions about external resour
 
         @Tool("""
             Powerful code search with blazing-fast ripgrep backend. Supports regex, file filtering, and context lines.
-
+            
+            
             Core Capabilities:
-            - Regex patterns with | (OR) operator for multiple patterns
+            - Regex patterns with | (OR) operator for multiple patterns. You are encouraged to use this to save tool calls.
             - File filtering with glob patterns
             - Context lines (before/after) for understanding surroundings
             - Case-sensitive searching available
@@ -586,11 +616,6 @@ Stop when you can test the code without making assumptions about external resour
             notifyTool("searchCode", String.format("query=%s, filePattern=%s, excludePattern=%s, before=%d, after=%d",
                                                    query, filePattern, excludePattern, beforeLines, afterLines));
             return ripgrepCodeTool.searchCode(query, filePattern, excludePattern, beforeLines, afterLines);
-        }
-
-        // Overloaded searchCode for backward compatibility
-        public String searchCode(String query) {
-            return searchCode(query, null, null, 0, 0);
         }
 
         @Tool("Record crucial technical details needed for precise" +

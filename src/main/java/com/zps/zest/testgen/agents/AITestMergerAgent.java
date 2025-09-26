@@ -38,10 +38,11 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         this.assistant = AgenticServices
                 .agentBuilder(TestMergingAssistant.class)
                 .chatModel(getChatModelWithStreaming())
-                .maxSequentialToolsInvocations(10) // Allow multiple tool calls for the workflow
+                .maxSequentialToolsInvocations(50) // Allow multiple tool calls for the workflow
                 .chatMemory(chatMemory)
                 .tools(mergingTools) // Use the actual merging tools
                 .build();
+
     }
     
     /**

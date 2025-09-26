@@ -362,7 +362,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             testingNotes = "";
         }
         
-        @Tool("Set the target class name for testing")
+        @Tool("Set the target class name for testing. className should be fully qualified name")
         public String setTargetClass(String className) {
             notifyTool("setTargetClass", className);
             this.targetClass = className;

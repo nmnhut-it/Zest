@@ -702,6 +702,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
         // Target information
         prompt.append("=== TARGET CLASS INFO ===\n");
         prompt.append("Target Class: ").append(testPlan.getTargetClass()).append("\n");
+        prompt.append("Target Class: ").append(testPlan.getTargetClass()).append("\n");
         prompt.append("Target Method(s): ").append(testPlan.getTargetMethods().stream().collect(Collectors.joining(", "))).append("\n");
         prompt.append("Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n\n");
 

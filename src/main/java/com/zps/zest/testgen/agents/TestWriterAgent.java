@@ -1,6 +1,7 @@
 package com.zps.zest.testgen.agents;
 
 import com.intellij.openapi.project.Project;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.*;
@@ -123,7 +124,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
 
                 // Build the test writing request with system prompt
                 String testRequest = buildTestWritingRequest(testPlan, contextTools);
-
+                chatService.setContext(ChatboxUtilities.EnumUsage.AGENT_TEST_WRITER);
                 // Add system prompt to chat memory for proper test generation
                 chatService.addSystemMessage(TEST_GENERATION_SYSTEM_PROMPT);
 

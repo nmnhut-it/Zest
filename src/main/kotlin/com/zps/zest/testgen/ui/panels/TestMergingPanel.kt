@@ -467,6 +467,7 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
      * Create or update the test file with the merged content
      */
     private fun createOrUpdateTestFile(mergedTest: MergedTestClass): VirtualFile? {
+        // This method is already called within runWriteAction, so all VFS operations are safe
         val targetDir = findOrCreateTargetDirectory(mergedTest) ?: return null
 
         // Create or find the file
@@ -475,14 +476,8 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
             file = targetDir.createChildData(this, mergedTest.fileName)
         }
 
-        // Write content using Document API
-        val document = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(file)
-        if (document != null) {
-            document.setText(mergedTest.fullContent)
-            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveDocument(document)
-        } else {
-            file.setBinaryContent(mergedTest.fullContent.toByteArray(Charsets.UTF_8))
-        }
+        // Write content using VFS API (already in write action context)
+        file.setBinaryContent(mergedTest.fullContent.toByteArray(Charsets.UTF_8))
 
         return file
     }

@@ -12,29 +12,36 @@ import com.intellij.util.ui.UIUtil
 import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData
 import com.zps.zest.langchain4j.ui.ChatMemoryDialog
 import com.zps.zest.langchain4j.ui.DialogManager
-import com.zps.zest.chatui.JCEFChatPanel
 import java.awt.*
 import java.awt.datatransfer.StringSelection
 import javax.swing.*
 import javax.swing.border.EmptyBorder
 
 /**
- * Panel that displays generated test classes with real-time streaming capability.
- * Uses JCEFChatPanel for live streaming display and EditorEx for completed tests.
- * Supports both streaming view during generation and completed test archive.
+ * Simplified panel that displays generated test classes with real-time streaming capability.
+ * Uses native EditorEx for both streaming and completed test display.
+ * No heavy JCEF browser or complex split panes.
  */
 class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout()) {
 
-    // JCEF Chat panel for streaming display
-    private val chatPanel = JCEFChatPanel(project)
-    private var currentStreamingMessageId: String? = null
-    private val streamingContent = StringBuilder()
+    // Single container for all content
+    private val mainContainer = JPanel()
+    private val scrollPane = JBScrollPane(mainContainer)
 
-    // Existing components for completed tests
-    private val testsContainer = JPanel()
-    private val statusLabel = JBLabel("No tests generated yet")
+    // Streaming editor (created when needed)
+    private var streamingEditor: EditorEx? = null
+    private var streamingPanel: JPanel? = null
+    private val streamingContent = StringBuilder()
+    private var currentStreamingClass: String? = null
+
+    // Completed tests storage
     private val testClassEditors = mutableListOf<EditorEx>()
     private val testClasses = mutableListOf<GeneratedTestDisplayData>()
+
+    // UI components
+    private val statusLabel = JBLabel("No tests generated yet")
+
+    // Chat memory for debugging
     private var testWriterMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
     private var testWriterAgentName: String = "TestWriter Agent"
 
@@ -45,13 +52,15 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
     private fun setupUI() {
         background = UIUtil.getPanelBackground()
 
-        // Header
-        val headerPanel = JPanel(BorderLayout())
-        headerPanel.border = EmptyBorder(10, 10, 10, 10)
-        headerPanel.background = UIUtil.getPanelBackground()
+        // Header panel
+        val headerPanel = JPanel(BorderLayout()).apply {
+            border = EmptyBorder(10, 10, 10, 10)
+            background = UIUtil.getPanelBackground()
+        }
 
-        val titleLabel = JBLabel("🧪 Generated Test Classes")
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 14f)
+        val titleLabel = JBLabel("🧪 Generated Test Classes").apply {
+            font = font.deriveFont(Font.BOLD, 14f)
+        }
         headerPanel.add(titleLabel, BorderLayout.WEST)
 
         statusLabel.foreground = UIUtil.getContextHelpForeground()
@@ -59,94 +68,95 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
 
         add(headerPanel, BorderLayout.NORTH)
 
-        // Split pane: streaming chat on top, completed tests on bottom
-        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT)
-        splitPane.resizeWeight = 0.5 // Equal split
+        // Main container setup - vertical layout for streaming + completed tests
+        mainContainer.apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            background = UIUtil.getPanelBackground()
+            border = EmptyBorder(5, 10, 5, 10)
+        }
 
-        // Top: JCEF chat panel for streaming
-        val streamingPanel = JPanel(BorderLayout())
-        streamingPanel.border = EmptyBorder(5, 10, 5, 10)
+        // Scroll pane for main content
+        scrollPane.apply {
+            border = BorderFactory.createEmptyBorder()
+            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        }
+        add(scrollPane, BorderLayout.CENTER)
 
-        val streamingLabel = JBLabel("🔄 Live Generation")
-        streamingLabel.font = streamingLabel.font.deriveFont(Font.BOLD, 12f)
-        streamingLabel.border = EmptyBorder(5, 5, 5, 5)
-        streamingPanel.add(streamingLabel, BorderLayout.NORTH)
+        // Bottom actions panel
+        val bottomPanel = JPanel(BorderLayout()).apply {
+            border = EmptyBorder(5, 10, 10, 10)
+            background = UIUtil.getPanelBackground()
+        }
 
-        streamingPanel.add(chatPanel, BorderLayout.CENTER)
-        splitPane.topComponent = streamingPanel
+        val actionsPanel = JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+            isOpaque = false
+        }
 
-        // Bottom: Container for completed test classes
-        testsContainer.layout = BoxLayout(testsContainer, BoxLayout.Y_AXIS)
-        testsContainer.background = UIUtil.getPanelBackground()
-
-        val scrollPane = JBScrollPane(testsContainer)
-        scrollPane.border = BorderFactory.createCompoundBorder(
-            EmptyBorder(0, 10, 10, 10),
-            BorderFactory.createLineBorder(UIUtil.getBoundsColor())
-        )
-        scrollPane.verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-        splitPane.bottomComponent = scrollPane
-
-        add(splitPane, BorderLayout.CENTER)
-
-        // Bottom panel with actions
-        val bottomPanel = JPanel(BorderLayout())
-        bottomPanel.border = EmptyBorder(5, 10, 10, 10)
-        bottomPanel.background = UIUtil.getPanelBackground()
-
-        val actionsPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
-        actionsPanel.isOpaque = false
-
-        val clearButton = JButton("Clear All")
-        clearButton.addActionListener { clear() }
+        val clearButton = JButton("Clear All").apply {
+            addActionListener { clear() }
+        }
         actionsPanel.add(clearButton)
 
-        val chatButton = JButton("💬 Writer Chat")
-        chatButton.addActionListener { openTestWriterChatDialog() }
-        chatButton.toolTipText = "View TestWriter agent chat memory"
+        val chatButton = JButton("View Chat").apply {
+            addActionListener { openTestWriterChatDialog() }
+        }
         actionsPanel.add(chatButton)
 
         bottomPanel.add(actionsPanel, BorderLayout.EAST)
-
         add(bottomPanel, BorderLayout.SOUTH)
     }
 
     /**
-     * Start streaming for a new test generation
+     * Start streaming for a new test class
      */
     fun startStreaming(className: String) {
         SwingUtilities.invokeLater {
+            // Clear previous streaming if any
+            clearStreamingEditor()
+
             streamingContent.clear()
-            currentStreamingMessageId = chatPanel.addMessage(
-                "🧪 Generating Test: $className",
-                "Starting test generation..."
-            )
+            currentStreamingClass = className
+
+            // Create streaming editor panel
+            createStreamingEditor(className)
+
             statusLabel.text = "Generating test for $className..."
+
+            mainContainer.revalidate()
+            mainContainer.repaint()
         }
     }
 
     /**
-     * Append streaming content token by token
+     * Append content to the streaming editor
      */
     fun appendStreamingContent(token: String) {
         SwingUtilities.invokeLater {
             streamingContent.append(token)
-            currentStreamingMessageId?.let {
-                chatPanel.updateMessage(it, streamingContent.toString())
+
+            streamingEditor?.let { editor ->
+                val document = editor.document
+                com.intellij.openapi.application.ApplicationManager.getApplication().runWriteAction {
+                    document.setText(streamingContent.toString())
+                }
+
+                // Auto-scroll to bottom
+                editor.scrollingModel.scrollVertically(document.textLength)
             }
         }
     }
 
     /**
-     * Finalize streaming when generation is complete
+     * Finalize the streaming content
      */
     fun finalizeStreaming() {
         SwingUtilities.invokeLater {
-            currentStreamingMessageId?.let {
-                // Wrap in code block for proper display
-                chatPanel.finalizeMessage(it, "```java\n${streamingContent}\n```")
-            }
+            // The streaming content is already displayed, just update status
             updateStatus()
+
+            // Keep the streaming editor visible as the latest generated test
+            currentStreamingClass = null
         }
     }
 
@@ -157,66 +167,151 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
         SwingUtilities.invokeLater {
             testClasses.add(test)
 
+            // Clear streaming editor since we have the final test
+            clearStreamingEditor()
+
             // Create panel for this test class
             val testPanel = createTestClassPanel(test)
-            testsContainer.add(testPanel)
-            testsContainer.add(Box.createVerticalStrut(10))
-
-            // Also finalize streaming if active
-            if (currentStreamingMessageId != null) {
-                finalizeStreaming()
-                currentStreamingMessageId = null
-            }
+            mainContainer.add(testPanel, 0) // Add at top
+            mainContainer.add(Box.createVerticalStrut(10), 1)
 
             updateStatus()
-            testsContainer.revalidate()
-            testsContainer.repaint()
+            mainContainer.revalidate()
+            mainContainer.repaint()
         }
+    }
+
+    /**
+     * Create streaming editor panel
+     */
+    private fun createStreamingEditor(className: String) {
+        val panel = JPanel(BorderLayout()).apply {
+            border = BorderFactory.createCompoundBorder(
+                EmptyBorder(5, 5, 5, 5),
+                BorderFactory.createLineBorder(UIUtil.getBoundsColor())
+            )
+            background = UIUtil.getPanelBackground()
+        }
+
+        // Header with streaming indicator
+        val headerPanel = JPanel(BorderLayout()).apply {
+            border = EmptyBorder(8, 10, 8, 10)
+            background = UIUtil.getPanelBackground()
+        }
+
+        val classLabel = JBLabel("🔄 Generating: $className").apply {
+            font = font.deriveFont(Font.BOLD, 13f)
+            foreground = JBUI.CurrentTheme.Link.linkColor()
+        }
+        headerPanel.add(classLabel, BorderLayout.WEST)
+        panel.add(headerPanel, BorderLayout.NORTH)
+
+        // Create editor for streaming content
+        val editorFactory = EditorFactory.getInstance()
+        val document = editorFactory.createDocument("")
+        val editor = editorFactory.createViewer(document, project) as EditorEx
+
+        // Configure editor
+        editor.settings.apply {
+            isLineNumbersShown = true
+            isWhitespacesShown = false
+            isLineMarkerAreaShown = false
+            isFoldingOutlineShown = true
+            isIndentGuidesShown = true
+            isUseSoftWraps = false
+            additionalLinesCount = 0
+        }
+
+        // Set Java syntax highlighting
+        val javaFileType = FileTypeManager.getInstance().getFileTypeByExtension("java")
+        val highlighter = EditorHighlighterFactory.getInstance()
+            .createEditorHighlighter(project, javaFileType)
+        editor.highlighter = highlighter
+
+        // Store references
+        streamingEditor = editor
+        streamingPanel = panel
+        testClassEditors.add(editor)
+
+        // Add editor to panel with preferred size
+        val editorComponent = editor.component.apply {
+            preferredSize = Dimension(preferredSize.width, 300)
+        }
+        panel.add(editorComponent, BorderLayout.CENTER)
+
+        // Add to main container at top
+        mainContainer.add(panel, 0)
+        mainContainer.add(Box.createVerticalStrut(10), 1)
+    }
+
+    /**
+     * Clear the streaming editor
+     */
+    private fun clearStreamingEditor() {
+        streamingPanel?.let { panel ->
+            mainContainer.remove(panel)
+            // Also remove the vertical strut after it
+            if (mainContainer.componentCount > 0 && mainContainer.getComponent(0) is Box.Filler) {
+                mainContainer.remove(0)
+            }
+        }
+
+        streamingEditor?.let { editor ->
+            testClassEditors.remove(editor)
+            EditorFactory.getInstance().releaseEditor(editor)
+        }
+
+        streamingEditor = null
+        streamingPanel = null
     }
 
     /**
      * Create a panel with embedded editor for displaying a test class
      */
     private fun createTestClassPanel(test: GeneratedTestDisplayData): JPanel {
-        val panel = JPanel(BorderLayout())
-        panel.border = BorderFactory.createCompoundBorder(
-            EmptyBorder(5, 5, 5, 5),
-            BorderFactory.createLineBorder(UIUtil.getBoundsColor())
-        )
-        panel.background = UIUtil.getPanelBackground()
+        val panel = JPanel(BorderLayout()).apply {
+            border = BorderFactory.createCompoundBorder(
+                EmptyBorder(5, 5, 5, 5),
+                BorderFactory.createLineBorder(UIUtil.getBoundsColor())
+            )
+            background = UIUtil.getPanelBackground()
+        }
 
         // Header with class name and actions
-        val headerPanel = JPanel(BorderLayout())
-        headerPanel.border = EmptyBorder(8, 10, 8, 10)
-        headerPanel.background = UIUtil.getPanelBackground()
+        val headerPanel = JPanel(BorderLayout()).apply {
+            border = EmptyBorder(8, 10, 8, 10)
+            background = UIUtil.getPanelBackground()
+        }
 
-        val classLabel = JBLabel("📄 ${test.className}")
-        classLabel.font = classLabel.font.deriveFont(Font.BOLD, 13f)
+        val classLabel = JBLabel("📄 ${test.className}").apply {
+            font = font.deriveFont(Font.BOLD, 13f)
+        }
         headerPanel.add(classLabel, BorderLayout.WEST)
 
-        // Action buttons for this test
-        val actionPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0))
-        actionPanel.isOpaque = false
+        // Action buttons
+        val actionPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0)).apply {
+            isOpaque = false
+        }
 
-        val copyButton = JButton("Copy")
-        copyButton.addActionListener {
-            copyToClipboard(test)
+        val copyButton = JButton("Copy").apply {
+            addActionListener { copyToClipboard(test) }
         }
         actionPanel.add(copyButton)
 
-        val timestampLabel = JBLabel(formatTimestamp(test.timestamp))
-        timestampLabel.foreground = UIUtil.getContextHelpForeground()
-        timestampLabel.font = timestampLabel.font.deriveFont(11f)
+        val timestampLabel = JBLabel(formatTimestamp(test.timestamp)).apply {
+            foreground = UIUtil.getContextHelpForeground()
+            font = font.deriveFont(11f)
+        }
         actionPanel.add(timestampLabel)
 
         headerPanel.add(actionPanel, BorderLayout.EAST)
         panel.add(headerPanel, BorderLayout.NORTH)
 
         // Create editor for syntax highlighting
-        val editorPanel = createEditorPanel(test.fullTestCode)
-        panel.add(editorPanel, BorderLayout.CENTER)
+        val editorComponent = createEditorComponent(test.fullTestCode)
+        panel.add(editorComponent, BorderLayout.CENTER)
 
-        // Set preferred height based on content (max 400px)
+        // Set preferred height based on content
         val lineCount = test.fullTestCode.lines().size
         val preferredHeight = minOf(400, 100 + lineCount * 15)
         panel.preferredSize = Dimension(panel.preferredSize.width, preferredHeight)
@@ -226,9 +321,9 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
     }
 
     /**
-     * Create an editor panel with syntax-highlighted code
+     * Create an editor component with syntax-highlighted code
      */
-    private fun createEditorPanel(code: String): JComponent {
+    private fun createEditorComponent(code: String): JComponent {
         val editorFactory = EditorFactory.getInstance()
         val document = editorFactory.createDocument(code)
         val editor = editorFactory.createViewer(document, project) as EditorEx
@@ -242,67 +337,79 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
             isIndentGuidesShown = true
             isUseSoftWraps = false
             additionalLinesCount = 0
-            additionalColumnsCount = 0
         }
 
         // Set Java syntax highlighting
         val javaFileType = FileTypeManager.getInstance().getFileTypeByExtension("java")
-        val highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(
-            project, javaFileType
-        )
+        val highlighter = EditorHighlighterFactory.getInstance()
+            .createEditorHighlighter(project, javaFileType)
         editor.highlighter = highlighter
-        editor.isViewer = true
 
-        // Track editor for cleanup
+        // Track editor for disposal
         testClassEditors.add(editor)
 
         return editor.component
     }
 
     /**
-     * Format timestamp for display
-     */
-    private fun formatTimestamp(timestamp: Long): String {
-        val now = System.currentTimeMillis()
-        val diffMinutes = (now - timestamp) / (1000 * 60)
-        return when {
-            diffMinutes < 1 -> "just now"
-            diffMinutes < 60 -> "$diffMinutes min ago"
-            else -> "${diffMinutes / 60}h ago"
-        }
-    }
-
-    /**
-     * Copy test class to clipboard
+     * Copy test code to clipboard
      */
     private fun copyToClipboard(test: GeneratedTestDisplayData) {
         val clipboard = Toolkit.getDefaultToolkit().systemClipboard
         clipboard.setContents(StringSelection(test.fullTestCode), null)
 
-        JOptionPane.showMessageDialog(
-            this,
-            "Test class '${test.className}' copied to clipboard",
-            "Success",
-            JOptionPane.INFORMATION_MESSAGE
-        )
+        statusLabel.text = "Copied ${test.className} to clipboard"
+        Timer(2000) { statusLabel.text = updateStatusText() }.apply {
+            isRepeats = false
+            start()
+        }
     }
 
+    /**
+     * Format timestamp for display
+     */
+    private fun formatTimestamp(timestamp: Long): String {
+        val diff = System.currentTimeMillis() - timestamp
+        return when {
+            diff < 60000 -> "just now"
+            diff < 3600000 -> "${diff / 60000}m ago"
+            else -> "${diff / 3600000}h ago"
+        }
+    }
 
     /**
      * Clear all tests
      */
     fun clear() {
         SwingUtilities.invokeLater {
+            // Clear streaming editor
+            clearStreamingEditor()
+
             // Release all editors
             testClassEditors.forEach { editor ->
                 EditorFactory.getInstance().releaseEditor(editor)
             }
             testClassEditors.clear()
             testClasses.clear()
-            testsContainer.removeAll()
+
+            // Clear container
+            mainContainer.removeAll()
+
             statusLabel.text = "No tests generated yet"
-            testsContainer.revalidate()
-            testsContainer.repaint()
+            mainContainer.revalidate()
+            mainContainer.repaint()
+        }
+    }
+
+    /**
+     * Update status label text
+     */
+    private fun updateStatusText(): String {
+        val count = testClasses.size
+        return when (count) {
+            0 -> "No tests generated yet"
+            1 -> "1 test class generated"
+            else -> "$count test classes generated"
         }
     }
 
@@ -310,12 +417,7 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
      * Update status label
      */
     private fun updateStatus() {
-        val count = testClasses.size
-        statusLabel.text = when (count) {
-            0 -> "No tests generated yet"
-            1 -> "1 test class generated"
-            else -> "$count test classes generated"
-        }
+        statusLabel.text = updateStatusText()
     }
 
     /**
@@ -345,16 +447,17 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
      * Clean up resources when panel is disposed
      */
     fun dispose() {
-        // Release all editors created for completed test displays
+        // Clear streaming editor
+        clearStreamingEditor()
+
+        // Release all editors
         testClassEditors.forEach { editor ->
             EditorFactory.getInstance().releaseEditor(editor)
         }
         testClassEditors.clear()
 
-        // Clear streaming content
+        // Clear data
         streamingContent.clear()
-        currentStreamingMessageId = null
-
-        // Note: JCEFChatPanel disposal is handled by JCEFBrowserService
+        currentStreamingClass = null
     }
 }

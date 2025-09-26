@@ -45,14 +45,22 @@ public final class StateMachineTestGenerationService {
         
         String sessionId = UUID.randomUUID().toString();
         LOG.info("Starting state machine-based test generation: " + sessionId);
-        
+
         // Create state machine
         TestGenerationStateMachine stateMachine = new TestGenerationStateMachine(project, sessionId);
-        
+
         // Register event listener
         if (eventListener != null) {
             stateMachine.addEventListener(eventListener);
             sessionListeners.put(sessionId, eventListener);
+            // Notify about session creation immediately
+            TestGenerationEvent.ActivityLogged sessionCreatedEvent = new TestGenerationEvent.ActivityLogged(
+                sessionId,
+                stateMachine.getCurrentState(),
+                "Session created: " + sessionId,
+                System.currentTimeMillis()
+            );
+            eventListener.onActivityLogged(sessionCreatedEvent);
         }
         
         // Store streaming callback

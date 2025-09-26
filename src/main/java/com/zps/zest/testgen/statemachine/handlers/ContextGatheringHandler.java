@@ -93,6 +93,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                         if (streamingCallback != null) {
                             streamingCallback.accept(String.format("📁 Context analysis: %d classes, %d notes, %d files analyzed\n",
                                 analyzedClasses, notes, files));
+                            triggerContextUIUpdates(contextAgent);
                         }
 
                         // Don't trigger UI updates here - they're sent individually by tools

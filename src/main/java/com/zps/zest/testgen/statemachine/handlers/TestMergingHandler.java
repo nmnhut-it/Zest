@@ -72,8 +72,9 @@ public class TestMergingHandler extends AbstractStateHandler {
             // Store as field for direct access
             this.aiTestMergerAgent = aiMerger;
 
-            // Notify UI that merger agent is available
+            // Set UI event listener on merger agent for live updates
             if (uiEventListener != null) {
+                aiMerger.setUiEventListener(uiEventListener);
                 uiEventListener.onMergerAgentCreated(aiMerger);
             }
 

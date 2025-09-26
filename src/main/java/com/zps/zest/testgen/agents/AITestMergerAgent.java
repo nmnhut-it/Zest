@@ -1,9 +1,11 @@
 package com.zps.zest.testgen.agents;
 
 import com.intellij.codeInsight.CodeSmellInfo;
+import com.intellij.codeInsight.navigation.MethodImplementationsSearch;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.CodeSmellDetector;
+import com.intellij.psi.util.MethodSignatureUtil;
 import com.intellij.testFramework.LightVirtualFile;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
@@ -27,6 +29,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     private final TestMergingTools mergingTools;
     private String lastExistingTestCode = null; // Store for UI display
     private MergedTestClass lastMergedResult = null; // Store the merged result
+    private com.zps.zest.testgen.ui.StreamingEventListener uiEventListener = null; // UI event listener
 
     public AITestMergerAgent(@NotNull Project project,
                             @NotNull ZestLangChain4jService langChainService,
@@ -53,25 +56,39 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         @dev.langchain4j.service.SystemMessage("""
         You are an intelligent test merging coordinator that orchestrates test class merging using tools.
 
+        🚨 TOKEN OPTIMIZATION RULES (CRITICAL):
+        - NEVER repeat the entire test code when making fixes
+        - ALWAYS use applySimpleFix() for small changes
+        - Use updateTestCode() ONLY for major structural changes
+        - Each fix should be minimal and precise
+        - Report token savings: "💰 Saved ~X tokens by using incremental fix"
+
         TOOL USAGE TRACKING (mandatory for each response):
         📊 Track your tool usage:
         - Report after each tool call: "🔧 Tool usage: [X/50] calls used"
-        - List recent tools: [setNewTestCode, findExistingTest, validateCurrentTestCode, etc.]
+        - List recent tools: [setNewTestCode, findExistingTest, applySimpleFix, etc.]
         - Be mindful of the 50 tool call limit per session
 
         RESPONSE FORMAT:
         After each tool usage, briefly report:
-        📍 Phase: [Setup|Discovery|Merging|Validation|Completion]
+        📍 Phase: [Setup|Discovery|Merging|Validation|Fixing|Completion]
         🔧 Tools used: X/50
         ⚡ Next: [Specific next action]
+        💰 Token savings (if applicable)
 
         WORKFLOW:
-        1. Use setNewTestCode(className, testCode) to set the new test code to work with
-        2. Use findExistingTest(targetClass) to check for existing test class
-        3. If existing test found, merge it with new test and use updateTestCode() to save merged version
-        4. If no existing test, the new test becomes the final version
-        5. Validate and fix the test code (see validation workflow below)
-        6. Call recordMergedResult() with the final test details
+        NOTE: Test code is AUTO-INITIALIZED - already set when you start!
+        The new test is already loaded and visible in the UI.
+
+        1. Use findExistingTest(targetClass) to check for existing test class
+           This displays existing test in left panel if found
+        2. If existing test found, merge it with new test and use updateTestCode()
+           Each updateTestCode() refreshes the UI - use sparingly for major changes
+        3. If no existing test, the new test is already the final version - skip to step 4
+        4. Validate and fix the test code (see validation workflow below)
+           Each applySimpleFix() shows live in the UI with line highlighting
+        5. Call recordMergedResult() with the final test details
+        6. Call markMergingDone() - THIS IS MANDATORY (see completion section)
 
         MERGING RULES:
         1. **Preserve Existing Tests**: Never remove or modify existing test methods
@@ -106,38 +123,72 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         - Import conflicts: Use fully qualified names when needed
         - Setup conflicts: Merge or use separate setup methods
 
-        VALIDATION WORKFLOW (MANDATORY):
-        7. After merging/updating, call validateCurrentTestCode() to check for issues
-        8. If validation returns VALIDATION_FAILED:
+        VALIDATION WORKFLOW (MANDATORY - OPTIMIZE TOKENS):
+        After merging/updating, call validateCurrentTestCode() to check for issues
+        A. If validation returns MANY errors (>10), ANALYZE THE PATTERN:
+           - Library dependency errors (junit, testcontainers, mockito, assertions)
+           - Project import errors (RedisConfig, internal classes)
+           - Actual code issues
+
+        B. USE suppressValidationErrors() FOR LIBRARY ERRORS:
+           If you see many "Cannot resolve symbol" for libraries, suppress them:
+           - suppressValidationErrors("Cannot resolve symbol '(junit|testcontainers|mockito|Container|Test|BeforeAll|AfterAll)'",
+                                      "External test framework dependencies")
+           - suppressValidationErrors("Cannot resolve method '(assert\\w+|assertEquals|assertTrue|assertNotNull)'",
+                                      "Test assertion methods from framework")
+           Then validateCurrentTestCode() again to see ONLY fixable issues
+
+        C. For remaining VALIDATION_FAILED issues:
            - STOP AND ANALYZE the root cause before fixing
-           - Use applySimpleFix(oldText, newText) to fix issues one by one
-           - After fixing all issues, call validateCurrentTestCode() again
-        9. Repeat until VALIDATION_PASSED or fixes exhausted
-        10. Call recordMergedResult() with your final code
-        11. Call markMergingDone() with completion status
+           - Project imports ARE fixable - try to add them
+           - Use lookupMethod(className, methodName) to verify correct signatures
+           - Use applySimpleFix(oldText, newText) for EACH issue separately
+           - NEVER use updateTestCode() for validation fixes
+           - Apply fixes incrementally - one line/import at a time
+
+        D. Repeat until VALIDATION_PASSED or fixes exhausted (MAX 10 real fix attempts after suppression)
+        E. Call recordMergedResult() with your final code
+        F. 🚨 CRITICAL: You MUST call markMergingDone() when:
+            - Validation passes (include "validation passed" in reason) OR
+            - You've attempted 3+ fixes (include "max fixes attempted" in reason) OR
+            - Any unrecoverable error occurs (include error description)
+            - NEVER end without calling markMergingDone() - this is MANDATORY!
+
+        FIX OPTIMIZATION EXAMPLES:
+        ✅ GOOD: applySimpleFix("import java.util.List;", "import java.util.List;\nimport org.junit.jupiter.api.Test;")
+        ❌ BAD: updateTestCode(entireTestClassWith1000Lines) // Wastes tokens!
 
         VALIDATION FAILURE ANALYSIS (CRITICAL):
         When validation fails, BEFORE attempting any fix:
 
-        1. DIAGNOSE THE ROOT CAUSE:
-           - "cannot find symbol" → Missing import or unavailable library
+        1. CHECK ERROR VOLUME - If >10 similar errors:
+           USE suppressValidationErrors() FIRST!
+           Example: 30 errors about junit/testcontainers → Suppress them, focus on real issues
+
+        2. DIAGNOSE THE ROOT CAUSE of remaining errors:
+           - "cannot find symbol" → Check if library (suppress) or project class (fix)
            - "package does not exist" → Missing dependency in build file
            - "incompatible types" → Wrong API version or incorrect usage
            - Syntax errors → Typos or malformed code
 
-        2. UNDERSTAND WHY IT FAILED - Think deeply:
+        3. UNDERSTAND WHY IT FAILED - Think deeply:
            "This error occurs because..." and explain the actual cause
-           Example: "TestContainers class not found means the library isn't in classpath"
+           Example: "RedisConfig not found - this is a project class, need to import it"
 
-        3. DOCUMENT IN CODE COMMENTS:
-           When using external libraries, add:
-           // Requires: org.testcontainers:testcontainers:1.x.x
-           // If compilation fails, add to pom.xml or build.gradle
+        3. DOCUMENT UNFIXABLE ISSUES IN CODE:
+           If you cannot fix an issue, ADD A COMMENT in the test code:
+           // TODO: Fix required - [describe the issue]
+           // FIXME: Missing dependency: org.testcontainers:testcontainers
+           // NOTE: This test requires manual configuration of [resource]
+
+           Use applySimpleFix() to add these comments above the problematic line:
+           applySimpleFix("@Test", "// TODO: Add @SpringBootTest if this is a Spring integration test\n    @Test")
 
         4. FIX STRATEGICALLY:
-           - Missing libraries → Add TODO comment and try alternative approach
-           - Wrong API → Check project's actual version
-           - Missing imports → Add the correct import statement
+           - Missing libraries → Add TODO comment explaining dependency needed
+           - Wrong API → Add FIXME comment with correct version needed
+           - Configuration issues → Add NOTE comment with setup instructions
+           - Missing imports → Try to add the import, or comment if unknown
 
         LIBRARY DEPENDENCY AWARENESS:
         Common test dependencies to document:
@@ -153,22 +204,35 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         - methodCount: String count of @Test methods (e.g., "12")
         - framework: "JUnit5", "JUnit4", or "TestNG"
 
-        COMPLETION:
+        COMPLETION CHECKLIST:
+        Before calling markMergingDone(), ensure:
+        ✓ All fixable issues have been addressed
+        ✓ Unfixable issues have TODO/FIXME/NOTE comments added
+        ✓ The test code is as complete as possible
+        ✓ recordMergedResult() has been called with the final code
+
         You MUST call markMergingDone() when:
         - Validation passes (VALIDATION_PASSED)
-        - OR you've exhausted reasonable fix attempts
-        Provide a clear reason in the markMergingDone call
+        - OR you've exhausted reasonable fix attempts (document remaining issues)
+        Include a summary in the reason: "Validation passed" or "Completed with X TODO comments for manual fixes"
         """)
         @dev.langchain4j.agentic.Agent
         String mergeAndFixTestClass(String request);
     }
     
     /**
+     * Set the UI event listener for live updates
+     */
+    public void setUiEventListener(@Nullable com.zps.zest.testgen.ui.StreamingEventListener listener) {
+        this.uiEventListener = listener;
+    }
+
+    /**
      * Merge generated test class with existing test file (if any)
      */
     @NotNull
     public CompletableFuture<MergedTestClass> mergeTests(@NotNull TestGenerationResult result,
-                                                         @NotNull ContextAgent.ContextGatheringTools contextTools) {
+                                                         @Nullable ContextAgent.ContextGatheringTools contextTools) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.debug("Starting AI-based test merging for: " + result.getClassName());
@@ -181,8 +245,19 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                 notifyStart();
                 sendToUI("🤖 AI-based test merging starting...\n\n");
 
-                // Build the merging request
-                String mergeRequest = buildMergeRequest(result);
+                // AUTO-INITIALIZE: Set the new test code immediately for UI display
+                String testClassName = result.getClassName();
+                String newTestCode = result.getCompleteTestClass();
+                if (newTestCode == null || newTestCode.isEmpty()) {
+                    newTestCode = generateCompleteTestClass(result);
+                }
+
+                // Automatically call setNewTestCode to initialize and show in UI immediately
+                mergingTools.setNewTestCode(testClassName, newTestCode);
+                sendToUI("✅ Test code initialized: " + testClassName + "\n");
+
+                // Build the merging request with context notes
+                String mergeRequest = buildMergeRequest(result, contextTools);
 
                 // Send the request to UI
                 sendToUI("📋 Merge Request:\n" + mergeRequest + "\n\n");
@@ -230,7 +305,10 @@ public class AITestMergerAgent extends StreamingBaseAgent {
 
                 if (iteration >= maxIterations && !mergingTools.isMergingComplete()) {
                     LOG.warn("Merging reached maximum iterations without completion");
-                    sendToUI("\n⚠️ Merging reached maximum iterations. Proceeding with current result.\n");
+                    sendToUI("\n⚠️ Merging reached maximum iterations. Auto-completing merge process.\n");
+
+                    // Force completion to ensure clean exit
+                    mergingTools.markMergingDone("Auto-completed after " + iteration + " iterations without explicit completion");
                 }
 
                 // Check if the AI successfully recorded the result
@@ -409,7 +487,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     /**
      * Build the merge request with all necessary context
      */
-    private String buildMergeRequest(TestGenerationResult result) {
+    private String buildMergeRequest(TestGenerationResult result, @Nullable ContextAgent.ContextGatheringTools contextTools) {
         StringBuilder request = new StringBuilder();
 
         request.append("MERGE TASK: Intelligently merge the new test class with any existing test class\n\n");
@@ -419,6 +497,23 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         request.append("Test Class Name: ").append(result.getClassName()).append("\n");
         request.append("Package: ").append(result.getPackageName()).append("\n");
         request.append("Framework: ").append(result.getFramework()).append("\n\n");
+
+        // Include context notes if available
+        if (contextTools != null) {
+            java.util.List<String> contextNotes = contextTools.getContextNotes();
+            if (!contextNotes.isEmpty()) {
+                request.append("🔍 CRITICAL CONTEXT NOTES (from code analysis):\n");
+                request.append("These are important technical details discovered during context gathering:\n");
+                for (String note : contextNotes) {
+                    request.append("  • ").append(note).append("\n");
+                }
+                request.append("\nConsider these notes when merging and fixing tests - they contain crucial information about:\n");
+                request.append("  - API contracts and requirements\n");
+                request.append("  - Specific configuration values and formats\n");
+                request.append("  - Dependencies and constraints\n");
+                request.append("  - Edge cases and error conditions\n\n");
+            }
+        }
 
         // New test class to merge
         request.append("NEW TEST CLASS TO MERGE:\n");
@@ -435,14 +530,19 @@ public class AITestMergerAgent extends StreamingBaseAgent {
 
         request.append("INSTRUCTIONS:\n");
         request.append("Remember to track your tool usage throughout the process (e.g., \"🔧 Tools used: 3/50\").\n\n");
-        request.append("1. First use setNewTestCode(\"").append(result.getClassName()).append("\", <test_code>) to set the new test to work with\n");
-        request.append("2. Use findExistingTest(\"").append(result.getTargetClass()).append("\") to check for existing tests\n");
-        request.append("3. If existing test found, merge intelligently and use updateTestCode() to save merged version\n");
-        request.append("4. If no existing test, the new test becomes the final version\n");
-        request.append("5. Use validateCurrentTestCode() and applySimpleFix() to fix any issues\n");
-        request.append("6. Call recordMergedResult() with the final validated test details\n");
-        request.append("7. Call markMergingDone() when validation passes or fixes exhausted\n");
-        request.append("8. Throughout the process, report your tool usage: \"🔧 Tools used: X/50\"\n");
+        request.append("📌 NOTE: Test code is ALREADY SET for you! The new test is loaded and visible in UI.\n\n");
+        request.append("1. Use findExistingTest(\"").append(result.getTargetClass()).append("\") to check for existing tests\n");
+        request.append("2. If existing test found, merge intelligently and use updateTestCode() to save merged version\n");
+        request.append("3. If no existing test, the new test is already your final version - skip to validation\n");
+        request.append("4. Use validateCurrentTestCode() to check for issues\n");
+        request.append("5. If many library errors (>10), use suppressValidationErrors() to filter them first\n");
+        request.append("6. Use applySimpleFix() to fix remaining real issues (one at a time for live UI updates)\n");
+        request.append("7. Call recordMergedResult() with the final validated test details\n");
+        request.append("8. 🚨 CRITICAL: Call markMergingDone() - This is MANDATORY! Include reason:\n");
+        request.append("   - \"Validation passed\" if successful\n");
+        request.append("   - \"Max fixes attempted (X/10)\" if tried multiple fixes\n");
+        request.append("   - \"Error: [description]\" if encountered issues\n");
+        request.append("9. Throughout the process, report your tool usage: \"🔧 Tools used: X/50\"\n");
 
         return request.toString();
     }
@@ -646,6 +746,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         private String currentWorkingTestCode = null; // Maintains the current version of test code being worked on
         private String currentTestClassName = null; // The class name of the current test
         private boolean mergingComplete = false; // Track if merging is complete
+        private final java.util.Set<String> suppressionPatterns = new java.util.HashSet<>(); // Patterns to suppress in validation
 
         public TestMergingTools(@NotNull Project project,
                                @Nullable java.util.function.Consumer<String> toolNotifier) {
@@ -665,6 +766,12 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             notifyTool("setNewTestCode", className);
             currentTestClassName = className;
             currentWorkingTestCode = testCode;
+
+            // Fire live UI event for immediate display
+            if (uiEventListener != null) {
+                uiEventListener.onTestCodeSet(className, testCode, false);
+            }
+
             return "New test code set for " + className + " (" + testCode.length() + " characters)";
         }
 
@@ -684,6 +791,12 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                 return "ERROR: No current test code to update";
             }
             currentWorkingTestCode = updatedCode;
+
+            // Fire live UI event for immediate display
+            if (uiEventListener != null && currentTestClassName != null) {
+                uiEventListener.onTestCodeUpdated(currentTestClassName, updatedCode);
+            }
+
             return "Test code updated (" + updatedCode.length() + " characters)";
         }
 
@@ -706,6 +819,12 @@ public class AITestMergerAgent extends StreamingBaseAgent {
 
                     if (existingCode != null && !existingCode.isEmpty()) {
                         lastExistingTestCode = existingCode;
+
+                        // Fire UI event for existing test display
+                        if (uiEventListener != null) {
+                            uiEventListener.onTestCodeSet(targetClassName + "Test", existingCode, true);
+                        }
+
                         return "EXISTING_TEST_FOUND:\n" + existingCode;
                     }
                 }
@@ -825,17 +944,72 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                     return "VALIDATION_SKIPPED: Timeout during validation";
                 }
 
-                if (issues.isEmpty()) {
-                    return "VALIDATION_PASSED: No issues found";
+                // Filter issues based on suppression patterns
+                java.util.List<CodeSmellInfo> filteredIssues = new java.util.ArrayList<>();
+                java.util.List<String> suppressedDescriptions = new java.util.ArrayList<>();
+
+                for (CodeSmellInfo issue : issues) {
+                    String description = issue.getDescription();
+                    boolean suppressed = false;
+
+                    // Check if this issue matches any suppression pattern
+                    for (String pattern : suppressionPatterns) {
+                        try {
+                            if (description.matches(pattern) ||
+                                java.util.regex.Pattern.compile(pattern).matcher(description).find()) {
+                                suppressed = true;
+                                suppressedDescriptions.add(String.format("Line %d: %s", issue.getStartLine(), description));
+                                break;
+                            }
+                        } catch (Exception e) {
+                            // If pattern matching fails, don't suppress
+                            LOG.warn("Error matching suppression pattern: " + pattern, e);
+                        }
+                    }
+
+                    if (!suppressed) {
+                        filteredIssues.add(issue);
+                    }
                 }
 
-                // Format issues for AI to fix
-                StringBuilder result = new StringBuilder("VALIDATION_FAILED:\n");
-                for (CodeSmellInfo issue : issues) {
-                    result.append(String.format("- Line %d: %s\n",
-                        issue.getStartLine(),
-                        issue.getDescription()));
+                // Log suppression stats if any
+                if (!suppressedDescriptions.isEmpty()) {
+                    LOG.info("Suppressed " + suppressedDescriptions.size() + " validation errors");
                 }
+
+                if (filteredIssues.isEmpty()) {
+                    // Fire UI event for validation success
+                    if (uiEventListener != null) {
+                        String successMsg = suppressedDescriptions.isEmpty() ?
+                            "VALIDATION_PASSED" :
+                            "VALIDATION_PASSED (after suppressing " + suppressedDescriptions.size() + " library errors)";
+                        uiEventListener.onValidationStatusChanged(successMsg, null);
+                    }
+                    return suppressedDescriptions.isEmpty() ?
+                        "VALIDATION_PASSED: No issues found" :
+                        "VALIDATION_PASSED: No issues after suppressing " + suppressedDescriptions.size() + " library dependency errors";
+                }
+
+                // Format remaining issues for AI to fix
+                java.util.List<String> issueDescriptions = new java.util.ArrayList<>();
+                StringBuilder result = new StringBuilder("VALIDATION_FAILED:\n");
+                for (CodeSmellInfo issue : filteredIssues) {
+                    String issueDesc = String.format("Line %d: %s", issue.getStartLine(), issue.getDescription());
+                    result.append("- ").append(issueDesc).append("\n");
+                    issueDescriptions.add(issueDesc);
+                }
+
+                // Add note about suppressed errors if any
+                if (!suppressedDescriptions.isEmpty()) {
+                    result.append("\nNote: ").append(suppressedDescriptions.size())
+                          .append(" library dependency errors were suppressed.\n");
+                }
+
+                // Fire UI event for validation failures
+                if (uiEventListener != null) {
+                    uiEventListener.onValidationStatusChanged("VALIDATION_FAILED", issueDescriptions);
+                }
+
                 return result.toString();
 
             } catch (Exception e) {
@@ -867,10 +1041,47 @@ public class AITestMergerAgent extends StreamingBaseAgent {
 
                 // Apply the fix to the current working code
                 currentWorkingTestCode = testCode.replace(oldText, newText);
+
+                // Fire UI event for live fix display - try to detect line number
+                if (uiEventListener != null) {
+                    Integer lineNumber = findLineNumber(testCode, oldText);
+                    uiEventListener.onFixApplied(oldText, newText, lineNumber);
+
+                    // Also update the full test code display
+                    if (currentTestClassName != null) {
+                        uiEventListener.onTestCodeUpdated(currentTestClassName, currentWorkingTestCode);
+                    }
+                }
+
                 return "SUCCESS: Replacement applied to current test code.";
 
             } catch (Exception e) {
                 return "ERROR: " + e.getMessage();
+            }
+        }
+
+        @Tool("Suppress validation errors matching a pattern to focus on fixable issues. " +
+              "Use this to ignore library dependency errors that cannot be fixed. " +
+              "Example patterns: 'Cannot resolve symbol .*(junit|testcontainers|mockito).*' " +
+              "or 'Cannot resolve method .*(assert\\w+).*'")
+        public String suppressValidationErrors(String pattern, String reason) {
+            notifyTool("suppressValidationErrors", "pattern: " + pattern.substring(0, Math.min(pattern.length(), 50)) + "...");
+
+            try {
+                // Test if pattern is valid regex
+                java.util.regex.Pattern.compile(pattern);
+                suppressionPatterns.add(pattern);
+
+                // Count how many errors this will suppress (if we have current validation errors)
+                String estimatedImpact = "";
+                if (currentWorkingTestCode != null) {
+                    // Just indicate pattern was added, actual impact will be seen on next validation
+                    estimatedImpact = " Pattern added for filtering.";
+                }
+
+                return "SUPPRESSED: " + reason + " (pattern: " + pattern + ")" + estimatedImpact;
+            } catch (java.util.regex.PatternSyntaxException e) {
+                return "ERROR: Invalid regex pattern - " + e.getMessage();
             }
         }
 
@@ -894,6 +1105,49 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             return summary.toString();
         }
 
+        @Tool("Look up method signatures using fully qualified class name and method name to get correct signatures from project or library classes")
+        public String lookupMethod(String className, String methodName) {
+            notifyTool("lookupMethod", className + "." + methodName);
+
+            return com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
+                (com.intellij.openapi.util.Computable<String>) () -> {
+                    try {
+                        com.intellij.psi.JavaPsiFacade facade = com.intellij.psi.JavaPsiFacade.getInstance(project);
+                        com.intellij.psi.PsiClass psiClass = facade.findClass(className,
+                            com.intellij.psi.search.GlobalSearchScope.allScope(project));
+
+                        if (psiClass == null) {
+                            return "Class not found: " + className;
+                        }
+
+                        com.intellij.psi.PsiMethod[] methods = psiClass.findMethodsByName(methodName, true);
+                        if (methods.length == 0) {
+                            return "Method not found: " + methodName;
+                        }
+
+                        StringBuilder result = new StringBuilder();
+                        for (com.intellij.psi.PsiMethod method : methods) {
+                            // Return type
+                            if (method.getReturnType() != null) {
+                                result.append(method.getReturnType().getPresentableText()).append(" ");
+                            }
+                            // Method name and parameters
+                            result.append(methodName).append("(");
+                            com.intellij.psi.PsiParameter[] params = method.getParameterList().getParameters();
+                            for (int i = 0; i < params.length; i++) {
+                                if (i > 0) result.append(", ");
+                                result.append(params[i].getType().getPresentableText());
+                            }
+                            result.append(")\n");
+                        }
+                        return result.toString();
+                    } catch (Exception e) {
+                        return "ERROR: " + e.getMessage();
+                    }
+                }
+            );
+        }
+
         public boolean isMergingComplete() {
             return mergingComplete;
         }
@@ -902,6 +1156,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             currentWorkingTestCode = null;
             currentTestClassName = null;
             mergingComplete = false;
+            suppressionPatterns.clear();
         }
 
         private int countTestMethods(String testCode) {
@@ -915,6 +1170,16 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                 }
             }
             return count;
+        }
+
+        private Integer findLineNumber(String code, String searchText) {
+            String[] lines = code.split("\n");
+            for (int i = 0; i < lines.length; i++) {
+                if (lines[i].contains(searchText)) {
+                    return i + 1; // Line numbers are 1-based
+                }
+            }
+            return null;
         }
 
         private String determineOutputPath(String className, String packageName) {

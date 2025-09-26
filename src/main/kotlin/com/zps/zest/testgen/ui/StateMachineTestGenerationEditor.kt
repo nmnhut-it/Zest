@@ -378,6 +378,60 @@ class StateMachineTestGenerationEditor(
             }
         }
 
+        // New live update event handlers for test merging
+        override fun onTestCodeSet(className: String, testCode: String, isExisting: Boolean) {
+            SwingUtilities.invokeLater {
+                // Immediately update the test merging panel with the test code
+                testMergingPanel.updateTestCodeImmediately(className, testCode, isExisting)
+
+                // Switch to test merging tab if not already there
+                if (tabbedPane.selectedIndex != 3) {
+                    tabbedPane.selectedIndex = 3
+                }
+
+                // Log the event
+                val codeType = if (isExisting) "existing" else "new"
+                logEvent("📝 Setting $codeType test code for $className")
+            }
+        }
+
+        override fun onTestCodeUpdated(className: String, updatedCode: String) {
+            SwingUtilities.invokeLater {
+                // Update the merged test editor with the latest code
+                testMergingPanel.updateTestCodeImmediately(className, updatedCode, false)
+
+                // Don't log every update to avoid spam, just update display
+            }
+        }
+
+        override fun onFixApplied(oldText: String, newText: String, lineNumber: Int?) {
+            SwingUtilities.invokeLater {
+                // Show the fix being applied with line highlighting
+                testMergingPanel.showFixApplied(oldText, newText, lineNumber)
+
+                // Log fix application briefly
+                val fixLocation = lineNumber?.let { " at line $it" } ?: ""
+                logEvent("🔧 Fix applied$fixLocation")
+            }
+        }
+
+        override fun onValidationStatusChanged(status: String, issues: List<String>?) {
+            SwingUtilities.invokeLater {
+                // Update validation status display
+                testMergingPanel.updateValidationStatus(status, issues)
+
+                // Log validation status
+                when (status) {
+                    "VALIDATION_PASSED" -> logEvent("✅ Validation passed")
+                    "VALIDATION_FAILED" -> {
+                        val issueCount = issues?.size ?: 0
+                        logEvent("⚠️ Validation found $issueCount issue(s)")
+                    }
+                    else -> logEvent("📋 Validation: $status")
+                }
+            }
+        }
+
         override fun onPhaseStarted(phase: com.zps.zest.testgen.statemachine.TestGenerationState) {
             SwingUtilities.invokeLater {
                 val tabIndex = when (phase) {

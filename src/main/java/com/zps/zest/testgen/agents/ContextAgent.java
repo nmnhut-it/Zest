@@ -153,17 +153,17 @@ YOUR TASK: Find context needed to understand the code under test:
 - Existing test classes of the code under test, if such classes exist.
 - Read *.iml (Intelij project file), pom (maven), gradle or ./lib(s) folders to understand what frameworks are being used and takeNote accordingly. 
 
-
 AVOID:
 - Classes already in the static dependency graph
 - General project exploration
-- Unrelated test examples
+- Unrelated test examples   
 - Files whose existence is unclear.
 
 Your goal is not to fully explore the codebase, but to understand the code under test without any assumption.
 
 Before any tool call, give a brief (about 50 words) on what you have explored.
 After each tool usage, explain what you found and what else needs investigation.
+Always take at least one note about project dependencies and libraries. You should take more notes if necessary. 
 Stop when you can test the code without making assumptions about external resources.
 """)
         @dev.langchain4j.agentic.Agent

@@ -8,9 +8,6 @@ import com.zps.zest.update.VersionUpdateNotifier
  * Action to show test generation documentation
  */
 class ShowTestGenerationHelpAction : AnAction(
-    "📖 Test Generation Guide",
-    "View comprehensive test generation documentation",
-    null
 ) {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

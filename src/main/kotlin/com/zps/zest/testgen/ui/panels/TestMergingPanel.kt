@@ -6,6 +6,9 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
+import com.intellij.openapi.editor.markup.HighlighterLayer
+import com.intellij.openapi.editor.colors.EditorColors
+import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.module.ModuleManager
@@ -13,6 +16,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.search.PsiShortNamesCache
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -23,6 +28,7 @@ import java.awt.*
 import java.awt.datatransfer.StringSelection
 import java.io.File
 import javax.swing.*
+import javax.swing.Timer
 
 /**
  * Simplified panel that shows side-by-side comparison of existing and merged test classes.
@@ -275,6 +281,102 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
             statusLabel.text = statusText
         }
     }
+
+    /**
+     * Immediately update test code display when it's set (live update)
+     * @param className The test class name
+     * @param testCode The test code to display
+     * @param isExisting Whether this is existing test code or new test code
+     */
+    fun updateTestCodeImmediately(className: String, testCode: String, isExisting: Boolean) {
+        SwingUtilities.invokeLater {
+            val editor = if (isExisting) existingCodeEditor else mergedCodeEditor
+            editor?.let {
+                ApplicationManager.getApplication().runWriteAction {
+                    it.document.setText(testCode)
+                }
+            }
+
+            // Update status to show immediate feedback
+            if (!isExisting) {
+                statusLabel.text = "Working on: $className"
+            }
+        }
+    }
+
+    /**
+     * Show a fix being applied with optional line highlighting
+     * @param oldText The text being replaced
+     * @param newText The replacement text
+     * @param lineNumber Optional line number where the fix is applied
+     */
+    fun showFixApplied(oldText: String, newText: String, lineNumber: Int?) {
+        SwingUtilities.invokeLater {
+            // Update status to show fix progress
+            val fixInfo = lineNumber?.let { "line $it" } ?: "text replacement"
+            statusLabel.text = "🔧 Applying fix at $fixInfo..."
+
+            // If we have a line number, try to highlight it temporarily
+            lineNumber?.let { line ->
+                mergedCodeEditor?.let { editor ->
+                    try {
+                        val document = editor.document
+                        if (line > 0 && line <= document.lineCount) {
+                            val startOffset = document.getLineStartOffset(line - 1)
+                            val endOffset = document.getLineEndOffset(line - 1)
+
+                            // Scroll to the line being fixed
+                            editor.scrollingModel.scrollTo(editor.offsetToLogicalPosition(startOffset), ScrollType.CENTER)
+
+                            // Flash the line briefly with a highlight
+                            val highlighter = editor.markupModel.addLineHighlighter(
+                                EditorColors.SEARCH_RESULT_ATTRIBUTES,
+                                line - 1,
+                                HighlighterLayer.SELECTION
+                            )
+
+                            // Remove highlight after a short delay
+                            Timer(500) {
+                                SwingUtilities.invokeLater {
+                                    editor.markupModel.removeHighlighter(highlighter)
+                                }
+                            }.apply {
+                                isRepeats = false
+                                start()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Ignore highlighting errors
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Update validation status display
+     * @param status The validation status (VALIDATION_PASSED, VALIDATION_FAILED, etc.)
+     * @param issues Optional list of validation issues
+     */
+    fun updateValidationStatus(status: String, issues: List<String>?) {
+        SwingUtilities.invokeLater {
+            when (status) {
+                "VALIDATION_PASSED" -> {
+                    statusLabel.text = "✅ Validation passed"
+                    statusLabel.foreground = Color(0, 128, 0)
+                }
+                "VALIDATION_FAILED" -> {
+                    val issueCount = issues?.size ?: 0
+                    statusLabel.text = "⚠️ Validation found $issueCount issue${if (issueCount != 1) "s" else ""}"
+                    statusLabel.foreground = Color(255, 140, 0)
+                }
+                else -> {
+                    statusLabel.text = status
+                    statusLabel.foreground = UIUtil.getContextHelpForeground()
+                }
+            }
+        }
+    }
     
     /**
      * Clear display
@@ -331,83 +433,127 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     /**
-     * Write merged test to file - extracted from MergedTestPreviewDialog
+     * Write merged test to file using IntelliJ's VFS and Document API
      */
     private fun writeMergedTestToFile() {
-        val mergedTest = currentMergedClass
-        if (mergedTest == null) {
-            Messages.showWarningDialog(
-                project,
-                "No merged test class available to save",
-                "No Test Available"
-            )
+        val mergedTest = currentMergedClass ?: run {
+            Messages.showWarningDialog(project, "No merged test class available to save", "No Test Available")
             return
         }
-        
-        try {
-            val targetFile: File
-            
-            if (mergedTest.hasInferredPath()) {
-                // Use AI-inferred path from merger agent
-                val inferredPath = mergedTest.fullFilePath!!
-                targetFile = File(inferredPath)
-                
-                // Ensure parent directories exist
-                val parentDir = targetFile.parentFile
-                if (!parentDir.exists()) {
-                    parentDir.mkdirs()
+
+        object : com.intellij.openapi.progress.Task.Backgroundable(project, "Saving Test File", false) {
+            private var savedFile: VirtualFile? = null
+
+            override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
+                indicator.text = "Writing test file..."
+
+                ApplicationManager.getApplication().runWriteAction {
+                    savedFile = createOrUpdateTestFile(mergedTest)
                 }
-            } else {
-                // Use proper test source root detection
-                val testSourceRoot = findBestTestSourceRoot()
-                val testDir = File(testSourceRoot)
-                
-                // Create test directory if it doesn't exist
-                if (!testDir.exists()) {
-                    testDir.mkdirs()
-                }
-                
-                // Create package directories
-                val packagePath = mergedTest.packageName.replace('.', File.separatorChar)
-                val packageDir = File(testDir, packagePath)
-                if (!packageDir.exists()) {
-                    packageDir.mkdirs()
-                }
-                
-                targetFile = File(packageDir, mergedTest.fileName)
             }
-            
-            // Write the test file
-            targetFile.writeText(mergedTest.fullContent)
-            
-            // Open the saved file in IntelliJ editor
-            openFileInEditor(targetFile.absolutePath)
-            
-            // Show success notification
-            statusLabel.text = "✅ Saved: ${targetFile.name}"
-            
-        } catch (e: Exception) {
-            Messages.showErrorDialog(
-                project,
-                "Failed to write test file:\n${e.message}",
-                "Write Error"
-            )
+
+            override fun onSuccess() {
+                statusLabel.text = "✅ Saved: ${mergedTest.fileName}"
+                savedFile?.let { FileEditorManager.getInstance(project).openFile(it, true) }
+            }
+
+            override fun onThrowable(error: Throwable) {
+                Messages.showErrorDialog(project, "Failed to write test file:\n${error.message}", "Write Error")
+            }
+        }.queue()
+    }
+
+    /**
+     * Create or update the test file with the merged content
+     */
+    private fun createOrUpdateTestFile(mergedTest: MergedTestClass): VirtualFile? {
+        val targetDir = findOrCreateTargetDirectory(mergedTest) ?: return null
+
+        // Create or find the file
+        var file = targetDir.findChild(mergedTest.fileName)
+        if (file == null) {
+            file = targetDir.createChildData(this, mergedTest.fileName)
         }
+
+        // Write content using Document API
+        val document = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(file)
+        if (document != null) {
+            document.setText(mergedTest.fullContent)
+            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveDocument(document)
+        } else {
+            file.setBinaryContent(mergedTest.fullContent.toByteArray(Charsets.UTF_8))
+        }
+
+        return file
+    }
+
+    /**
+     * Find or create the target directory for the test file
+     */
+    private fun findOrCreateTargetDirectory(mergedTest: MergedTestClass): VirtualFile? {
+        val fileSystem = LocalFileSystem.getInstance()
+
+        // Determine the directory path (without filename)
+        val dirPath = if (mergedTest.hasInferredPath()) {
+            // Extract directory from full file path
+            val fullPath = mergedTest.fullFilePath!!
+            fullPath.substringBeforeLast(File.separator)
+        } else {
+            // Build path from test root and package
+            val testRoot = findBestTestSourceRoot()
+            if (mergedTest.packageName.isNotEmpty()) {
+                val packagePath = mergedTest.packageName.replace('.', File.separatorChar)
+                "$testRoot${File.separator}$packagePath"
+            } else {
+                testRoot
+            }
+        }
+
+        // Find existing directory or create it
+        var targetDir = fileSystem.findFileByPath(dirPath)
+        if (targetDir == null) {
+            // Need to create the directory structure
+            val parts = dirPath.replace('\\', '/').split('/')
+            var currentPath = ""
+            var currentDir: VirtualFile? = null
+
+            for (part in parts) {
+                if (part.isEmpty()) continue
+
+                currentPath += if (currentPath.isEmpty()) part else "/$part"
+                var dir = fileSystem.findFileByPath(currentPath)
+
+                if (dir == null && currentDir != null) {
+                    // Create this directory under the parent
+                    dir = currentDir.createChildDirectory(this, part)
+                } else if (dir == null) {
+                    // Try with drive letter on Windows
+                    dir = fileSystem.findFileByPath("$currentPath/")
+                }
+
+                currentDir = dir
+            }
+
+            targetDir = currentDir
+        }
+
+        return targetDir
     }
     
     /**
      * Open the saved test file in IntelliJ's editor
      */
-    private fun openFileInEditor(filePath: String) {
+    private fun openFileInEditor(virtualFile: VirtualFile) {
         ApplicationManager.getApplication().invokeLater {
             try {
-                val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath)
                 if (virtualFile != null) {
-                    virtualFile.refresh(false, false)
-                    FileEditorManager.getInstance(project).openFile(virtualFile, true)
+                    virtualFile.refresh(true, false, {
+                        FileEditorManager.getInstance(project).openFile(virtualFile, true)
+                    });
                 }
             } catch (e: Exception) {
                 // Silently fail - file was saved successfully even if we can't open it
+                e.printStackTrace()
             }
         }
     }
@@ -419,7 +565,7 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
             
             // Update status to show success
             statusLabel.text = "✅ Copied to clipboard"
-            
+
             // Reset status after 3 seconds
             Timer(3000) {
                 SwingUtilities.invokeLater {

@@ -21,6 +21,12 @@ interface StreamingEventListener {
     fun onProgressChanged(percent: Int, message: String)
     fun onGenerationCompleted(session: TestGenerationSession) {}  // Default empty implementation
     fun onPhaseStarted(phase: com.zps.zest.testgen.statemachine.TestGenerationState) {}  // Default empty implementation
+
+    // New events for live test code updates during merging
+    fun onTestCodeSet(className: String, testCode: String, isExisting: Boolean) {}  // When test code is initially set
+    fun onTestCodeUpdated(className: String, updatedCode: String) {}  // When test code is updated
+    fun onFixApplied(oldText: String, newText: String, lineNumber: Int?) {}  // When a fix is applied
+    fun onValidationStatusChanged(status: String, issues: List<String>?) {}  // When validation status changes
 }
 
 /**

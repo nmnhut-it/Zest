@@ -76,6 +76,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
 
         F.I.R.S.T Principles: Fast, Independent, Repeatable, Self-validating, Timely
 
+        CRITICAL REMINDER: If we can write test without mocking, please avoid mocking.
         Generate the complete Java test class now. Return ONLY the test class code, no explanations.
         """;
 

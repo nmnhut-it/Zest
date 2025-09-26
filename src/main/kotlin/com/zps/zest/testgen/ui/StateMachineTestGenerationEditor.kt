@@ -78,7 +78,7 @@ class StateMachineTestGenerationEditor(
     private val eventListener = object : TestGenerationEventListener, StreamingEventListener {
         override fun onStateChanged(event: TestGenerationEvent.StateChanged) {
             // Validate session ID to prevent processing events from old/other sessions
-            if (event.sessionId != currentSessionId) {
+            if (currentSessionId != null && event.sessionId != currentSessionId) {
                 LOG.debug("Ignoring state change event from different session: ${event.sessionId} != $currentSessionId")
                 return
             }
@@ -104,7 +104,7 @@ class StateMachineTestGenerationEditor(
         
         override fun onActivityLogged(event: TestGenerationEvent.ActivityLogged) {
             // Validate session ID
-            if (event.sessionId != currentSessionId) return
+            if (currentSessionId != null && event.sessionId != currentSessionId) return
 
             SwingUtilities.invokeLater {
                 // Show activity in the log
@@ -118,7 +118,7 @@ class StateMachineTestGenerationEditor(
         
         override fun onErrorOccurred(event: TestGenerationEvent.ErrorOccurred) {
             // Validate session ID
-            if (event.sessionId != currentSessionId) return
+            if (currentSessionId != null && event.sessionId != currentSessionId) return
 
             SwingUtilities.invokeLater {
                 updateControlButtons()
@@ -156,7 +156,7 @@ class StateMachineTestGenerationEditor(
         
         override fun onStepCompleted(event: TestGenerationEvent.StepCompleted) {
             // Validate session ID
-            if (event.sessionId != currentSessionId) return
+            if (currentSessionId != null &&  event.sessionId != currentSessionId) return
 
             SwingUtilities.invokeLater {
                 updateControlButtons()
@@ -171,7 +171,7 @@ class StateMachineTestGenerationEditor(
         
         override fun onUserInputRequired(event: TestGenerationEvent.UserInputRequired) {
             // Validate session ID
-            if (event.sessionId != currentSessionId) return
+            if (currentSessionId != null && event.sessionId != currentSessionId) return
 
             SwingUtilities.invokeLater {
                 updateButtonForState(null, false) // Update buttons
@@ -281,6 +281,13 @@ class StateMachineTestGenerationEditor(
             }
         }
         
+        override fun onMergerAgentCreated(mergerAgent: com.zps.zest.testgen.agents.AITestMergerAgent) {
+            SwingUtilities.invokeLater {
+                // Set the merger agent immediately when it's created
+                testMergingPanel.setMergerAgent(mergerAgent)
+            }
+        }
+
         override fun onMergedTestClassUpdated(mergedClass: com.zps.zest.testgen.model.MergedTestClass) {
             SwingUtilities.invokeLater {
                 // Thread-safe access to currentStateMachine
@@ -960,6 +967,7 @@ class StateMachineTestGenerationEditor(
             val planningHandler = stateMachine?.getCurrentHandler(com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler::class.java)
             val coordinatorAgent = planningHandler?.getCoordinatorAgent()
             testPlanDisplayPanel.setChatMemory(coordinatorAgent?.getChatMemory(), "Coordinator")
+
             
             // AITestMergerAgent is now accessed directly in onMergedTestClassUpdated
             
@@ -1112,6 +1120,7 @@ class StateMachineTestGenerationEditor(
         currentSessionId?.let { testGenService.cleanupSession(it) }
         // Dispose of editor resources in panels
         testMergingPanel.dispose()
+        generatedTestsPanel.dispose()
     }
     override fun setState(state: FileEditorState) {}
     override fun getFile(): VirtualFile = virtualFile

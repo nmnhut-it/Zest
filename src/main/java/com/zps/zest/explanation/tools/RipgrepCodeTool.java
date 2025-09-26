@@ -128,9 +128,9 @@ public class RipgrepCodeTool {
                 return "❌ Ripgrep not available.\n\n" +
                        "📥 Ripgrep provides blazing fast search with full regex and glob support.\n" +
                        "Install options:\n" +
-                       "• Windows: winget install BurntSushi.ripgrep.MSVC\n" +
-                       "• Windows: choco install ripgrep\n" +
-                       "• Manual: https://github.com/BurntSushi/ripgrep/releases\n\n" +
+                       "- Windows: winget install BurntSushi.ripgrep.MSVC\n" +
+                       "- Windows: choco install ripgrep\n" +
+                       "- Manual: https://github.com/BurntSushi/ripgrep/releases\n\n" +
                        "Note: Zest will auto-bundle ripgrep in future releases.";
             }
             

@@ -439,7 +439,14 @@ public class TestGenerationStateMachine {
     @Nullable
     public <T extends StateHandler> T getCurrentHandler(@NotNull Class<T> handlerType) {
         StateHandler handler = stateHandlers.get(currentState);
-        return handlerType.isInstance(handler) ? handlerType.cast(handler) : null;
+        if (handlerType.isInstance(handler)){
+            return handlerType.cast(handler);
+        }
+        for (StateHandler handler1: stateHandlers.values()){
+            if (handlerType.isInstance(handler1))
+                return handlerType.cast(handler1);
+        }
+        return null;
     }
 
     /**

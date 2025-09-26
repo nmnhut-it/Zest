@@ -102,20 +102,9 @@ class SessionSerializer {
     )
     
     data class SerializableGeneratedTest(
-        val testName: String,
-        val scenarioId: String,
-        val scenarioName: String,
-        val testCodeCompressed: String, // Base64 encoded GZIP compressed code
-        val validationStatus: String,
-        val validationMessages: List<SerializableValidationMessage>,
-        val lineCount: Int,
+        val className: String,
+        val fullTestCodeCompressed: String, // Base64 encoded GZIP compressed code
         val timestamp: Long
-    )
-    
-    data class SerializableValidationMessage(
-        val type: String,
-        val message: String,
-        val line: Int?
     )
     
     /**
@@ -190,19 +179,8 @@ class SessionSerializer {
             
             generatedTests = sessionData.generatedTests.map { test ->
                 SerializableGeneratedTest(
-                    testName = test.testName,
-                    scenarioId = test.scenarioId,
-                    scenarioName = test.scenarioName,
-                    testCodeCompressed = compressString(test.testCode),
-                    validationStatus = test.validationStatus.name,
-                    validationMessages = test.validationMessages.map { msg ->
-                        SerializableValidationMessage(
-                            type = msg.type.name,
-                            message = msg.message,
-                            line = msg.line
-                        )
-                    },
-                    lineCount = test.lineCount,
+                    className = test.className,
+                    fullTestCodeCompressed = compressString(test.fullTestCode),
                     timestamp = test.timestamp
                 )
             },
@@ -269,19 +247,8 @@ class SessionSerializer {
             // Restore generated tests
             val generatedTests = serializableSession.generatedTests.map { test ->
                 GeneratedTestDisplayData(
-                    testName = test.testName,
-                    scenarioId = test.scenarioId,
-                    scenarioName = test.scenarioName,
-                    testCode = decompressString(test.testCodeCompressed),
-                    validationStatus = GeneratedTestDisplayData.ValidationStatus.valueOf(test.validationStatus),
-                    validationMessages = test.validationMessages.map { msg ->
-                        GeneratedTestDisplayData.ValidationMessage(
-                            type = GeneratedTestDisplayData.ValidationMessage.MessageType.valueOf(msg.type),
-                            message = msg.message,
-                            line = msg.line
-                        )
-                    },
-                    lineCount = test.lineCount,
+                    className = test.className,
+                    fullTestCode = decompressString(test.fullTestCodeCompressed),
                     timestamp = test.timestamp
                 )
             }

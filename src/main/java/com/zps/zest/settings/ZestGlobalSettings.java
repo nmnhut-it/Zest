@@ -88,10 +88,10 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
             "\n" +
             "    TOOLS:\n" +
             "- Use Zest Code Explorer tools when you need to:\n" +
-            "  • Explore project structure or find files\n" +
-            "  • Search for specific code patterns or implementations\n" +
-            "  • Understand relationships between classes/modules\n" +
-            "  • Analyze code before making recommendations\n" +
+            "  - Explore project structure or find files\n" +
+            "  - Search for specific code patterns or implementations\n" +
+            "  - Understand relationships between classes/modules\n" +
+            "  - Analyze code before making recommendations\n" +
             "\n" +
             "    CODE REPLACEMENT FORMAT:\n" +
             "For code changes, use:\n" +

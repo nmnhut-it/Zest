@@ -185,7 +185,7 @@ public class ModuleAnalysisService {
         if (!sourceRoots.isEmpty()) {
             summary.append("- Source Roots (").append(sourceRoots.size()).append("):\n");
             for (String root : sourceRoots) {
-                summary.append("  • ").append(root).append("\n");
+                summary.append("  - ").append(root).append("\n");
             }
         } else {
             summary.append("- Source Roots: None detected\n");
@@ -194,7 +194,7 @@ public class ModuleAnalysisService {
         if (!testSourceRoots.isEmpty()) {
             summary.append("- Test Source Roots (").append(testSourceRoots.size()).append("):\n");
             for (String testRoot : testSourceRoots) {
-                summary.append("  • ").append(testRoot).append("\n");
+                summary.append("  - ").append(testRoot).append("\n");
             }
         } else {
             summary.append("- Test Source Roots: None detected\n");

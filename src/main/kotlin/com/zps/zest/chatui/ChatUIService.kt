@@ -449,9 +449,9 @@ Use tools sparingly for commit message context:
 ❌ Standard feature additions without complexity
 
 **Tool Examples:**
-• `readFile("src/main/java/UserService.java")` → When commit touches complex business logic
-• `searchCode("UserService", "*.java", null)` → When refactoring affects multiple files
-• `findFiles("**/test/**")` → When commit adds extensive test coverage
+- `readFile("src/main/java/UserService.java")` → When commit touches complex business logic
+- `searchCode("UserService", "*.java", null)` → When refactoring affects multiple files
+- `findFiles("**/test/**")` → When commit adds extensive test coverage
 
 Examples:
 - feat: add user authentication system

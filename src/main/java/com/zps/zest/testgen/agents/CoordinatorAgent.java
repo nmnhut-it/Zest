@@ -190,14 +190,14 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 
                 // Summary
                 sendToUI("\n📊 Test Plan Summary:\n");
-                sendToUI("  • Target: " + testPlan.getTargetClass() + "." + String.join(", ", testPlan.getTargetMethods()) + "\n");
-                sendToUI("  • Overall Type: " + testPlan.getRecommendedTestType().getDescription() + "\n");
+                sendToUI("  - Target: " + testPlan.getTargetClass() + "." + String.join(", ", testPlan.getTargetMethods()) + "\n");
+                sendToUI("  - Overall Type: " + testPlan.getRecommendedTestType().getDescription() + "\n");
                 
                 // Count unit vs integration scenarios
                 long unitScenarios = testPlan.getTestScenarios().stream().mapToLong(s -> s.getType() == TestPlan.TestScenario.Type.UNIT ? 1 : 0).sum();
                 long integrationScenarios = testPlan.getTestScenarios().stream().mapToLong(s -> s.getType() == TestPlan.TestScenario.Type.INTEGRATION ? 1 : 0).sum();
                 
-                sendToUI("  • Scenarios: " + testPlan.getScenarioCount() + " total (" + unitScenarios + " unit, " + integrationScenarios + " integration)\n");
+                sendToUI("  - Scenarios: " + testPlan.getScenarioCount() + " total (" + unitScenarios + " unit, " + integrationScenarios + " integration)\n");
                 notifyComplete();
                 
                 LOG.debug("Test planning complete: " + testPlan.getScenarioCount() + " scenarios");
@@ -227,7 +227,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         // Explicitly list the selected methods to test
         prompt.append("SELECTED METHODS TO TEST (generate scenarios ONLY for these methods):\n");
         for (var method : request.getTargetMethods()) {
-            prompt.append("• ").append(method.getName()).append("()\n");
+            prompt.append("- ").append(method.getName()).append("()\n");
         }
         prompt.append("\n");
         
@@ -236,9 +236,9 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         // Add basic framework info
         prompt.append("\nFramework Information:\n");
         if (contextTools != null) {
-            prompt.append("• Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n");
+            prompt.append("- Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n");
         } else {
-            prompt.append("• Testing Framework: JUnit 5 (default)\n");
+            prompt.append("- Testing Framework: JUnit 5 (default)\n");
         }
         
         // Include full context analysis using direct tool access
@@ -269,7 +269,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                             implementation.contains("http") || implementation.contains("resttemplate") || implementation.contains("webclient") ||
                             implementation.contains("kafka") || implementation.contains("redis") || implementation.contains("elasticsearch")) {
                             hasExternalDeps = true;
-                            prompt.append("• External dependency detected in ").append(entry.getKey()).append("\n");
+                            prompt.append("- External dependency detected in ").append(entry.getKey()).append("\n");
                         }
                     }
                     

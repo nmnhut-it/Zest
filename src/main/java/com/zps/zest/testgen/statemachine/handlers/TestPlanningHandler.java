@@ -25,14 +25,7 @@ public class TestPlanningHandler extends AbstractStateHandler {
     private CoordinatorAgent coordinatorAgent;
     private TestPlan testPlan;
     private java.util.List<TestPlan.TestScenario> selectedScenarios;
-    
-    public TestPlanningHandler() {
-        this(null, null);
-    }
-    
-    public TestPlanningHandler(Consumer<String> streamingCallback) {
-        this(streamingCallback, null);
-    }
+
     
     public TestPlanningHandler(Consumer<String> streamingCallback,
                               com.zps.zest.testgen.ui.StreamingEventListener uiEventListener) {

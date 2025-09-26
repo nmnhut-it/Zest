@@ -159,7 +159,7 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
         panel.add(writeButton)
 
         // View AI Chat Memory
-        val chatMemoryButton = JButton("💬 View AI Chat")
+        val chatMemoryButton = JButton("💬 Merger Chat")
         chatMemoryButton.preferredSize = JBUI.size(150, 40)
         chatMemoryButton.addActionListener { showChatMemoryDialog() }
         chatMemoryButton.toolTipText = "View AI conversation and validation process"
@@ -209,6 +209,15 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
                 "Try running the merge again or check the logs for errors.",
                 "No Chat Memory"
             )
+        }
+    }
+
+    /**
+     * Set the merger agent immediately when it's created (before merging starts)
+     */
+    fun setMergerAgent(agent: AITestMergerAgent) {
+        SwingUtilities.invokeLater {
+            this.mergerAgent = agent
         }
     }
 

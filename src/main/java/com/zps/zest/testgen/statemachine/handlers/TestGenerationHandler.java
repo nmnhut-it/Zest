@@ -227,26 +227,56 @@ public class TestGenerationHandler extends AbstractStateHandler {
      */
     private void triggerGeneratedTestUIUpdates(TestGenerationResult result, List<TestPlan.TestScenario> scenarios) {
         try {
-            // Create display data for each generated test method
-            java.util.List<com.zps.zest.testgen.model.GeneratedTestMethod> testMethods = result.getTestMethods();
-            
-            for (int i = 0; i < testMethods.size() && i < scenarios.size(); i++) {
-                com.zps.zest.testgen.model.GeneratedTestMethod testMethod = testMethods.get(i);
-                TestPlan.TestScenario scenario = scenarios.get(i);
-                
-                com.zps.zest.testgen.ui.model.GeneratedTestDisplayData displayData = 
+            // Send complete test class to UI (simplified display data)
+            String completeTestClass = result.getCompleteTestClass();
+            if (completeTestClass != null && !completeTestClass.isEmpty()) {
+                com.zps.zest.testgen.ui.model.GeneratedTestDisplayData displayData =
                     new com.zps.zest.testgen.ui.model.GeneratedTestDisplayData(
-                        testMethod.getMethodName(), // testName
-                        "scenario_" + scenario.getName().hashCode(), // scenarioId  
-                        scenario.getName(), // scenarioName
-                        testMethod.getMethodBody(), // testCode
-                        com.zps.zest.testgen.ui.model.GeneratedTestDisplayData.ValidationStatus.NOT_VALIDATED, // validationStatus
-                        new java.util.ArrayList<>(), // validationMessages
-                        testMethod.getMethodBody().split("\n").length, // lineCount
-                        System.currentTimeMillis(), // timestamp
-                        null // completeClassContext - not available in this legacy handler
+                        result.getClassName(), // className
+                        completeTestClass, // fullTestCode
+                        System.currentTimeMillis() // timestamp
                     );
-                
+
+                // Trigger UI update with complete test class
+                uiEventListener.onTestGenerated(displayData);
+            } else {
+                // Fallback: if no complete test class, build one from components
+                StringBuilder classBuilder = new StringBuilder();
+                classBuilder.append("package ").append(result.getPackageName()).append(";\n\n");
+
+                // Add imports
+                for (String importStatement : result.getImports()) {
+                    classBuilder.append("import ").append(importStatement).append(";\n");
+                }
+                classBuilder.append("\n");
+
+                // Add class declaration
+                classBuilder.append("public class ").append(result.getClassName()).append(" {\n\n");
+
+                // Add test methods
+                for (com.zps.zest.testgen.model.GeneratedTestMethod testMethod : result.getTestMethods()) {
+                    for (String annotation : testMethod.getAnnotations()) {
+                        classBuilder.append("    @").append(annotation).append("\n");
+                    }
+                    classBuilder.append("    public void ").append(testMethod.getMethodName()).append("() {\n");
+                    String[] lines = testMethod.getMethodBody().split("\n");
+                    for (String line : lines) {
+                        if (!line.trim().isEmpty()) {
+                            classBuilder.append("        ").append(line).append("\n");
+                        }
+                    }
+                    classBuilder.append("    }\n\n");
+                }
+
+                classBuilder.append("}\n");
+
+                com.zps.zest.testgen.ui.model.GeneratedTestDisplayData displayData =
+                    new com.zps.zest.testgen.ui.model.GeneratedTestDisplayData(
+                        result.getClassName(), // className
+                        classBuilder.toString(), // fullTestCode
+                        System.currentTimeMillis() // timestamp
+                    );
+
                 // Trigger UI update
                 uiEventListener.onTestGenerated(displayData);
             }

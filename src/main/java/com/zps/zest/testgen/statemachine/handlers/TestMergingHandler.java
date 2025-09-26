@@ -21,22 +21,16 @@ public class TestMergingHandler extends AbstractStateHandler {
 
     private final Consumer<String> streamingCallback;
     private final com.zps.zest.testgen.ui.StreamingEventListener uiEventListener;
+    private final TestGenerationStateMachine stateMachine;
     private AITestMergerAgent aiTestMergerAgent;
     private MergedTestClass mergedTestClass;
     
-    public TestMergingHandler() {
-        this(null, null);
-    }
-    
-    public TestMergingHandler(Consumer<String> streamingCallback) {
-        this(streamingCallback, null);
-    }
-    
     public TestMergingHandler(Consumer<String> streamingCallback,
-                             com.zps.zest.testgen.ui.StreamingEventListener uiEventListener) {
+                             com.zps.zest.testgen.ui.StreamingEventListener uiEventListener, TestGenerationStateMachine stateMachine) {
         super(TestGenerationState.MERGING_TESTS);
         this.streamingCallback = streamingCallback;
         this.uiEventListener = uiEventListener;
+        this.stateMachine = stateMachine;
     }
     
     @NotNull
@@ -76,7 +70,12 @@ public class TestMergingHandler extends AbstractStateHandler {
 
             // Store as field for direct access
             this.aiTestMergerAgent = aiMerger;
-            
+
+            // Notify UI that merger agent is available
+            if (uiEventListener != null) {
+                uiEventListener.onMergerAgentCreated(aiMerger);
+            }
+
             CompletableFuture<MergedTestClass> mergeFuture = aiMerger.mergeTests(result, contextTools);
             
             MergedTestClass mergedTestClass = waitForMerging(stateMachine, mergeFuture, "AI merging");
@@ -125,7 +124,7 @@ public class TestMergingHandler extends AbstractStateHandler {
         
         int progressPercent = 30;
         // Set timeout for AI merging
-        int maxWaitSeconds = 120; // AI merging may take some time
+        int maxWaitSeconds = 560; // AI merging may take some time
         int waitedSeconds = 0;
         
         while (!future.isDone() && waitedSeconds < maxWaitSeconds) {

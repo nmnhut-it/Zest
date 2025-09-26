@@ -52,10 +52,12 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         You are an intelligent test merging coordinator that orchestrates test class merging using tools.
 
         WORKFLOW:
-        1. Use findExistingTest(targetClass) to check for existing test class
-        2. Analyze the new test class and existing test (if found)
-        3. Intelligently merge them following the rules below
-        4. Call recordMergedResult() with the merged test details
+        1. Use setNewTestCode(className, testCode) to set the new test code to work with
+        2. Use findExistingTest(targetClass) to check for existing test class
+        3. If existing test found, merge it with new test and use updateTestCode() to save merged version
+        4. If no existing test, the new test becomes the final version
+        5. Validate and fix the test code (see validation workflow below)
+        6. Call recordMergedResult() with the final test details
 
         MERGING RULES:
         1. **Preserve Existing Tests**: Never remove or modify existing test methods
@@ -91,21 +93,18 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         - Setup conflicts: Merge or use separate setup methods
 
         VALIDATION WORKFLOW (MANDATORY):
-        5. After merging, call validateTestCode() with className and your merged code
-        6. If validation returns VALIDATION_FAILED:
+        7. After merging/updating, call validateCurrentTestCode() to check for issues
+        8. If validation returns VALIDATION_FAILED:
            - Analyze each issue
-           - Fix the issues in your working copy of the code
-           - You may use applySimpleFix() to verify replacements are unique
-           - After fixing all issues in your copy, call validateTestCode() again with the fixed code
-        7. Repeat until VALIDATION_PASSED
-        8. Only call recordMergedResult() with your final VALIDATED code
+           - Use applySimpleFix(oldText, newText) to fix issues one by one
+           - After fixing all issues, call validateCurrentTestCode() again
+        9. Repeat until VALIDATION_PASSED
+        10. Only call recordMergedResult() with your final VALIDATED code
 
         AFTER VALIDATION:
         Call recordMergedResult with these parameters:
-        - className: The final test class name
         - packageName: The package declaration
-        - fullContent: The VALIDATED complete merged Java code
-        - fileName: The .java filename
+        - fileName: The .java filename (e.g., "MyTestClass.java")
         - methodCount: String count of @Test methods (e.g., "12")
         - framework: "JUnit5", "JUnit4", or "TestNG"
 
@@ -242,9 +241,9 @@ public class AITestMergerAgent extends StreamingBaseAgent {
 
                 // Summary
                 sendToUI("\n📊 Merge Summary:\n");
-                sendToUI("  • Final class: " + lastMergedResult.getClassName() + "\n");
-                sendToUI("  • Package: " + lastMergedResult.getPackageName() + "\n");
-                sendToUI("  • Total methods: " + lastMergedResult.getMethodCount() + "\n");
+                sendToUI("  - Final class: " + lastMergedResult.getClassName() + "\n");
+                sendToUI("  - Package: " + lastMergedResult.getPackageName() + "\n");
+                sendToUI("  - Total methods: " + lastMergedResult.getMethodCount() + "\n");
                 sendToUI("  • Framework: " + lastMergedResult.getFramework() + "\n");
                 notifyComplete();
 
@@ -288,10 +287,12 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         request.append("\n```\n\n");
 
         request.append("INSTRUCTIONS:\n");
-        request.append("1. First use findExistingTest(\"").append(result.getTargetClass()).append("\") to check for existing tests\n");
-        request.append("2. If existing test is found, merge intelligently following the merging rules\n");
-        request.append("3. If no existing test, the new test class becomes the final result\n");
-        request.append("4. Call recordMergedResult() with the final merged test class details\n");
+        request.append("1. First use setNewTestCode(\"").append(result.getClassName()).append("\", <test_code>) to set the new test to work with\n");
+        request.append("2. Use findExistingTest(\"").append(result.getTargetClass()).append("\") to check for existing tests\n");
+        request.append("3. If existing test found, merge intelligently and use updateTestCode() to save merged version\n");
+        request.append("4. If no existing test, the new test becomes the final version\n");
+        request.append("5. Use validateCurrentTestCode() and applySimpleFix() to fix any issues\n");
+        request.append("6. Call recordMergedResult() with the final validated test details\n");
 
         return request.toString();
     }
@@ -492,6 +493,8 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         private final Project project;
         private final ExistingTestAnalyzer existingTestAnalyzer;
         private final java.util.function.Consumer<String> toolNotifier;
+        private String currentWorkingTestCode = null; // Maintains the current version of test code being worked on
+        private String currentTestClassName = null; // The class name of the current test
 
         public TestMergingTools(@NotNull Project project,
                                @Nullable java.util.function.Consumer<String> toolNotifier) {
@@ -504,6 +507,33 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             if (toolNotifier != null) {
                 toolNotifier.accept(String.format("🔧 %s(%s)\n", toolName, params));
             }
+        }
+
+        @Tool("Set the new test code that needs to be merged")
+        public String setNewTestCode(String className, String testCode) {
+            notifyTool("setNewTestCode", className);
+            currentTestClassName = className;
+            currentWorkingTestCode = testCode;
+            return "New test code set for " + className + " (" + testCode.length() + " characters)";
+        }
+
+        @Tool("Get the current working test code")
+        public String getCurrentTestCode() {
+            notifyTool("getCurrentTestCode", currentTestClassName != null ? currentTestClassName : "none");
+            if (currentWorkingTestCode == null) {
+                return "NO_CURRENT_TEST_CODE";
+            }
+            return currentWorkingTestCode;
+        }
+
+        @Tool("Update the current working test code with merged or fixed version")
+        public String updateTestCode(String updatedCode) {
+            notifyTool("updateTestCode", currentTestClassName != null ? currentTestClassName : "updating");
+            if (currentWorkingTestCode == null) {
+                return "ERROR: No current test code to update";
+            }
+            currentWorkingTestCode = updatedCode;
+            return "Test code updated (" + updatedCode.length() + " characters)";
         }
 
         @Tool("Find existing test class for the target class if it exists")
@@ -538,13 +568,18 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             }
         }
 
-        @Tool("Record the merged test class result")
-        public String recordMergedResult(String className, String packageName,
-                                        String fullContent, String fileName,
+        @Tool("Record the merged test class result from current working code")
+        public String recordMergedResult(String packageName, String fileName,
                                         String methodCount, String framework) {
-            notifyTool("recordMergedResult", className);
+            if (currentWorkingTestCode == null || currentTestClassName == null) {
+                return "ERROR: No current test code to record. Use setNewTestCode and merge first.";
+            }
+            notifyTool("recordMergedResult", currentTestClassName);
 
             try {
+                String className = currentTestClassName;
+                String fullContent = currentWorkingTestCode;
+
                 // Determine the output path
                 String outputPath = determineOutputPath(className, packageName);
 
@@ -579,7 +614,17 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             }
         }
 
-        @Tool("Validate test code using IntelliJ's code analysis")
+        @Tool("Validate current working test code using IntelliJ's code analysis")
+        public String validateCurrentTestCode() {
+            if (currentWorkingTestCode == null || currentTestClassName == null) {
+                return "ERROR: No current test code to validate. Use setNewTestCode first.";
+            }
+            notifyTool("validateCurrentTestCode", currentTestClassName);
+
+            return validateTestCode(currentTestClassName, currentWorkingTestCode);
+        }
+
+        // Keep the original method for backward compatibility but not as a tool
         public String validateTestCode(String className, String testCode) {
             notifyTool("validateTestCode", className);
 
@@ -636,7 +681,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                 // Format issues for AI to fix
                 StringBuilder result = new StringBuilder("VALIDATION_FAILED:\n");
                 for (CodeSmellInfo issue : issues) {
-                    result.append(String.format("Line %d: %s\n",
+                    result.append(String.format("- Line %d: %s\n",
                         issue.getStartLine(),
                         issue.getDescription()));
                 }
@@ -649,11 +694,15 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             }
         }
 
-        @Tool("Apply simple text replacement to fix code issue")
-        public String applySimpleFix(String testCode, String oldText, String newText) {
+        @Tool("Apply simple text replacement to fix code issue in current test")
+        public String applySimpleFix(String oldText, String newText) {
+            if (currentWorkingTestCode == null) {
+                return "ERROR: No current test code to fix. Use setNewTestCode first.";
+            }
             notifyTool("applySimpleFix", "Replacing text");
 
             try {
+                String testCode = currentWorkingTestCode;
                 if (!testCode.contains(oldText)) {
                     return "ERROR: Text not found. Check exact match including whitespace.";
                 }
@@ -665,8 +714,9 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                     return "ERROR: Multiple occurrences found. Be more specific.";
                 }
 
-                // Just confirm the fix can be applied, don't return the whole code
-                return "SUCCESS: Replacement confirmed. Apply this change to your working copy.";
+                // Apply the fix to the current working code
+                currentWorkingTestCode = testCode.replace(oldText, newText);
+                return "SUCCESS: Replacement applied to current test code.";
 
             } catch (Exception e) {
                 return "ERROR: " + e.getMessage();

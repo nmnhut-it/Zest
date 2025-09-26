@@ -337,7 +337,7 @@ public final class StateMachineTestGenerationService {
         stateMachine.registerStateHandler(TestGenerationState.AWAITING_USER_SELECTION, new UserSelectionHandler());
         stateMachine.registerStateHandler(TestGenerationState.GENERATING_TESTS, 
             new TestGenerationHandler(streamingCallback, uiEventListener));
-        stateMachine.registerStateHandler(TestGenerationState.MERGING_TESTS, new TestMergingHandler(streamingCallback, uiEventListener));
+        stateMachine.registerStateHandler(TestGenerationState.MERGING_TESTS, new TestMergingHandler(streamingCallback, uiEventListener, stateMachine));
 
         LOG.debug("State handlers registered for session: " + stateMachine.getSessionId());
     }

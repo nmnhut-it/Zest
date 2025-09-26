@@ -213,11 +213,11 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 
                 // Summary
                 sendToUI("\n📊 Test Generation Summary:\n");
-                sendToUI("  • Test class: " + result.getClassName() + "\n");
-                sendToUI("  • Package: " + result.getPackageName() + "\n");
-                sendToUI("  • Framework: " + result.getFramework() + "\n");
-                sendToUI("  • Methods generated: " + result.getMethodCount() + "\n");
-                sendToUI("  • Lines of code: " + result.getCompleteTestClass().split("\n").length + "\n");
+                sendToUI("  - Test class: " + result.getClassName() + "\n");
+                sendToUI("  - Package: " + result.getPackageName() + "\n");
+                sendToUI("  - Framework: " + result.getFramework() + "\n");
+                sendToUI("  - Methods generated: " + result.getMethodCount() + "\n");
+                sendToUI("  - Lines of code: " + result.getCompleteTestClass().split("\n").length + "\n");
                 notifyComplete();
                 
                 LOG.debug("Test generation complete: " + result.getMethodCount() + " test(s)");
@@ -370,9 +370,9 @@ public class TestWriterAgent extends StreamingBaseAgent {
         String packageName = extractPackageName(cleanTestClass, testPlan);
         String framework = detectFramework(cleanTestClass);
         
-        sendToUI("  • Detected class: " + className + "\n");
-        sendToUI("  • Detected package: " + packageName + "\n");
-        sendToUI("  • Detected framework: " + framework + "\n");
+        sendToUI("  - Detected class: " + className + "\n");
+        sendToUI("  - Detected package: " + packageName + "\n");
+        sendToUI("  - Detected framework: " + framework + "\n");
         
         // Extract components from the complete class
         List<String> imports = extractImports(cleanTestClass);
@@ -381,34 +381,18 @@ public class TestWriterAgent extends StreamingBaseAgent {
         String beforeEachCode = extractBeforeEachCode(cleanTestClass);
         String afterEachCode = extractAfterEachCode(cleanTestClass);
         
-        sendToUI("  • Extracted " + imports.size() + " imports\n");
-        sendToUI("  • Extracted " + fields.size() + " fields\n");
-        sendToUI("  • Extracted " + methods.size() + " test methods\n");
+        sendToUI("  - Extracted " + imports.size() + " imports\n");
+        sendToUI("  - Extracted " + fields.size() + " fields\n");
+        sendToUI("  - Extracted " + methods.size() + " test methods\n");
         
-        // Send individual test methods to UI for display (maintains existing UI behavior)
-        sendToUI("📤 Sending individual test methods to UI...\n");
-        for (GeneratedTestMethod method : methods) {
-            // Try to find matching scenario for better context
-            String scenarioName = findMatchingScenario(method.getMethodName(), testPlan);
-            String scenarioId = scenarioName != null ? 
-                "scenario_" + scenarioName.hashCode() : 
-                "scenario_" + method.getMethodName().hashCode();
-            
-            // Create display data with better scenario association and complete class context
-            GeneratedTestDisplayData displayData = new GeneratedTestDisplayData(
-                method.getMethodName(),
-                scenarioId,
-                scenarioName != null ? scenarioName : method.getMethodName(),
-                buildCompleteMethodCode(method), // Include method signature and annotations
-                GeneratedTestDisplayData.ValidationStatus.NOT_VALIDATED,
-                new ArrayList<>(),
-                method.getMethodBody().split("\n").length + 2, // +2 for signature and closing brace
-                System.currentTimeMillis(),
-                cleanTestClass // Pass complete class context
-            );
-            
-            sendTestGenerated(displayData);
-        }
+        // Send complete test class to UI for display
+        sendToUI("📤 Sending complete test class to UI...\n");
+        GeneratedTestDisplayData displayData = new GeneratedTestDisplayData(
+            className,
+            cleanTestClass,
+            System.currentTimeMillis()
+        );
+        sendTestGenerated(displayData);
         
         // Create result with the complete test class
         TestGenerationResult result = new TestGenerationResult(
@@ -899,10 +883,6 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 if (i > 0) packageName.append(".");
                 packageName.append(parts[i]);
             }
-            // Add test package if not present
-            if (!packageName.toString().contains("test")) {
-                return packageName.toString() + ".test";
-            }
             return packageName.toString();
         }
         return "com.example.test";
@@ -924,7 +904,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
         if (!contextNotes.isEmpty()) {
             info.append("=== CONTEXT INSIGHTS ===\n");
             for (String note : contextNotes) {
-                info.append("• ").append(note).append("\n");
+                info.append("- ").append(note).append("\n");
             }
             info.append("\n");
         }

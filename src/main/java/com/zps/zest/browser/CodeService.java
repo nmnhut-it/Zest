@@ -266,9 +266,9 @@ public class CodeService {
                         int option = Messages.showYesNoDialog(project,
                                 "No text is selected in the editor.\n\n" +
                                         "Choose how to handle the code:\n" +
-                                        "• Yes: Insert at current cursor position\n" +
-                                        "• No: Show the code in a dialog for manual copying\n" +
-                                        "• Cancel: Do nothing",
+                                        "- Yes: Insert at current cursor position\n" +
+                                        "- No: Show the code in a dialog for manual copying\n" +
+                                        "- Cancel: Do nothing",
                                 "No Text Selected",
                                 "Insert at Cursor",
                                 "Skip",

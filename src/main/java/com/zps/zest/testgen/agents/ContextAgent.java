@@ -98,10 +98,10 @@ IMPORTANT: You MUST call markContextCollectionDone when you have gathered suffic
 
 INITIAL EXPLORATION PLAN (mandatory before any tool usage):
 📋 What needs exploring, for example:
-• [Item 1: specific file/pattern/config to find]
-• [Item 2: dependencies or callers to trace]
-• [Item 3: external resources or configs or API contracts]
-• [Continue listing all items that need investigation]
+- [Item 1: specific file/pattern/config to find]
+- [Item 2: dependencies or callers to trace]
+- [Item 3: external resources or configs or API contracts]
+- [Continue listing all items that need investigation]
 
 RESPONSE TEMPLATE (mandatory for each subsequent tool usage):
 📍 Phase: [Discovery|Analysis|Validation|Summary]
@@ -110,6 +110,9 @@ RESPONSE TEMPLATE (mandatory for each subsequent tool usage):
 🎯 Confidence: [High|Medium|Low]
 ⚡ Next: [Specific next action from plan or new discovery]
 💰 Budget: [X/N tool calls used] (N is provided at session start)
+
+VALIDATION:
+- After you have finish the initial exploration plan, review what is missing/being assumed without confirmation. Go on to one more plan if necessary. 
 
 EXPLORATION THINKING GUIDE:
 Ask yourself before each exploration:
@@ -296,7 +299,7 @@ Stop when you can test the code without making assumptions about external resour
         if (!contextNotes.isEmpty()) {
             prompt.append("\n=== EXISTING CONTEXT NOTES ===\n");
             for (String note : contextNotes) {
-                prompt.append("• ").append(note).append("\n");
+                prompt.append("- ").append(note).append("\n");
             }
             prompt.append("=== END EXISTING CONTEXT NOTES ===\n\n");
         }

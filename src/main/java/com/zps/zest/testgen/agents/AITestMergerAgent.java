@@ -183,7 +183,8 @@ public class AITestMergerAgent extends StreamingBaseAgent {
 
            Use applySimpleFix() to add these comments above the problematic line:
            applySimpleFix("@Test", "// TODO: Add @SpringBootTest if this is a Spring integration test\n    @Test")
-
+           After that, ALWAYS suppress the error.
+           
         4. FIX STRATEGICALLY:
            - Missing libraries → Add TODO comment explaining dependency needed
            - Wrong API → Add FIXME comment with correct version needed

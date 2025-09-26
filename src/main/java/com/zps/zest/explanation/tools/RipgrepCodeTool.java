@@ -50,19 +50,22 @@ public class RipgrepCodeTool {
     @Tool("""
         Search for patterns INSIDE file contents across the entire project using high-performance ripgrep.
         This searches the text content of files, not file names. Use findFiles() to search file names.
-        Perfect for finding function calls, class definitions, imports, or any text patterns.
+
+        KEY DIFFERENCE:
+        - query: Uses REGEX syntax (| works for OR, e.g., "TODO|FIXME")
+        - filePattern: Uses GLOB syntax (use comma for multiple, e.g., "*.java,*.kt")
 
         Parameters:
-        - query: The search pattern (supports regex) to find in file contents
-        - filePattern: Optional glob pattern to filter files (e.g., "*.java", "**/*.kt")
-        - excludePattern: Optional pattern to exclude files (e.g., "test", "*.min.js")
-        - beforeLines: Number of lines to show before each match (0-10, default: 0)
-        - afterLines: Number of lines to show after each match (0-10, default: 0)
+        - query: The search pattern (REGEX) to find in file contents
+        - filePattern: Optional comma-separated glob patterns to filter files
+        - excludePattern: Optional comma-separated patterns to exclude files
+        - beforeLines: Number of lines to show before each match (0-10)
+        - afterLines: Number of lines to show after each match (0-10)
 
         Examples:
-        - searchCode("getUserById", "*.java", null, 0, 0) - Find getUserById text in Java files
-        - searchCode("import.*React", "*.tsx", null, 2, 2) - Find React imports with 2 lines context
-        - searchCode("@Override", null, "test", 1, 3) - Find @Override with 1 line before, 3 after
+        - searchCode("TODO|FIXME", "*.java,*.kt", null, 0, 0) - Find TODO or FIXME in Java/Kotlin
+        - searchCode("getUserById", "*.java", "test,generated", 0, 0) - Find in Java, exclude test/generated
+        - searchCode("import.*React", "*.tsx,*.jsx", null, 2, 2) - Find React imports with context
         """)
     public String searchCode(String query, @Nullable String filePattern, @Nullable String excludePattern,
                            int beforeLines, int afterLines) {
@@ -88,18 +91,19 @@ public class RipgrepCodeTool {
      * This is different from searchCode() which searches inside file contents.
      */
     @Tool("""
-        Find files by NAME/PATH that match a specific glob pattern.
+        Find files by NAME/PATH that match specific glob patterns.
         This searches for file names/paths, NOT file contents. Use searchCode() to search inside files.
-        Perfect for exploring project structure or finding specific file types.
+        Supports multiple patterns for efficient searching.
 
         Parameters:
-        - globPattern: Glob pattern to match file names/paths (e.g., "*.java", "**/*.ts", "src/**/*.properties")
+        - patterns: Comma-separated glob patterns (e.g., "*.java,*.kt" or "pom.xml,build.gradle")
 
         Examples:
-        - findFiles("*.java") - Find all files with .java extension in project root
-        - findFiles("**/*.kt") - Find all Kotlin files recursively by name
-        - findFiles("src/**/application*.yml") - Find files named application*.yml in src
-        - findFiles("*Test*") - Find all files with "Test" in their name
+        - findFiles("*.java") - Find all Java files
+        - findFiles("pom.xml,build.gradle,package.json") - Find build configuration files
+        - findFiles("*Test.java,*Tests.java,*IT.java") - Find all test classes
+        - findFiles("*.properties,*.yml,*.yaml") - Find all config files
+        - findFiles("src/**/*.xml,src/**/*.properties") - Find XML and properties in src
         """)
     public String findFiles(String globPattern) {
         if (globPattern == null || globPattern.trim().isEmpty()) {
@@ -341,20 +345,26 @@ public class RipgrepCodeTool {
             command.add("--ignore-case");
         }
         
-        // File patterns
+        // File patterns - support comma separator
         if (filePattern != null && !filePattern.isEmpty()) {
-            command.add("--glob");
-            command.add(filePattern);
-        }
-        
-        // Exclude patterns  
-        if (excludePattern != null && !excludePattern.isEmpty()) {
-            String[] excludes = excludePattern.split("[,;]");
-            for (String exclude : excludes) {
-                exclude = exclude.trim();
-                if (!exclude.isEmpty()) {
+            String[] patterns = filePattern.split(",");
+            for (String pattern : patterns) {
+                String trimmed = pattern.trim();
+                if (!trimmed.isEmpty()) {
                     command.add("--glob");
-                    command.add("!" + exclude);
+                    command.add(trimmed);
+                }
+            }
+        }
+
+        // Exclude patterns - already supports comma separator
+        if (excludePattern != null && !excludePattern.isEmpty()) {
+            String[] excludes = excludePattern.split(",");
+            for (String exclude : excludes) {
+                String trimmed = exclude.trim();
+                if (!trimmed.isEmpty()) {
+                    command.add("--glob");
+                    command.add("!" + trimmed);
                 }
             }
         }
@@ -544,26 +554,38 @@ public class RipgrepCodeTool {
     
     /**
      * Find files using ripgrep's --files flag with glob patterns.
+     * Supports multiple patterns separated by comma.
      */
-    private String findFilesWithRipgrep(String globPattern) {
+    private String findFilesWithRipgrep(String patterns) {
         try {
             String projectPath = project.getBasePath();
             if (projectPath == null) {
                 return "Error: Could not determine project path";
             }
-            
+
             // Find ripgrep binary
             String rgPath = findRipgrepBinary();
             if (rgPath == null) {
                 return "❌ Ripgrep not available for file finding.\nFalling back to basic search...";
             }
-            
-            // Build ripgrep --files command (no content search, just file listing)
+
+            // Build ripgrep --files command with support for multiple patterns
             List<String> command = new ArrayList<>();
             command.add(rgPath);
             command.add("--files");           // List files, don't search content
-            command.add("--glob");
-            command.add(globPattern);
+
+            // Handle multiple patterns separated by comma
+            if (patterns != null && !patterns.isEmpty()) {
+                String[] patternArray = patterns.split(",");
+                for (String pattern : patternArray) {
+                    String trimmed = pattern.trim();
+                    if (!trimmed.isEmpty()) {
+                        command.add("--glob");
+                        command.add(trimmed);
+                    }
+                }
+            }
+
             command.add(projectPath);
             
             // Execute command
@@ -586,10 +608,10 @@ public class RipgrepCodeTool {
             }
             
             if (process.exitValue() != 0) {
-                return String.format("No files found matching glob pattern: '%s'", globPattern);
+                return String.format("No files found matching patterns: '%s'", patterns);
             }
-            
-            return formatFileListResults(output.toString(), globPattern);
+
+            return formatFileListResults(output.toString(), patterns);
             
         } catch (Exception e) {
             return String.format("Error using ripgrep for file finding: %s", e.getMessage());

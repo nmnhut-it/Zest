@@ -182,7 +182,7 @@ class ChatMemoryDialog(
     
     private fun showMessageDetails(message: ChatMessage) {
         val dialog = MessageDetailDialog(project, message, agentName, chatMemory)
-        dialog.show()
+        DialogManager.showDialog(dialog)
     }
     
     private fun copyMessage(message: ChatMessage) {
@@ -349,7 +349,7 @@ class ChatMemoryDialog(
 /**
  * Detailed view dialog for individual messages - uses JCEF for markdown rendering
  */
-private class MessageDetailDialog(
+public class MessageDetailDialog(
     private val project: Project,
     private val message: ChatMessage,
     agentName: String,
@@ -824,7 +824,7 @@ class ChatMemoryPanel(
 
     private fun showMessageDetails(message: ChatMessage) {
         val dialog = MessageDetailDialog(project, message, agentName, chatMemory)
-        dialog.show()
+        DialogManager.showDialog(dialog)
     }
 
     private fun copyMessage(message: ChatMessage) {

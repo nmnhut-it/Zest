@@ -11,6 +11,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData
 import com.zps.zest.langchain4j.ui.ChatMemoryDialog
+import com.zps.zest.langchain4j.ui.DialogManager
 import java.awt.*
 import java.awt.datatransfer.StringSelection
 import javax.swing.*
@@ -288,7 +289,7 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
      */
     private fun openTestWriterChatDialog() {
         val dialog = ChatMemoryDialog(project, testWriterMemory, testWriterAgentName)
-        dialog.show()
+        DialogManager.showDialog(dialog)
     }
 
     /**

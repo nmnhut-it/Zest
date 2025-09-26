@@ -31,7 +31,7 @@ public abstract class StreamingBaseAgent {
     protected ChatModel chatModel;
     
     // Consumer for UI updates (sends complete responses)
-    protected Consumer<String> streamingConsumer;
+    public Consumer<String> streamingConsumer;
     // Event listener for structured UI updates
     protected StreamingEventListener eventListener;
     

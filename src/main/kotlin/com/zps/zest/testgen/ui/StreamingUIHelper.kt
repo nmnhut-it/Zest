@@ -15,6 +15,8 @@ interface StreamingEventListener {
     fun onTestGenerated(data: GeneratedTestDisplayData)
     fun onMergedTestClassUpdated(mergedClass: MergedTestClass) {}  // Default empty implementation
     fun onMergerAgentCreated(mergerAgent: com.zps.zest.testgen.agents.AITestMergerAgent) {}  // Default empty implementation
+    fun onMergingStarted() {}  // Default empty implementation - called when merging phase begins
+    fun onMergingCompleted(success: Boolean) {}  // Default empty implementation - called when merging finishes
     fun onStatusChanged(status: String)
     fun onProgressChanged(percent: Int, message: String)
     fun onGenerationCompleted(session: TestGenerationSession) {}  // Default empty implementation

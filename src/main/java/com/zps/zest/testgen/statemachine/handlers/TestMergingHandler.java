@@ -54,6 +54,7 @@ public class TestMergingHandler extends AbstractStateHandler {
             // Notify UI of phase start
             if (uiEventListener != null) {
                 uiEventListener.onPhaseStarted(getHandledState());
+                uiEventListener.onMergingStarted(); // New: notify merging started
             }
 
             // Send initial streaming update
@@ -98,19 +99,29 @@ public class TestMergingHandler extends AbstractStateHandler {
             
             // Session management removed - data available via handler getter
             
-            String summary = String.format("AI test merging and review completed: %s with %d methods", 
-                mergedTestClass.getClassName(), 
+            String summary = String.format("AI test merging and review completed: %s with %d methods",
+                mergedTestClass.getClassName(),
                 mergedTestClass.getMethodCount());
             LOG.info(summary);
-            
+
+            // Notify UI that merging completed successfully
+            if (uiEventListener != null) {
+                uiEventListener.onMergingCompleted(true);
+            }
+
             // Transition directly to COMPLETED since merging now includes error review and fixing
             return StateResult.success(mergedTestClass, summary, TestGenerationState.COMPLETED);
-            
+
         } catch (Exception e) {
             LOG.error("AI test merging failed", e);
-            
+
+            // Notify UI that merging failed
+            if (uiEventListener != null) {
+                uiEventListener.onMergingCompleted(false);
+            }
+
             // Mark as recoverable to allow retry
-            return StateResult.failure(e, true, 
+            return StateResult.failure(e, true,
                 "Failed to merge tests with AI: " + e.getMessage());
         }
     }

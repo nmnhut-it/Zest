@@ -5,6 +5,7 @@ import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorLocation
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.VirtualFile
@@ -16,6 +17,8 @@ import com.zps.zest.testgen.StateMachineTestGenerationService
 import com.zps.zest.testgen.model.TestPlan
 import com.zps.zest.testgen.statemachine.*
 import com.zps.zest.testgen.ui.dialogs.MergedTestPreviewDialog
+import com.zps.zest.langchain4j.ui.ChatMemoryDialog
+import com.zps.zest.langchain4j.ui.DialogManager
 import com.zps.zest.testgen.ui.panels.*
 import com.zps.zest.testgen.ui.model.*
 import java.awt.*
@@ -48,6 +51,8 @@ class StateMachineTestGenerationEditor(
 
     private var blinkTimer: javax.swing.Timer? = null
     private var chatMemoryUpdateTimer: javax.swing.Timer? = null
+    private var mergerChatDialog: ChatMemoryDialog? = null
+    private var currentMergerAgent: com.zps.zest.testgen.agents.AITestMergerAgent? = null
     
     // UI Components
     private lateinit var tabbedPane: JBTabbedPane
@@ -285,6 +290,59 @@ class StateMachineTestGenerationEditor(
             SwingUtilities.invokeLater {
                 // Set the merger agent immediately when it's created
                 testMergingPanel.setMergerAgent(mergerAgent)
+
+                // Store reference for later use
+                currentMergerAgent = mergerAgent
+            }
+        }
+
+        override fun onMergingStarted() {
+            SwingUtilities.invokeLater {
+                // Close any existing dialog
+                mergerChatDialog?.close(DialogWrapper.OK_EXIT_CODE)
+
+                // Get the current merger agent
+                val agent = currentMergerAgent ?: currentStateMachine?.let { stateMachine ->
+                    val mergingHandler = stateMachine.getCurrentHandler(
+                        com.zps.zest.testgen.statemachine.handlers.TestMergingHandler::class.java
+                    )
+                    mergingHandler?.aiTestMergerAgent
+                }
+
+                if (agent != null && agent.chatMemory != null) {
+                    // Show the ChatMemoryDialog with the merger's chat memory
+                    val dialog = ChatMemoryDialog(project, agent.chatMemory, "Test Merger AI")
+                    mergerChatDialog = dialog
+                    DialogManager.showDialog(dialog)
+
+                    logEvent("💬 Merger chat memory dialog opened")
+
+                    // Also switch to the Test Merging tab to show progress
+                    tabbedPane.selectedIndex = 3
+                } else {
+                    logEvent("⚠️ Merger agent or chat memory not available yet")
+                }
+            }
+        }
+
+        override fun onMergingCompleted(success: Boolean) {
+            SwingUtilities.invokeLater {
+                // Close the chat memory dialog after a short delay
+                if (mergerChatDialog != null) {
+                    Timer(2000) {
+                        mergerChatDialog?.close(DialogWrapper.OK_EXIT_CODE)
+                        mergerChatDialog = null
+                    }.apply {
+                        isRepeats = false
+                        start()
+                    }
+                }
+
+                if (success) {
+                    logEvent("✅ Test merging completed successfully")
+                } else {
+                    logEvent("❌ Test merging failed")
+                }
             }
         }
 
@@ -1118,6 +1176,16 @@ class StateMachineTestGenerationEditor(
     override fun getCurrentLocation(): FileEditorLocation? = null
     override fun dispose() {
         currentSessionId?.let { testGenService.cleanupSession(it) }
+
+        // Close any open chat memory dialog
+        mergerChatDialog?.close(DialogWrapper.CANCEL_EXIT_CODE)
+        mergerChatDialog = null
+        currentMergerAgent = null
+
+        // Stop any running timers
+        blinkTimer?.stop()
+        chatMemoryUpdateTimer?.stop()
+
         // Dispose of editor resources in panels
         testMergingPanel.dispose()
         generatedTestsPanel.dispose()

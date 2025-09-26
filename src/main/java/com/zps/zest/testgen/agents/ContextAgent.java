@@ -538,29 +538,30 @@ Stop when you can test the code without making assumptions about external resour
         }
 
         @Tool("""
-            Find files by NAME/PATH that match a specific glob pattern using ripgrep.
+            Find files by NAME/PATH that match specific glob patterns using ripgrep.
             This searches for file names/paths, NOT file contents. Use searchCode() to search inside files.
 
-            🔍 EFFICIENT PATTERNS USING | (OR) OPERATOR:
+            🔍 EFFICIENT MULTI-PATTERN SEARCH:
+            Use comma-separated patterns for finding multiple file types:
 
             BUILD & CONFIG FILES (single search):
-            - "pom.xml|build.gradle*|*.properties|application*.yml|*.json" → All config files at once
+            - "pom.xml,build.gradle,*.properties,application*.yml,*.json" → All config files at once
 
             TEST FILES (single search):
-            - "*Test.java|*Tests.java|*IT.java|test-*.xml" → All test-related files
+            - "*Test.java,*Tests.java,*IT.java,test-*.xml" → All test-related files
 
             RESOURCE FILES (single search):
-            - "*.sql|*.yaml|*.yml|*.md|*.iml" → All resource/doc files
+            - "*.sql,*.yaml,*.yml,*.md,*.iml" → All resource/doc files
 
             JAVA SOURCE FILES:
-            - "*Service.java|*Repository.java|*Controller.java" → Common Spring components
-            - "*Entity.java|*Model.java|*Dto.java" → Data classes
+            - "*Service.java,*Repository.java,*Controller.java" → Common Spring components
+            - "*Entity.java,*Model.java,*Dto.java" → Data classes
 
             Examples:
-            - findFiles("pom.xml|build.gradle") → Find build files efficiently
-            - findFiles("*Test.java|*Tests.java") → Find all test classes in one search
-            - findFiles("*.properties|*.yml|*.yaml") → Find all config files together
-            - findFiles("**/*Service.java|**/*Repository.java") → Find service/repo classes
+            - findFiles("pom.xml,build.gradle") → Find build files efficiently
+            - findFiles("*Test.java,*Tests.java") → Find all test classes in one search
+            - findFiles("*.properties,*.yml,*.yaml") → Find all config files together
+            - findFiles("**/*Service.java,**/*Repository.java") → Find service/repo classes
             """)
         public String findFiles(String pattern) {
             notifyTool("findFiles", pattern);
@@ -569,11 +570,14 @@ Stop when you can test the code without making assumptions about external resour
 
         @Tool("""
             Powerful code search with blazing-fast ripgrep backend. Supports regex, file filtering, and context lines.
-            
-            
+
+            KEY DIFFERENCE:
+            - query: Uses REGEX (| works for OR, e.g., "TODO|FIXME")
+            - filePattern: Uses GLOB (use comma for multiple, e.g., "*.java,*.kt")
+
             Core Capabilities:
-            - Regex patterns with | (OR) operator for multiple patterns. You are encouraged to use this to save tool calls.
-            - File filtering with glob patterns
+            - Regex patterns with | (OR) operator for content search
+            - File filtering with comma-separated glob patterns
             - Context lines (before/after) for understanding surroundings
             - Case-sensitive searching available
 
@@ -604,14 +608,16 @@ Stop when you can test the code without making assumptions about external resour
                - "mock\\(|when\\(|verify\\(" → Mockito patterns
 
             Parameters:
-            - query: Search pattern (regex supported, use | for OR)
-            - filePattern: Include files (e.g., "*.java", "**/*Test.java")
-            - excludePattern: Exclude files (e.g., "*generated*", "target/**")
+            - query: Search pattern (REGEX - use | for OR in content)
+            - filePattern: Include files (GLOB - use comma for multiple, e.g., "*.java,*.kt")
+            - excludePattern: Exclude files (comma-separated, e.g., "test,generated")
             - beforeLines: Lines to show before match (0-10)
             - afterLines: Lines to show after match (0-10)
 
             Examples:
-            - searchCode("new (User|Admin|Guest)Service\\(", "*.java", null, 2, 2)
+            - searchCode("TODO|FIXME", "*.java,*.kt", null, 0, 0)
+              → Find TODO or FIXME in Java/Kotlin files
+            - searchCode("new (User|Admin|Guest)Service\\(", "*.java", "test,generated", 2, 2)
               → Find service instantiations with context
             """)
         public String searchCode(String query, String filePattern, String excludePattern,
@@ -625,6 +631,7 @@ Stop when you can test the code without making assumptions about external resour
                 " test writing. Focus on missing information not provided in initial context " +
                 "- concrete values, behaviors, contracts, or dependencies that tests must account for. " +
                 "Be specific: exact values, paths, formats, or behaviors rather than general observations. " +
+                "The note will be passed to a test writer. " +
                 "Format: '[Relevance] Finding - Specific detail/value'")
         public String takeNote(String note) {
             notifyTool("takeNote", note.length() > 50 ? note.substring(0, 50) + "..." : note);

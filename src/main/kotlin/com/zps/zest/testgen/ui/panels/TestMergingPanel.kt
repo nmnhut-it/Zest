@@ -1,5 +1,7 @@
 package com.zps.zest.testgen.ui.panels
 
+import com.zps.zest.langchain4j.ui.DialogManager
+
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.ex.EditorEx
@@ -199,7 +201,7 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
             println("DEBUG: Chat memory has ${messages.size} messages")
 
             val dialog = ChatMemoryDialog(project, chatMemory, "Test Merger AI")
-            dialog.show()
+            DialogManager.showDialog(dialog)
         } else {
             println("DEBUG: Chat memory is null")
             Messages.showWarningDialog(

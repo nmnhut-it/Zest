@@ -142,11 +142,14 @@ class RipgrepTestDialog(private val project: Project) : DialogWrapper(project, t
         gbc.gridy = 1
         gbc.gridwidth = 1
         gbc.weightx = 0.0
-        panel.add(JLabel("Query:"), gbc)
+        val queryLabel = JLabel("Query:")
+        queryLabel.toolTipText = "Search pattern (REGEX for content search, use | for OR)"
+        panel.add(queryLabel, gbc)
 
         gbc.gridx = 1
         gbc.gridwidth = 3
         gbc.weightx = 1.0
+        queryField.toolTipText = "For content search: regex pattern (| works for OR). For findFiles: leave empty"
         panel.add(queryField, gbc)
 
         // File pattern
@@ -154,19 +157,25 @@ class RipgrepTestDialog(private val project: Project) : DialogWrapper(project, t
         gbc.gridy = 2
         gbc.gridwidth = 1
         gbc.weightx = 0.0
-        panel.add(JLabel("File Pattern:"), gbc)
+        val filePatternLabel = JLabel("File Pattern:")
+        filePatternLabel.toolTipText = "Comma-separated glob patterns (e.g., *.java,*.kt or pom.xml,build.gradle)"
+        panel.add(filePatternLabel, gbc)
 
         gbc.gridx = 1
         gbc.weightx = 1.0
+        filePatternField.toolTipText = "Use comma to separate multiple patterns: *.java,*.kt"
         panel.add(filePatternField, gbc)
 
         // Exclude pattern
         gbc.gridx = 2
         gbc.weightx = 0.0
-        panel.add(JLabel("Exclude:"), gbc)
+        val excludeLabel = JLabel("Exclude:")
+        excludeLabel.toolTipText = "Comma-separated patterns to exclude (e.g., test,generated)"
+        panel.add(excludeLabel, gbc)
 
         gbc.gridx = 3
         gbc.weightx = 1.0
+        excludePatternField.toolTipText = "Use comma to separate multiple exclude patterns"
         panel.add(excludePatternField, gbc)
 
         // Mode selection

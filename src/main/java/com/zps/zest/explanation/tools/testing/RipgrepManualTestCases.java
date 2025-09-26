@@ -127,11 +127,11 @@ public class RipgrepManualTestCases {
             "Files: Find Test Files",
             "Find all test files (Java and Kotlin)",
             "",
-            "**/*Test*.{java,kt}",
+            "*Test.java,*Tests.java,*Test.kt,*Tests.kt",
             null,
             TestMode.FIND_FILES,
             0, 0, 0,
-            "Should find all files with 'Test' in name",
+            "Should find all files with 'Test' or 'Tests' suffix",
             "Returns list of test files in Java and Kotlin"
         ));
 
@@ -139,12 +139,24 @@ public class RipgrepManualTestCases {
             "Files: Find Config Files",
             "Find configuration files (properties, yaml, xml)",
             "",
-            "**/*.{properties,yml,yaml,xml}",
+            "*.properties,*.yml,*.yaml,*.xml",
             null,
             TestMode.FIND_FILES,
             0, 0, 0,
             "Should find all configuration files",
             "Returns list of config files with various extensions"
+        ));
+
+        TEST_CASES.add(new TestCase(
+            "Files: Multiple Patterns with Comma",
+            "Find build files using comma separator (pom.xml, build.gradle, package.json)",
+            "",
+            "pom.xml,build.gradle,package.json",
+            null,
+            TestMode.FIND_FILES,
+            0, 0, 0,
+            "Should find all build configuration files using comma-separated patterns",
+            "Returns pom.xml, build.gradle, and package.json files if they exist"
         ));
 
         // Search with Context Tests
@@ -225,13 +237,13 @@ public class RipgrepManualTestCases {
         // Exclusion Pattern Tests
         TEST_CASES.add(new TestCase(
             "Exclude: Non-Test Classes",
-            "Find classes excluding test files",
+            "Find classes excluding test files (comma-separated excludes)",
             "public\\s+class\\s+",
             "*.java",
             "*Test*,**/test/**",
             TestMode.BASIC_SEARCH,
             0, 0, 0,
-            "Should find class definitions excluding test files",
+            "Should find class definitions excluding test files using comma-separated exclude patterns",
             "Returns only production code classes, no test classes"
         ));
 

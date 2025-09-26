@@ -9,6 +9,7 @@ import com.zps.zest.testgen.ui.dialogs.ScenarioDetailDialog
 import com.zps.zest.testgen.ui.model.ScenarioDisplayData
 import com.zps.zest.testgen.ui.model.TestPlanDisplayData
 import com.zps.zest.langchain4j.ui.ChatMemoryDialog
+import com.zps.zest.langchain4j.ui.DialogManager
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -358,6 +359,6 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
      */
     private fun openPlanningChatDialog() {
         val dialog = ChatMemoryDialog(project, planningAgentMemory, planningAgentName)
-        dialog.show()
+        DialogManager.showDialog(dialog)
     }
 }

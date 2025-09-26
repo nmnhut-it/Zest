@@ -1,6 +1,7 @@
 package com.zps.zest.testgen.agents;
 
 import com.intellij.codeInsight.CodeSmellInfo;
+import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.CodeSmellDetector;
 import com.intellij.testFramework.LightVirtualFile;
@@ -52,6 +53,18 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         @dev.langchain4j.service.SystemMessage("""
         You are an intelligent test merging coordinator that orchestrates test class merging using tools.
 
+        TOOL USAGE TRACKING (mandatory for each response):
+        📊 Track your tool usage:
+        - Report after each tool call: "🔧 Tool usage: [X/50] calls used"
+        - List recent tools: [setNewTestCode, findExistingTest, validateCurrentTestCode, etc.]
+        - Be mindful of the 50 tool call limit per session
+
+        RESPONSE FORMAT:
+        After each tool usage, briefly report:
+        📍 Phase: [Setup|Discovery|Merging|Validation|Completion]
+        🔧 Tools used: X/50
+        ⚡ Next: [Specific next action]
+
         WORKFLOW:
         1. Use setNewTestCode(className, testCode) to set the new test code to work with
         2. Use findExistingTest(targetClass) to check for existing test class
@@ -96,20 +109,55 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         VALIDATION WORKFLOW (MANDATORY):
         7. After merging/updating, call validateCurrentTestCode() to check for issues
         8. If validation returns VALIDATION_FAILED:
-           - Analyze each issue
+           - STOP AND ANALYZE the root cause before fixing
            - Use applySimpleFix(oldText, newText) to fix issues one by one
            - After fixing all issues, call validateCurrentTestCode() again
-        9. Repeat until VALIDATION_PASSED
-        10. Only call recordMergedResult() with your final VALIDATED code
+        9. Repeat until VALIDATION_PASSED or fixes exhausted
+        10. Call recordMergedResult() with your final code
+        11. Call markMergingDone() with completion status
+
+        VALIDATION FAILURE ANALYSIS (CRITICAL):
+        When validation fails, BEFORE attempting any fix:
+
+        1. DIAGNOSE THE ROOT CAUSE:
+           - "cannot find symbol" → Missing import or unavailable library
+           - "package does not exist" → Missing dependency in build file
+           - "incompatible types" → Wrong API version or incorrect usage
+           - Syntax errors → Typos or malformed code
+
+        2. UNDERSTAND WHY IT FAILED - Think deeply:
+           "This error occurs because..." and explain the actual cause
+           Example: "TestContainers class not found means the library isn't in classpath"
+
+        3. DOCUMENT IN CODE COMMENTS:
+           When using external libraries, add:
+           // Requires: org.testcontainers:testcontainers:1.x.x
+           // If compilation fails, add to pom.xml or build.gradle
+
+        4. FIX STRATEGICALLY:
+           - Missing libraries → Add TODO comment and try alternative approach
+           - Wrong API → Check project's actual version
+           - Missing imports → Add the correct import statement
+
+        LIBRARY DEPENDENCY AWARENESS:
+        Common test dependencies to document:
+        - TestContainers: // Requires: org.testcontainers:testcontainers
+        - Mockito: // Requires: org.mockito:mockito-core
+        - AssertJ: // Requires: org.assertj:assertj-core
+        - RestAssured: // Requires: io.rest-assured:rest-assured
 
         AFTER VALIDATION:
         Call recordMergedResult with these parameters:
         - packageName: The package declaration
-        - fileName: The .java filename (e.g., "MyTestClass.java")
+        - fileName: The .java filename (e.g., "MyTest.java")
         - methodCount: String count of @Test methods (e.g., "12")
         - framework: "JUnit5", "JUnit4", or "TestNG"
 
-        IMPORTANT: The merged test MUST pass validation before recording.
+        COMPLETION:
+        You MUST call markMergingDone() when:
+        - Validation passes (VALIDATION_PASSED)
+        - OR you've exhausted reasonable fix attempts
+        Provide a clear reason in the markMergingDone call
         """)
         @dev.langchain4j.agentic.Agent
         String mergeAndFixTestClass(String request);
@@ -125,8 +173,9 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             try {
                 LOG.debug("Starting AI-based test merging for: " + result.getClassName());
 
-                // Reset the last merged result
+                // Reset for new session
                 lastMergedResult = null;
+                mergingTools.reset();
 
                 // Notify UI
                 notifyStart();
@@ -140,20 +189,117 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                 sendToUI("🤖 Assistant Response:\n");
                 sendToUI("-".repeat(40) + "\n");
 
-                // Let the AI orchestrate the merging using tools
-                String response = assistant.mergeAndFixTestClass(mergeRequest);
+                // Keep merging until explicitly marked as done
+                int maxIterations = 5; // Safety limit to prevent infinite loops
+                int iteration = 0;
 
-                // Send response to UI
-                sendToUI(response);
-                sendToUI("\n" + "-".repeat(40) + "\n");
+                while (!mergingTools.isMergingComplete() && iteration < maxIterations) {
+                    iteration++;
+
+                    try {
+                        // For first iteration, use full merge request; for subsequent iterations, continue
+                        String promptToUse = (iteration == 1) ? mergeRequest :
+                            "Continue merging and validation. Remember to call markMergingDone when complete.";
+
+                        // Let the AI orchestrate the merging using tools
+                        String response = assistant.mergeAndFixTestClass(promptToUse);
+
+                        // Send response to UI
+                        sendToUI(response);
+                        sendToUI("\n" + "-".repeat(40) + "\n");
+
+                        // Check if merging is now done
+                        if (mergingTools.isMergingComplete()) {
+                            sendToUI("✅ Merging marked as complete by assistant.\n");
+                            break;
+                        }
+
+                        // If not done and not at max iterations, show continuation message
+                        if (!mergingTools.isMergingComplete() && iteration < maxIterations) {
+                            sendToUI("\n🔄 Continuing merge process (iteration " + (iteration + 1) + ")...\n");
+                            sendToUI("-".repeat(40) + "\n");
+                        }
+
+                    } catch (Exception e) {
+                        LOG.warn("Merge agent encountered an error but continuing", e);
+                        sendToUI("\n⚠️ Merge agent stopped: " + e.getMessage());
+                        sendToUI("\nContinuing with available result...\n");
+                        break; // Exit loop on error
+                    }
+                }
+
+                if (iteration >= maxIterations && !mergingTools.isMergingComplete()) {
+                    LOG.warn("Merging reached maximum iterations without completion");
+                    sendToUI("\n⚠️ Merging reached maximum iterations. Proceeding with current result.\n");
+                }
 
                 // Check if the AI successfully recorded the result
                 if (lastMergedResult == null) {
                     // Fallback: AI didn't use recordMergedResult tool properly
                     LOG.warn("AI did not record merged result, creating fallback");
 
-                    // Extract the merged code from response (assuming it's the test code)
-                    String mergedCode = response;
+                    // Try to get the actual test code from MergingTools
+                    String mergedCode = mergingTools.getCurrentTestCode();
+
+                    // If no current test code in MergingTools, try to reconstruct from original
+                    if (mergedCode == null || mergedCode.equals("NO_CURRENT_TEST_CODE")) {
+                        LOG.warn("No current test code in MergingTools, checking for complete test class");
+
+                        // First, check if we have a complete test class already
+                        if (result.getCompleteTestClass() != null && !result.getCompleteTestClass().isEmpty()) {
+                            mergedCode = result.getCompleteTestClass();
+                            sendToUI("✅ Using complete test class from generation result\n");
+                        } else {
+                            LOG.warn("No complete test class, reconstructing from test methods");
+
+                            // Reconstruct the full test class from the original test methods
+                            StringBuilder reconstructed = new StringBuilder();
+                            reconstructed.append("package ").append(result.getPackageName()).append(";\n\n");
+
+                            // Add imports
+                            for (String importStmt : result.getImports()) {
+                                reconstructed.append(importStmt).append("\n");
+                            }
+                            reconstructed.append("\n");
+
+                            // Add class declaration
+                            reconstructed.append("public class ").append(result.getClassName()).append(" {\n\n");
+
+                            // Add field declarations
+                            for (String fieldDecl : result.getFieldDeclarations()) {
+                                reconstructed.append("    ").append(fieldDecl).append("\n");
+                            }
+                            if (!result.getFieldDeclarations().isEmpty()) {
+                                reconstructed.append("\n");
+                            }
+
+                            // Add setup/teardown methods if present
+                            if (result.getBeforeEachCode() != null && !result.getBeforeEachCode().isEmpty()) {
+                                reconstructed.append("    @BeforeEach\n");
+                                reconstructed.append("    public void setUp() {\n");
+                                reconstructed.append("        ").append(result.getBeforeEachCode()).append("\n");
+                                reconstructed.append("    }\n\n");
+                            }
+
+                            // Add all test methods
+                            for (GeneratedTestMethod method : result.getTestMethods()) {
+                                String methodCode = method.getCompleteMethodCode();
+                                // Indent the method code
+                                String[] lines = methodCode.split("\n");
+                                for (String line : lines) {
+                                    reconstructed.append("    ").append(line).append("\n");
+                                }
+                                reconstructed.append("\n");
+                            }
+
+                            reconstructed.append("}\n");
+                            mergedCode = reconstructed.toString();
+
+                            sendToUI("⚠️ Using reconstructed test code from original methods\n");
+                        }
+                    } else {
+                        sendToUI("✅ Using test code from MergingTools\n");
+                    }
 
                     // Force validation before creating the result
                     sendToUI("\n🔍 Enforcing validation...\n");
@@ -288,12 +434,15 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         request.append("\n```\n\n");
 
         request.append("INSTRUCTIONS:\n");
+        request.append("Remember to track your tool usage throughout the process (e.g., \"🔧 Tools used: 3/50\").\n\n");
         request.append("1. First use setNewTestCode(\"").append(result.getClassName()).append("\", <test_code>) to set the new test to work with\n");
         request.append("2. Use findExistingTest(\"").append(result.getTargetClass()).append("\") to check for existing tests\n");
         request.append("3. If existing test found, merge intelligently and use updateTestCode() to save merged version\n");
         request.append("4. If no existing test, the new test becomes the final version\n");
         request.append("5. Use validateCurrentTestCode() and applySimpleFix() to fix any issues\n");
         request.append("6. Call recordMergedResult() with the final validated test details\n");
+        request.append("7. Call markMergingDone() when validation passes or fixes exhausted\n");
+        request.append("8. Throughout the process, report your tool usage: \"🔧 Tools used: X/50\"\n");
 
         return request.toString();
     }
@@ -496,6 +645,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         private final java.util.function.Consumer<String> toolNotifier;
         private String currentWorkingTestCode = null; // Maintains the current version of test code being worked on
         private String currentTestClassName = null; // The class name of the current test
+        private boolean mergingComplete = false; // Track if merging is complete
 
         public TestMergingTools(@NotNull Project project,
                                @Nullable java.util.function.Consumer<String> toolNotifier) {
@@ -656,7 +806,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                                 CodeSmellDetector detector = CodeSmellDetector.getInstance(project);
                                 java.util.List<CodeSmellInfo> detectedIssues = detector.findCodeSmells(
                                     java.util.Arrays.asList(virtualFile)
-                                );
+                                ).stream().filter(v->v.getSeverity().equals(HighlightSeverity.ERROR)).toList();
                                 future.complete(detectedIssues);
                             } catch (Exception e) {
                                 LOG.warn("Error in code smell detection", e);
@@ -722,6 +872,49 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             } catch (Exception e) {
                 return "ERROR: " + e.getMessage();
             }
+        }
+
+        @Tool("Mark merging as complete when validation passes or maximum attempts reached")
+        public String markMergingDone(String reason) {
+            notifyTool("markMergingDone", reason);
+            mergingComplete = true;
+
+            // Summary of what was accomplished
+            StringBuilder summary = new StringBuilder();
+            summary.append("MERGING_COMPLETE: ").append(reason).append("\n");
+
+            if (currentTestClassName != null) {
+                summary.append("✅ Test class: ").append(currentTestClassName).append("\n");
+                if (currentWorkingTestCode != null) {
+                    int methodCount = countTestMethods(currentWorkingTestCode);
+                    summary.append("📊 Test methods: ").append(methodCount).append("\n");
+                }
+            }
+
+            return summary.toString();
+        }
+
+        public boolean isMergingComplete() {
+            return mergingComplete;
+        }
+
+        public void reset() {
+            currentWorkingTestCode = null;
+            currentTestClassName = null;
+            mergingComplete = false;
+        }
+
+        private int countTestMethods(String testCode) {
+            int count = 0;
+            String[] lines = testCode.split("\n");
+            for (String line : lines) {
+                if (line.trim().startsWith("@Test") ||
+                    line.contains("@org.junit.Test") ||
+                    line.contains("@org.junit.jupiter.api.Test")) {
+                    count++;
+                }
+            }
+            return count;
         }
 
         private String determineOutputPath(String className, String packageName) {

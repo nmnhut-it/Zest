@@ -12,17 +12,25 @@ import com.intellij.util.ui.UIUtil
 import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData
 import com.zps.zest.langchain4j.ui.ChatMemoryDialog
 import com.zps.zest.langchain4j.ui.DialogManager
+import com.zps.zest.chatui.JCEFChatPanel
 import java.awt.*
 import java.awt.datatransfer.StringSelection
 import javax.swing.*
 import javax.swing.border.EmptyBorder
 
 /**
- * Panel that displays complete generated test classes with syntax highlighting.
- * Each test class is shown with its full code in an embedded editor.
+ * Panel that displays generated test classes with real-time streaming capability.
+ * Uses JCEFChatPanel for live streaming display and EditorEx for completed tests.
+ * Supports both streaming view during generation and completed test archive.
  */
 class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout()) {
 
+    // JCEF Chat panel for streaming display
+    private val chatPanel = JCEFChatPanel(project)
+    private var currentStreamingMessageId: String? = null
+    private val streamingContent = StringBuilder()
+
+    // Existing components for completed tests
     private val testsContainer = JPanel()
     private val statusLabel = JBLabel("No tests generated yet")
     private val testClassEditors = mutableListOf<EditorEx>()
@@ -51,7 +59,23 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
 
         add(headerPanel, BorderLayout.NORTH)
 
-        // Container for test classes
+        // Split pane: streaming chat on top, completed tests on bottom
+        val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT)
+        splitPane.resizeWeight = 0.5 // Equal split
+
+        // Top: JCEF chat panel for streaming
+        val streamingPanel = JPanel(BorderLayout())
+        streamingPanel.border = EmptyBorder(5, 10, 5, 10)
+
+        val streamingLabel = JBLabel("🔄 Live Generation")
+        streamingLabel.font = streamingLabel.font.deriveFont(Font.BOLD, 12f)
+        streamingLabel.border = EmptyBorder(5, 5, 5, 5)
+        streamingPanel.add(streamingLabel, BorderLayout.NORTH)
+
+        streamingPanel.add(chatPanel, BorderLayout.CENTER)
+        splitPane.topComponent = streamingPanel
+
+        // Bottom: Container for completed test classes
         testsContainer.layout = BoxLayout(testsContainer, BoxLayout.Y_AXIS)
         testsContainer.background = UIUtil.getPanelBackground()
 
@@ -61,7 +85,9 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
             BorderFactory.createLineBorder(UIUtil.getBoundsColor())
         )
         scrollPane.verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-        add(scrollPane, BorderLayout.CENTER)
+        splitPane.bottomComponent = scrollPane
+
+        add(splitPane, BorderLayout.CENTER)
 
         // Bottom panel with actions
         val bottomPanel = JPanel(BorderLayout())
@@ -86,6 +112,45 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
     }
 
     /**
+     * Start streaming for a new test generation
+     */
+    fun startStreaming(className: String) {
+        SwingUtilities.invokeLater {
+            streamingContent.clear()
+            currentStreamingMessageId = chatPanel.addMessage(
+                "🧪 Generating Test: $className",
+                "Starting test generation..."
+            )
+            statusLabel.text = "Generating test for $className..."
+        }
+    }
+
+    /**
+     * Append streaming content token by token
+     */
+    fun appendStreamingContent(token: String) {
+        SwingUtilities.invokeLater {
+            streamingContent.append(token)
+            currentStreamingMessageId?.let {
+                chatPanel.updateMessage(it, streamingContent.toString())
+            }
+        }
+    }
+
+    /**
+     * Finalize streaming when generation is complete
+     */
+    fun finalizeStreaming() {
+        SwingUtilities.invokeLater {
+            currentStreamingMessageId?.let {
+                // Wrap in code block for proper display
+                chatPanel.finalizeMessage(it, "```java\n${streamingContent}\n```")
+            }
+            updateStatus()
+        }
+    }
+
+    /**
      * Add a generated test class to the display
      */
     fun addGeneratedTest(test: GeneratedTestDisplayData) {
@@ -96,6 +161,12 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
             val testPanel = createTestClassPanel(test)
             testsContainer.add(testPanel)
             testsContainer.add(Box.createVerticalStrut(10))
+
+            // Also finalize streaming if active
+            if (currentStreamingMessageId != null) {
+                finalizeStreaming()
+                currentStreamingMessageId = null
+            }
 
             updateStatus()
             testsContainer.revalidate()
@@ -216,28 +287,6 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
         )
     }
 
-    /**
-     * Update test validation status - simplified version
-     */
-    fun updateTestStatus(testName: String, status: Any) {
-        // Simplified - no validation status in new model
-        SwingUtilities.invokeLater {
-            updateStatus()
-        }
-    }
-
-    /**
-     * Show progress for test generation
-     */
-    fun showProgress(current: Int, total: Int) {
-        SwingUtilities.invokeLater {
-            if (total > 0) {
-                statusLabel.text = "Generating test $current of $total..."
-            } else {
-                updateStatus()
-            }
-        }
-    }
 
     /**
      * Clear all tests
@@ -296,9 +345,16 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
      * Clean up resources when panel is disposed
      */
     fun dispose() {
+        // Release all editors created for completed test displays
         testClassEditors.forEach { editor ->
             EditorFactory.getInstance().releaseEditor(editor)
         }
         testClassEditors.clear()
+
+        // Clear streaming content
+        streamingContent.clear()
+        currentStreamingMessageId = null
+
+        // Note: JCEFChatPanel disposal is handled by JCEFBrowserService
     }
 }

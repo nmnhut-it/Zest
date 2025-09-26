@@ -285,6 +285,27 @@ class StateMachineTestGenerationEditor(
                 tabbedPane.selectedIndex = 2
             }
         }
+
+        // New streaming events for real-time test generation display
+        override fun onTestGenerationStreamingStarted(className: String) {
+            SwingUtilities.invokeLater {
+                generatedTestsPanel.startStreaming(className)
+                // Switch to generated tests tab to show streaming
+                tabbedPane.selectedIndex = 2
+            }
+        }
+
+        override fun onTestGenerationToken(token: String) {
+            SwingUtilities.invokeLater {
+                generatedTestsPanel.appendStreamingContent(token)
+            }
+        }
+
+        override fun onTestGenerationStreamingComplete() {
+            SwingUtilities.invokeLater {
+                generatedTestsPanel.finalizeStreaming()
+            }
+        }
         
         override fun onMergerAgentCreated(mergerAgent: com.zps.zest.testgen.agents.AITestMergerAgent) {
             SwingUtilities.invokeLater {

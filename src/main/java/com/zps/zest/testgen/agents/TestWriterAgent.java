@@ -5,8 +5,7 @@ import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData;
-import dev.langchain4j.agent.tool.Tool;
-import dev.langchain4j.agentic.AgenticServices;
+import com.zps.zest.chatui.ChatUIService;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import org.jetbrains.annotations.NotNull;
 
@@ -15,37 +14,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.stream.Collectors;
 
 /**
- * Test writing agent using LangChain4j's streaming capabilities.
- * Generates complete test classes in a single response - no loops needed.
+ * Test writing agent using ChatUIService for real-time streaming.
+ * Generates complete test classes with live token streaming to UI.
+ * Uses ChatUIService.sendMessageStreaming for proper streaming display.
  */
 public class TestWriterAgent extends StreamingBaseAgent {
-    private final TestWritingAssistant assistant;
     private final MessageWindowChatMemory chatMemory;
-    
-    public TestWriterAgent(@NotNull Project project,
-                          @NotNull ZestLangChain4jService langChainService,
-                          @NotNull NaiveLLMService naiveLlmService) {
-        super(project, langChainService, naiveLlmService, "TestWriterAgent");
-        
-        // Build the simplified agent (with dummy tool for parallelToolCalls compatibility)
-        this.chatMemory = MessageWindowChatMemory.withMaxMessages(50);
-        this.assistant = AgenticServices
-                .agentBuilder(TestWritingAssistant.class)
-                .chatModel(getChatModelWithStreaming()) // Use wrapped model for streaming
-                .maxSequentialToolsInvocations(10) // Simple - just one response needed
-                .chatMemory(chatMemory)
-                .tools(new DummyTool()) // Dummy tool to satisfy parallelToolCalls requirement
-                .build();
-    }
-    
-    /**
-     * Simplified interface - generates complete test class as a single string
-     */
-    public interface TestWritingAssistant {
-        @dev.langchain4j.service.SystemMessage("""
+    private ChatUIService chatService;
+
+    private static final String TEST_GENERATION_SYSTEM_PROMPT = """
         You are a test writing assistant that generates complete, high-quality Java test classes.
 
         CRITICAL: Generate the ENTIRE test class as a COMPLETE JAVA FILE in your response.
@@ -64,7 +45,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
         - Setup method (@BeforeEach) if needed
         - All test methods with @Test annotations
         - Teardown method (@AfterEach) if needed
-        
+
         QUALITY STANDARDS:
         - Each test method tests ONE specific scenario
         - Use descriptive method names: testMethodName_WhenCondition_ThenExpectedResult
@@ -72,145 +53,154 @@ public class TestWriterAgent extends StreamingBaseAgent {
         - Use appropriate assertions: assertEquals, assertTrue, assertThrows, etc.
         - Proper Java formatting and indentation
         - Complete method implementations with assertions
-        
+
         DEPENDENCY-AWARE TESTING STRATEGY:
-        
+
         1. **PURE BUSINESS LOGIC** (no external dependencies):
            → Write UNIT TESTS - test actual logic directly, no mocking needed
-           
+
         2. **DATABASE INTERACTIONS** (JPA, JDBC, repositories):
            → Use TESTCONTAINERS with appropriate database containers
-           → Add @Container field with database setup
-           → Use @Testcontainers annotation on class
-           → Example containers: PostgreSQLContainer, MySQLContainer, MongoDBContainer
-           
+
         3. **MESSAGE QUEUES** (Kafka, RabbitMQ, ActiveMQ):
            → Use TESTCONTAINERS with message broker containers
-           → Example: KafkaContainer, RabbitMQContainer
-           
+
         4. **EXTERNAL SERVICES** (Redis, Elasticsearch, etc.):
            → Use TESTCONTAINERS with service containers
-           → Example: GenericContainer, ElasticsearchContainer
-           
-        5. **FILE SYSTEM OPERATIONS**:
-           → Use @TempDir for temporary directories (JUnit 5)
-           → Or Files.createTempDirectory() for other frameworks
-           
-        6. **HTTP CLIENTS/APIS** (last resort):
-           → Prefer WireMock or MockWebServer over mocking
-           → If no choice, use framework-appropriate mocking (Mockito, EasyMock, etc.)
-           
-        FRAMEWORK DETECTION AND ADAPTATION:
-        FIRST analyze the provided context to detect the testing framework:
-        - JUnit 4: Use @Test from org.junit.Test, @Before/@After for setup/teardown
-        - JUnit 5: Use @Test from org.junit.jupiter.api.Test, @BeforeEach/@AfterEach
-        - TestNG: Use @Test from org.testng.annotations.Test, @BeforeMethod/@AfterMethod
-        - Spring Boot: Add @SpringBootTest, @TestConfiguration, @MockBean as needed
-        - Testcontainers: Add @Testcontainers on class, @Container on fields
-        
-        ADAPT YOUR OUTPUT to use the DETECTED framework, not a default assumption.
-        
-        F.I.R.S.T Principles: 
-        - Fast: Tests should run quickly 
-        - Independent: Tests shouldn't depend on each other
-        - Repeatable: Same result every time
-        - Self-validating: Pass or fail, no manual checking
-        - Timely: Choose the RIGHT test type for the dependencies
-        
-        CONTAINER SETUP PATTERNS:
-        
-        **PostgreSQL Example:**
-        ```java
-        @Testcontainers
-        class UserRepositoryTest {
-            @Container
-            static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:13")
-                    .withDatabaseName("testdb")
-                    .withUsername("test")
-                    .withPassword("test");
-        
-            @DynamicPropertySource
-            static void configureProperties(DynamicPropertyRegistry registry) {
-                registry.add("spring.datasource.url", postgres::getJdbcUrl);
-                registry.add("spring.datasource.username", postgres::getUsername);  
-                registry.add("spring.datasource.password", postgres::getPassword);
-            }
-        }
-        ```
-        
-        **Kafka Example:**
-        ```java
-        @Testcontainers
-        class MessageServiceTest {
-            @Container
-            static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:latest"));
-        
-            @DynamicPropertySource
-            static void kafkaProperties(DynamicPropertyRegistry registry) {
-                registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
-            }
-        }
-        ```
-        
-        **Redis Example:**
-        ```java
-        @Testcontainers
-        class CacheServiceTest {
-            @Container
-            static GenericContainer<?> redis = new GenericContainer<>("redis:6-alpine")
-                    .withExposedPorts(6379);
-        
-            @DynamicPropertySource
-            static void redisProperties(DynamicPropertyRegistry registry) {
-                registry.add("spring.redis.host", redis::getHost);
-                registry.add("spring.redis.port", redis::getFirstMappedPort);
-            }
-        }
-        ```
-        
-        ASSERTION FRAMEWORKS (use what's detected):
-        - **JUnit 4**: assertEquals(), assertTrue(), assertNotNull() from org.junit.Assert
-        - **JUnit 5**: assertEquals(), assertTrue(), assertThrows() from org.junit.jupiter.api.Assertions
-        - **AssertJ**: assertThat().isEqualTo(), assertThat().isTrue() from org.assertj.core.api.Assertions
-        - **TestNG**: assertEquals(), assertTrue() from org.testng.Assert
-        - **Hamcrest**: assertThat(result, is(equalTo(expected))) from org.hamcrest.MatcherAssert
 
-        Generate the complete Java test class now. Do NOT use tools - return the complete test class directly.
-        Remember to wrap your response in markdown code blocks:
-        ```java
-        // Your complete test class here
-        ```
-        """)
-        @dev.langchain4j.agentic.Agent
-        String generateTest(String request);
+        5. **HTTP CLIENTS/APIS** (last resort):
+           → Prefer WireMock or MockWebServer over mocking
+
+        FRAMEWORK DETECTION: Adapt to the project's testing framework (JUnit 4, JUnit 5, TestNG, etc.)
+
+        F.I.R.S.T Principles: Fast, Independent, Repeatable, Self-validating, Timely
+
+        Generate the complete Java test class now. Return ONLY the test class code, no explanations.
+        """;
+
+    public TestWriterAgent(@NotNull Project project,
+                          @NotNull ZestLangChain4jService langChainService,
+                          @NotNull NaiveLLMService naiveLlmService) {
+        super(project, langChainService, naiveLlmService, "TestWriterAgent");
+
+        // Get ChatUIService for streaming
+        this.chatService = project.getService(ChatUIService.class);
+
+        // Initialize chat memory for context
+        this.chatMemory = MessageWindowChatMemory.withMaxMessages(50);
     }
+
+    /**
+     * Override sendToUI to also trigger streaming events when appropriate
+     */
+    @Override
+    protected void sendToUI(String message) {
+        super.sendToUI(message);
+
+        // If we have an event listener and this looks like test code, send as streaming token
+        if (eventListener != null && isGeneratingTest) {
+            eventListener.onTestGenerationToken(message);
+        }
+    }
+
+    private boolean isGeneratingTest = false;
+    
     
     /**
-     * Generate tests using simplified LLM approach.
-     * Creates complete test class in one response - no complex tools needed.
+     * Generate tests using ChatUIService streaming for real-time display.
+     * Creates complete test class with live streaming to UI.
      */
     @NotNull
-    public CompletableFuture<TestGenerationResult> generateTests(@NotNull TestPlan testPlan, 
+    public CompletableFuture<TestGenerationResult> generateTests(@NotNull TestPlan testPlan,
                                                                 @NotNull ContextAgent.ContextGatheringTools contextTools) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 LOG.debug("Generating tests for: " + testPlan.getTargetClass());
-                
+
                 // Notify UI
                 notifyStart();
                 sendToUI("✍️ Generating complete test class...\n\n");
-                
-                // Build the test writing request
+
+                // Build the test writing request with system prompt
                 String testRequest = buildTestWritingRequest(testPlan, contextTools);
-                
+
+                // Add system prompt to chat memory for proper test generation
+                chatService.addSystemMessage(TEST_GENERATION_SYSTEM_PROMPT);
+
                 // Send the request to UI
                 sendToUI("📋 Request:\n" + testRequest + "\n\n");
                 sendToUI("🤖 Assistant Response:\n");
                 sendToUI("-".repeat(40) + "\n");
 
-                // Try test generation with retry logic 
-                TestGenerationResult result = generateTestsWithRetry(testRequest, testPlan, contextTools);
-                
+                // Notify streaming started
+                String targetClass = testPlan.getTargetClass();
+                if (eventListener != null) {
+                    eventListener.onTestGenerationStreamingStarted(targetClass + "Test");
+                }
+
+                // Use ChatUIService streaming for real-time generation
+                CompletableFuture<String> streamingFuture = new CompletableFuture<>();
+                StringBuilder fullResponse = new StringBuilder();
+
+                // Flag to route sendToUI calls to streaming
+                isGeneratingTest = true;
+
+                // Start streaming with ChatUIService
+                // Using Kotlin function types from Java requires proper handling
+                chatService.sendMessageStreaming(
+                    testRequest,
+                    (String token) -> {
+                        // Stream tokens directly to UI and event listener
+                        fullResponse.append(token);
+                        if (eventListener != null) {
+                            eventListener.onTestGenerationToken(token);
+                        }
+                        // Also send to console/log UI
+                        if (streamingConsumer != null) {
+                            streamingConsumer.accept(token);
+                        }
+                        return kotlin.Unit.INSTANCE;
+                    },
+                    (String completeResponse) -> {
+                        // Generation complete
+                        isGeneratingTest = false;
+                        if (eventListener != null) {
+                            eventListener.onTestGenerationStreamingComplete();
+                        }
+                        streamingFuture.complete(completeResponse);
+                        return kotlin.Unit.INSTANCE;
+                    },
+                    (Throwable error) -> {
+                        // Handle error
+                        isGeneratingTest = false;
+                        sendToUI("\n❌ Error: " + error.getMessage() + "\n");
+                        streamingFuture.completeExceptionally(error);
+                        return kotlin.Unit.INSTANCE;
+                    },
+                    null, // onToolCall (optional)
+                    null  // onToolResult (optional)
+                );
+
+                // Wait for streaming to complete
+                String completeTestClass;
+                try {
+                    completeTestClass = streamingFuture.get();
+                } catch (Exception e) {
+                    LOG.error("Streaming failed", e);
+                    throw new RuntimeException("Test generation streaming failed", e);
+                }
+
+                // Parse the complete test class into TestGenerationResult
+                TestGenerationResult result = parseCompleteTestClass(completeTestClass, testPlan, contextTools);
+
+                // Send complete test to UI as GeneratedTestDisplayData
+                GeneratedTestDisplayData displayData = new GeneratedTestDisplayData(
+                    result.getClassName(),
+                    result.getCompleteTestClass(),
+                    System.currentTimeMillis()
+                );
+                sendTestGenerated(displayData);
+
                 // Summary
                 sendToUI("\n📊 Test Generation Summary:\n");
                 sendToUI("  - Test class: " + result.getClassName() + "\n");
@@ -219,11 +209,11 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 sendToUI("  - Methods generated: " + result.getMethodCount() + "\n");
                 sendToUI("  - Lines of code: " + result.getCompleteTestClass().split("\n").length + "\n");
                 notifyComplete();
-                
+
                 LOG.debug("Test generation complete: " + result.getMethodCount() + " test(s)");
-                
+
                 return result;
-                
+
             } catch (Exception e) {
                 LOG.error("Failed to generate tests", e);
                 sendToUI("\n❌ Test generation failed: " + e.getMessage() + "\n");
@@ -240,121 +230,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
         return chatMemory;
     }
     
-    /**
-     * Generate tests with retry logic for tool calling failures
-     */
-    private TestGenerationResult generateTestsWithRetry(String testRequest, TestPlan testPlan, 
-                                                       ContextAgent.ContextGatheringTools contextTools) {
-        int maxRetries = 3;
-        Exception lastException = null;
-        
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                sendToUI(String.format("🔄 Attempt %d/%d: Calling AI assistant...\n", attempt, maxRetries));
-                
-                // Call the AI assistant - chat memory preserves conversation context including previous errors
-                String completeTestClass = assistant.generateTest(testRequest);
-                
-                // Parse the complete test class into a TestGenerationResult
-                return parseCompleteTestClass(completeTestClass, testPlan, contextTools);
-                
-            } catch (Exception e) {
-                lastException = e;
-                sendToUI(String.format("❌ Attempt %d failed: %s\n", attempt, e.getMessage()));
-
-                if (attempt < maxRetries) {
-                    // Add error context to chat memory for self-correction
-                    String errorFeedback = buildErrorFeedbackMessage(e, attempt);
-                    sendToUI("🔄 Adding error context to conversation for self-correction...\n");
-
-                    try {
-                        // Let the assistant reason about the error and continue
-                        assistant.generateTest(errorFeedback);
-                    } catch (Exception feedbackException) {
-                        LOG.warn("Error feedback failed, proceeding with basic retry: " + feedbackException.getMessage());
-                    }
-
-                    sendToUI("⏳ Retrying with error context in 2 seconds...\n");
-                    try {
-                        Thread.sleep(2000); // Wait 2 seconds before retry
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("Test generation interrupted", ie);
-                    }
-                } else {
-                    sendToUI("❌ All retry attempts failed\n");
-                }
-            }
-        }
-        
-        // All retries failed
-        throw new RuntimeException("Test generation failed after " + maxRetries + " attempts", lastException);
-    }
     
-    /**
-     * Build error feedback message to help LLM self-correct on retry
-     */
-    private String buildErrorFeedbackMessage(Exception error, int attemptNumber) {
-        StringBuilder feedback = new StringBuilder();
-        
-        feedback.append("PREVIOUS ATTEMPT FAILED - PLEASE ANALYZE AND CORRECT:\n\n");
-        feedback.append("Attempt #").append(attemptNumber).append(" failed with error:\n");
-        feedback.append("ERROR TYPE: ").append(error.getClass().getSimpleName()).append("\n");
-        feedback.append("ERROR MESSAGE: ").append(error.getMessage()).append("\n\n");
-        
-        // Provide specific guidance based on error type
-        if (error.getMessage() != null) {
-            String errorMsg = error.getMessage().toLowerCase();
-            
-            if (errorMsg.contains("json") || errorMsg.contains("parse")) {
-                feedback.append("JSON PARSING ERROR DETECTED:\n");
-                feedback.append("- Check tool call syntax - ensure parameters match tool signatures exactly\n");
-                feedback.append("- Verify all required parameters are provided\n");
-                feedback.append("- Ensure string parameters are properly quoted\n");
-                feedback.append("- Lists should be valid JSON arrays: [\"item1\", \"item2\"]\n\n");
-            }
-            
-            if (errorMsg.contains("tool") || errorMsg.contains("function")) {
-                feedback.append("TOOL CALL ERROR DETECTED:\n");
-                feedback.append("- Use ONLY the available tool names exactly as defined\n");
-                feedback.append("- Check parameter names and types match tool signatures\n");
-                feedback.append("- Ensure all required parameters are provided\n");
-                feedback.append("- Follow the exact parameter order specified in tool definitions\n\n");
-            }
-            
-            if (errorMsg.contains("import") || errorMsg.contains("duplicate")) {
-                feedback.append("IMPORT ERROR DETECTED:\n");
-                feedback.append("- Check for duplicate imports - each import should be unique\n");
-                feedback.append("- Validate import syntax: package.ClassName format\n");
-                feedback.append("- Use addMultipleImports for batch import adding\n\n");
-            }
-            
-            if (errorMsg.contains("method") || errorMsg.contains("name")) {
-                feedback.append("METHOD ERROR DETECTED:\n");
-                feedback.append("- Ensure method names are unique - no duplicates allowed\n");
-                feedback.append("- Use valid Java method naming conventions\n");
-                feedback.append("- Provide complete method bodies with proper assertions\n\n");
-            }
-            
-            if (errorMsg.contains("rate limit") || errorMsg.contains("tpm") || errorMsg.contains("429")) {
-                feedback.append("RATE LIMIT ERROR DETECTED:\n");
-                feedback.append("- API rate limit was exceeded - request was too fast\n");
-                feedback.append("- The system will automatically apply exponential backoff\n");
-                feedback.append("- Consider reducing the complexity of the request\n");
-                feedback.append("- This error will be automatically retried with longer delays\n\n");
-            }
-        }
-        
-        feedback.append("RECOVERY INSTRUCTIONS:\n");
-        feedback.append("1. ANALYZE the previous error carefully\n");
-        feedback.append("2. CORRECT the specific issue mentioned in the error\n");
-        feedback.append("3. CONTINUE with the test generation using proper tool calls\n");
-        feedback.append("4. Use the exact same process as before but AVOID the error condition\n\n");
-        
-        feedback.append("Please continue with test generation, taking care to avoid the above error.");
-        
-        return feedback.toString();
-    }
     
     /**
      * Parse complete test class generated by AI into TestGenerationResult
@@ -1031,14 +907,4 @@ public class TestWriterAgent extends StreamingBaseAgent {
                fileName.equals("package.json");
     }
     
-    /**
-     * Dummy tool to satisfy parallelToolCalls requirement when no real tools are needed
-     */
-    public static class DummyTool {
-        
-        @Tool("Mark task as done - no-op tool for compatibility")
-        public String markDone(String task) {
-            return "Task marked as done: " + task;
-        }
-    }
 }

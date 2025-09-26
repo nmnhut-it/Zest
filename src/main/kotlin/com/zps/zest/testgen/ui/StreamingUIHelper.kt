@@ -27,6 +27,11 @@ interface StreamingEventListener {
     fun onTestCodeUpdated(className: String, updatedCode: String) {}  // When test code is updated
     fun onFixApplied(oldText: String, newText: String, lineNumber: Int?) {}  // When a fix is applied
     fun onValidationStatusChanged(status: String, issues: List<String>?) {}  // When validation status changes
+
+    // New streaming events for test generation
+    fun onTestGenerationStreamingStarted(className: String) {}  // When test generation streaming starts
+    fun onTestGenerationToken(token: String) {}  // Each streaming token
+    fun onTestGenerationStreamingComplete() {}  // When streaming completes
 }
 
 /**

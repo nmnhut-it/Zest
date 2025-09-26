@@ -65,7 +65,17 @@ public class TestGenerationHandler extends AbstractStateHandler {
 
             // Store as field for direct access
             this.testWriterAgent = testWriterAgent;
-            
+
+            // Set the UI event listener for streaming
+            if (uiEventListener != null) {
+                testWriterAgent.setEventListener(uiEventListener);
+            }
+
+            // Set the streaming consumer for console output
+            if (streamingCallback != null) {
+                testWriterAgent.setStreamingConsumer(streamingCallback);
+            }
+
             logToolActivity(stateMachine, "TestWriterAgent", "Preparing test generation");
 
             // Notify UI of phase start

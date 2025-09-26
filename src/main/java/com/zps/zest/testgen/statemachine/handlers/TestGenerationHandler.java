@@ -95,9 +95,12 @@ public class TestGenerationHandler extends AbstractStateHandler {
                 selectedScenarios,
                 originalPlan.getDependencies(),
                 originalPlan.getRecommendedTestType(),
-                originalPlan.getReasoning() + "\n[User selected " + selectedScenarios.size() + 
+                originalPlan.getReasoning() + "\n[User selected " + selectedScenarios.size() +
                     " of " + originalPlan.getScenarioCount() + " scenarios]"
             );
+
+            // Copy the testing notes (which may have been edited by user)
+            filteredPlan.setTestingNotes(originalPlan.getTestingNotes());
             
             logToolActivity(stateMachine, "TestWriterAgent", "Generating test methods");
             

@@ -698,12 +698,18 @@ public class TestWriterAgent extends StreamingBaseAgent {
     private String buildTestWritingRequest(TestPlan testPlan, ContextAgent.ContextGatheringTools contextTools) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("Generate a complete Java test class for the following requirements.\n\n");
-        
+
         // Target information
         prompt.append("=== TARGET CLASS INFO ===\n");
         prompt.append("Target Class: ").append(testPlan.getTargetClass()).append("\n");
         prompt.append("Target Method(s): ").append(testPlan.getTargetMethods().stream().collect(Collectors.joining(", "))).append("\n");
         prompt.append("Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n\n");
+
+        // Testing approach from test plan
+        if (!testPlan.getTestingNotes().isEmpty()) {
+            prompt.append("=== TESTING APPROACH ===\n");
+            prompt.append(testPlan.getTestingNotes()).append("\n\n");
+        }
         
         // Test scenarios to implement
         prompt.append("=== TEST SCENARIOS TO IMPLEMENT ===\n");

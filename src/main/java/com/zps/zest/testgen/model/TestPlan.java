@@ -12,6 +12,7 @@ public class TestPlan {
     private final List<String> dependencies;
     private final TestGenerationRequest.TestType recommendedTestType;
     private final String reasoning;
+    private String testingNotes; // Natural language test configuration (editable)
     
     public TestPlan(@NotNull List<String> targetMethods,
                    @NotNull String targetClass,
@@ -25,6 +26,7 @@ public class TestPlan {
         this.dependencies = new ArrayList<>(dependencies);
         this.recommendedTestType = recommendedTestType;
         this.reasoning = reasoning;
+        this.testingNotes = ""; // Default empty, will be set by CoordinatorAgent
     }
     
     @NotNull
@@ -56,7 +58,35 @@ public class TestPlan {
     public String getReasoning() {
         return reasoning;
     }
-    
+
+    @NotNull
+    public String getTestingNotes() {
+        return testingNotes != null ? testingNotes : "";
+    }
+
+    public void setTestingNotes(@NotNull String testingNotes) {
+        this.testingNotes = testingNotes;
+    }
+
+    public void addScenario(@NotNull TestScenario scenario) {
+        this.testScenarios.add(scenario);
+    }
+
+    public void removeScenario(@NotNull TestScenario scenario) {
+        this.testScenarios.remove(scenario);
+    }
+
+    public void updateScenario(int index, @NotNull TestScenario newScenario) {
+        if (index >= 0 && index < testScenarios.size()) {
+            this.testScenarios.set(index, newScenario);
+        }
+    }
+
+    public void setTestScenarios(@NotNull List<TestScenario> scenarios) {
+        this.testScenarios.clear();
+        this.testScenarios.addAll(scenarios);
+    }
+
     public int getScenarioCount() {
         return testScenarios.size();
     }

@@ -13,49 +13,87 @@ import javax.swing.*
 import javax.swing.border.EmptyBorder
 
 /**
- * Dialog for viewing detailed information about a test scenario.
+ * Dialog for viewing and optionally editing detailed information about a test scenario.
  */
 class ScenarioDetailDialog(
     project: Project,
-    private val scenario: ScenarioDisplayData
+    private val scenario: ScenarioDisplayData,
+    private val editMode: Boolean = false,
+    private val onSave: ((ScenarioDisplayData) -> Unit)? = null
 ) : DialogWrapper(project) {
-    
+
+    // Editable fields for edit mode
+    private val nameField = JTextField(scenario.name)
+    private val descriptionArea = JBTextArea(scenario.description)
+    private val priorityCombo = JComboBox(ScenarioDisplayData.Priority.values())
+    private val categoryCombo = JComboBox(arrayOf("UNIT", "INTEGRATION", "EDGE_CASE", "ERROR_HANDLING"))
+    private val expectedOutcomeArea = JBTextArea(scenario.expectedOutcome)
+
     init {
-        title = "Scenario Details: ${scenario.name}"
+        title = if (editMode) "Edit Scenario: ${scenario.name}" else "Scenario Details: ${scenario.name}"
         init()
+
+        if (editMode) {
+            priorityCombo.selectedItem = scenario.priority
+            categoryCombo.selectedItem = scenario.category
+        }
     }
     
     override fun createCenterPanel(): JComponent {
         val mainPanel = JPanel(BorderLayout())
         mainPanel.preferredSize = JBUI.size(700, 600) // Increased size for better readability
-        
+
         val content = JPanel()
         content.layout = BoxLayout(content, BoxLayout.Y_AXIS)
         content.border = EmptyBorder(10, 10, 10, 10)
-        
-        // Scenario name and priority
-        addSection(content, "Scenario", scenario.name)
-        addSection(content, "Priority", "${scenario.getPriorityIcon()} ${scenario.priority.displayName}")
-        addSection(content, "Category", scenario.category)
-        addSection(content, "Status", "${scenario.getStatusIcon()} ${scenario.generationStatus}")
+
+        if (editMode) {
+            // Edit mode - show editable fields
+            addEditableSection(content, "Scenario", nameField)
+            addEditableComboSection(content, "Priority", priorityCombo)
+            addEditableComboSection(content, "Category", categoryCombo)
+            addSection(content, "Status", "${scenario.getStatusIcon()} ${scenario.generationStatus}")
+        } else {
+            // View mode - show read-only labels
+            addSection(content, "Scenario", scenario.name)
+            addSection(content, "Priority", "${scenario.getPriorityIcon()} ${scenario.priority.displayName}")
+            addSection(content, "Category", scenario.category)
+            addSection(content, "Status", "${scenario.getStatusIcon()} ${scenario.generationStatus}")
+        }
         
         content.add(Box.createVerticalStrut(10))
         content.add(JSeparator())
         content.add(Box.createVerticalStrut(10))
         
-        // Description - use special handling for long text
-        addTextSection(content, "Description", scenario.description)
+        // Description - editable or read-only
+        if (editMode) {
+            descriptionArea.rows = 4
+            addEditableTextSection(content, "Description", descriptionArea)
+        } else {
+            addTextSection(content, "Description", scenario.description)
+        }
 
         // Test inputs
-        if (scenario.inputs.isNotEmpty()) {
+        if (editMode || scenario.inputs.isNotEmpty()) {
             content.add(Box.createVerticalStrut(5))
-            addListSection(content, "Test Inputs", scenario.inputs)
+            if (editMode) {
+                val inputsField = JBTextArea(scenario.inputs.joinToString("\n"))
+                inputsField.rows = 3
+                addEditableTextSection(content, "Test Inputs (one per line)", inputsField)
+            } else {
+                addListSection(content, "Test Inputs", scenario.inputs)
+            }
         }
 
         // Expected outcome
-        if (scenario.expectedOutcome.isNotEmpty()) {
+        if (editMode || scenario.expectedOutcome.isNotEmpty()) {
             content.add(Box.createVerticalStrut(10))
-            addTextSection(content, "Expected Outcome", scenario.expectedOutcome)
+            if (editMode) {
+                expectedOutcomeArea.rows = 3
+                addEditableTextSection(content, "Expected Outcome", expectedOutcomeArea)
+            } else {
+                addTextSection(content, "Expected Outcome", scenario.expectedOutcome)
+            }
         }
 
         // Expected complexity
@@ -178,6 +216,84 @@ class ScenarioDetailDialog(
     }
     
     override fun createActions(): Array<Action> {
-        return arrayOf(okAction)
+        return if (editMode) {
+            arrayOf(okAction, cancelAction)
+        } else {
+            arrayOf(okAction)
+        }
+    }
+
+    override fun doOKAction() {
+        if (editMode && onSave != null) {
+            // Create updated scenario
+            val updatedScenario = scenario.copy(
+                name = nameField.text.trim(),
+                description = descriptionArea.text.trim(),
+                priority = priorityCombo.selectedItem as ScenarioDisplayData.Priority,
+                category = categoryCombo.selectedItem as String,
+                expectedOutcome = expectedOutcomeArea.text.trim()
+            )
+            onSave(updatedScenario)
+        }
+        super.doOKAction()
+    }
+
+    /**
+     * Add editable text field section
+     */
+    private fun addEditableSection(parent: JPanel, label: String, field: JTextField) {
+        val panel = JPanel(BorderLayout())
+        panel.isOpaque = false
+        panel.border = EmptyBorder(5, 0, 5, 0)
+
+        val labelComponent = JBLabel("$label:")
+        labelComponent.font = labelComponent.font.deriveFont(Font.BOLD)
+        labelComponent.preferredSize = Dimension(120, labelComponent.preferredSize.height)
+        panel.add(labelComponent, BorderLayout.WEST)
+
+        panel.add(field, BorderLayout.CENTER)
+        parent.add(panel)
+    }
+
+    /**
+     * Add editable combo box section
+     */
+    private fun addEditableComboSection(parent: JPanel, label: String, combo: JComboBox<*>) {
+        val panel = JPanel(BorderLayout())
+        panel.isOpaque = false
+        panel.border = EmptyBorder(5, 0, 5, 0)
+
+        val labelComponent = JBLabel("$label:")
+        labelComponent.font = labelComponent.font.deriveFont(Font.BOLD)
+        labelComponent.preferredSize = Dimension(120, labelComponent.preferredSize.height)
+        panel.add(labelComponent, BorderLayout.WEST)
+
+        panel.add(combo, BorderLayout.CENTER)
+        parent.add(panel)
+    }
+
+    /**
+     * Add editable text area section
+     */
+    private fun addEditableTextSection(parent: JPanel, label: String, textArea: JBTextArea) {
+        val panel = JPanel(BorderLayout())
+        panel.isOpaque = false
+        panel.border = EmptyBorder(5, 0, 5, 0)
+
+        val labelComponent = JBLabel("$label:")
+        labelComponent.font = labelComponent.font.deriveFont(Font.BOLD)
+        labelComponent.preferredSize = Dimension(120, labelComponent.preferredSize.height)
+        labelComponent.verticalAlignment = SwingConstants.TOP
+        panel.add(labelComponent, BorderLayout.WEST)
+
+        textArea.lineWrap = true
+        textArea.wrapStyleWord = true
+        textArea.border = BorderFactory.createLineBorder(UIUtil.getBoundsColor())
+
+        val scrollPane = JBScrollPane(textArea)
+        scrollPane.preferredSize = Dimension(0, 80)
+        panel.add(scrollPane, BorderLayout.CENTER)
+
+        parent.add(panel)
     }
 }

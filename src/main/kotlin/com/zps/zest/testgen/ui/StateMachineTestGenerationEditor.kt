@@ -183,7 +183,7 @@ class StateMachineTestGenerationEditor(
                 logEvent("⚠️ USER ACTION REQUIRED: ${event.prompt}")
                 
                 when (event.inputType) {
-                    "scenario_selection" -> {
+                    "scenario_selection", "test_plan_review" -> {
                         val testPlan = event.data as TestPlan
                         testPlanDisplayPanel.setTestPlanForSelection(testPlan)
                         
@@ -983,9 +983,12 @@ class StateMachineTestGenerationEditor(
             )
             return
         }
-        
+
+        // Get the edited testing notes
+        val editedTestingNotes = testPlanDisplayPanel.getEditedTestingNotes()
+
         currentSessionId?.let { sessionId ->
-            if (testGenService.setUserSelection(sessionId, selectedScenarios)) {
+            if (testGenService.setUserSelection(sessionId, selectedScenarios, editedTestingNotes)) {
                 logEvent("User confirmed selection of ${selectedScenarios.size} scenarios - continuing generation")
                 hideActionBanner()
                 // Exit selection mode since selection was processed

@@ -67,6 +67,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         1. Analyze the code and set target class.
         2. Add multiple test scenarios at once using addTestScenarios (note: plural) - but ONLY for the selected methods
         3. Each scenario should specify its own type (UNIT or INTEGRATION) based on what it tests
+        4. Call setTestingNotes to provide testing approach recommendations in natural language
 
         Prefer quality over quantity. Keep the test focused on the selected methods only, aimed at preventing potential bugs in those specific methods. Make sure all paths and branches of the SELECTED methods are tested.
 
@@ -84,6 +85,15 @@ public class CoordinatorAgent extends StreamingBaseAgent {
           * HTTP APIs: Use WireMock or MockWebServer
           * File operations: Use @TempDir for temporary test directories
         - Avoid mocking frameworks when possible - prefer real test infrastructure for more reliable tests
+
+        TESTING NOTES GUIDELINES:
+        When calling setTestingNotes, provide natural language recommendations:
+        - Mention the detected testing framework (JUnit 5, JUnit 4, TestNG)
+        - For database tests: recommend "Use TestContainers for database testing"
+        - For messaging: recommend "Use TestContainers for message queue testing"
+        - For HTTP APIs: recommend "Use WireMock for API mocking"
+        - For pure logic: recommend "Direct unit tests, no mocking needed"
+        - Include setup/teardown hints if needed: "Set up test infrastructure in @BeforeEach, clean up in @AfterEach"
 
         TEST PLANNING PRINCIPLES:
 
@@ -321,6 +331,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         private final List<String> targetMethods = new ArrayList<>();
         private final List<TestPlan.TestScenario> scenarios = new ArrayList<>();
         private String reasoning = "";
+        private String testingNotes = "";
         private Consumer<String> toolNotifier;
         private Consumer<TestPlan> planUpdateCallback;
         
@@ -348,6 +359,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             targetMethods.clear();
             scenarios.clear();
             reasoning = "";
+            testingNotes = "";
         }
         
         @Tool("Set the target class name for testing")
@@ -440,7 +452,67 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             this.reasoning = reasoning;
             return "Reasoning recorded";
         }
-        
+
+        @Tool("Set natural language testing approach notes for the test plan")
+        public String setTestingNotes(String notes) {
+            notifyTool("setTestingNotes", notes.length() > 50 ? notes.substring(0, 50) + "..." : notes);
+            this.testingNotes = notes;
+            return "Testing notes recorded: " + notes;
+        }
+
+        /**
+         * Generate smart testing notes based on context analysis (fallback if AI doesn't set)
+         */
+        private String generateTestingNotes() {
+            StringBuilder notes = new StringBuilder();
+
+            // Analyze scenarios to determine testing approach
+            boolean hasDatabase = scenarios.stream()
+                .anyMatch(s -> s.getDescription().toLowerCase().contains("database") ||
+                              s.getDescription().toLowerCase().contains("repository") ||
+                              s.getDescription().toLowerCase().contains("jpa"));
+
+            boolean hasMessaging = scenarios.stream()
+                .anyMatch(s -> s.getDescription().toLowerCase().contains("kafka") ||
+                              s.getDescription().toLowerCase().contains("rabbitmq") ||
+                              s.getDescription().toLowerCase().contains("message"));
+
+            boolean hasHttpApi = scenarios.stream()
+                .anyMatch(s -> s.getDescription().toLowerCase().contains("api") ||
+                              s.getDescription().toLowerCase().contains("http") ||
+                              s.getDescription().toLowerCase().contains("rest"));
+
+            boolean hasPureLogic = scenarios.stream()
+                .anyMatch(s -> s.getType() == TestPlan.TestScenario.Type.UNIT);
+
+            // Get framework info from context if available
+            String frameworkInfo = coordinatorAgent.contextTools != null ?
+                coordinatorAgent.contextTools.getFrameworkInfo() : "JUnit 5";
+
+            notes.append("Testing framework: ").append(frameworkInfo).append(". ");
+
+            // Add testing approach based on scenario analysis
+            if (hasDatabase) {
+                notes.append("Use TestContainers for database testing. ");
+            }
+            if (hasMessaging) {
+                notes.append("Use TestContainers for message queue testing. ");
+            }
+            if (hasHttpApi) {
+                notes.append("Use WireMock for API mocking. ");
+            }
+            if (hasPureLogic) {
+                notes.append("Direct unit tests for business logic, no mocking needed. ");
+            }
+
+            // Add setup/teardown hints if integration tests present
+            if (scenarios.stream().anyMatch(s -> s.getType() == TestPlan.TestScenario.Type.INTEGRATION)) {
+                notes.append("Set up test infrastructure in @BeforeEach, clean up in @AfterEach. ");
+            }
+
+            return notes.toString().trim();
+        }
+
         /**
          * Build the final test plan from accumulated data.
          */
@@ -452,10 +524,10 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             if (targetMethods.isEmpty()) {
                 targetMethods.add("unknownMethod");
             }
-            
+
             // Determine overall test type based on scenario types
             TestGenerationRequest.TestType overallTestType = determineOverallTestType();
-            
+
             // Create the test plan
             TestPlan plan = new TestPlan(
                 new ArrayList<>(targetMethods),
@@ -465,6 +537,10 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 overallTestType,
                 reasoning.isEmpty() ? "Mixed test plan with " + scenarios.size() + " scenarios" : reasoning
             );
+
+            // Use AI-generated notes if available, otherwise generate fallback
+            String notes = !testingNotes.isEmpty() ? testingNotes : generateTestingNotes();
+            plan.setTestingNotes(notes);
             
             // Send complete test plan to UI
             if (coordinatorAgent != null) {

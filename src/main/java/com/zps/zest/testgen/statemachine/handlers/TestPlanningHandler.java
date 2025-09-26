@@ -109,28 +109,20 @@ public class TestPlanningHandler extends AbstractStateHandler {
             // Store test plan in handler field
             this.testPlan = testPlan;
             
-            String summary = String.format("Test plan created: %d scenarios for %s", 
+            String summary = String.format("Test plan created: %d scenarios for %s",
                 testPlan.getScenarioCount(), testPlan.getTargetClass());
             LOG.info(summary);
-            
-            // Determine next state based on scenario count
-            TestGenerationState nextState;
-            if (testPlan.getScenarioCount() > 1) {
-                // Multiple scenarios - require user selection (pause auto-flow)
-                nextState = TestGenerationState.AWAITING_USER_SELECTION;
-                
-                // Disable auto-flow temporarily for user selection
-                stateMachine.disableAutoFlow();
-                
-                // Request user input for scenario selection
-                requestUserInput(stateMachine, "scenario_selection", 
-                    "Please select which test scenarios to generate", testPlan);
-            } else {
-                // Single scenario - proceed directly to generation (keep auto-flow)
-                nextState = TestGenerationState.GENERATING_TESTS;
-                this.selectedScenarios = testPlan.getTestScenarios();
-            }
-            
+
+            // Always pause for user review of test plan
+            TestGenerationState nextState = TestGenerationState.AWAITING_USER_SELECTION;
+
+            // Disable auto-flow temporarily for user review
+            stateMachine.disableAutoFlow();
+
+            // Request user input for test plan review
+            requestUserInput(stateMachine, "test_plan_review",
+                "Please review the test plan and testing approach", testPlan);
+
             return StateResult.success(testPlan, summary, nextState);
             
         } catch (Exception e) {
@@ -214,6 +206,15 @@ public class TestPlanningHandler extends AbstractStateHandler {
      */
     public void setSelectedScenarios(@NotNull java.util.List<TestPlan.TestScenario> selectedScenarios) {
         this.selectedScenarios = selectedScenarios;
+    }
+
+    /**
+     * Update testing notes from user edits
+     */
+    public void updateTestingNotes(@NotNull String editedNotes) {
+        if (testPlan != null) {
+            testPlan.setTestingNotes(editedNotes);
+        }
     }
 
     /**

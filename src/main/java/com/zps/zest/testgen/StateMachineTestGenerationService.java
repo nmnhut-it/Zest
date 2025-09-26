@@ -177,24 +177,36 @@ public final class StateMachineTestGenerationService {
      * Provide user selection for scenarios
      */
     public boolean setUserSelection(@NotNull String sessionId, @NotNull List<TestPlan.TestScenario> selectedScenarios) {
+        return setUserSelection(sessionId, selectedScenarios, null);
+    }
+
+    /**
+     * Provide user selection with edited testing notes
+     */
+    public boolean setUserSelection(@NotNull String sessionId,
+                                  @NotNull List<TestPlan.TestScenario> selectedScenarios,
+                                  @Nullable String editedTestingNotes) {
         TestGenerationStateMachine stateMachine = activeStateMachines.get(sessionId);
         if (stateMachine == null) {
             LOG.warn("No active state machine found for session: " + sessionId);
             return false;
         }
-        
+
         if (stateMachine.getCurrentState() != TestGenerationState.AWAITING_USER_SELECTION) {
             LOG.warn("State machine is not awaiting user selection. Current state: " + stateMachine.getCurrentState());
             return false;
         }
-        
+
         LOG.info("Setting user selection for session: " + sessionId + " - " + selectedScenarios.size() + " scenarios");
-        
+
         // Pass selection to TestPlanningHandler
         com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler planningHandler =
             stateMachine.getCurrentHandler(com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler.class);
         if (planningHandler != null) {
             planningHandler.setSelectedScenarios(selectedScenarios);
+            if (editedTestingNotes != null) {
+                planningHandler.updateTestingNotes(editedTestingNotes);
+            }
         }
         
         // Re-enable auto-flow after user selection

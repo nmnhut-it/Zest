@@ -269,27 +269,9 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 if (!analyzedClasses.isEmpty()) {
                     prompt.append("\n=== DEPENDENCY ANALYSIS FOR TEST TYPE DECISIONS ===\n");
                     boolean hasExternalDeps = false;
-                    
-                    // Analyze all class implementations for external dependencies
-                    for (var entry : analyzedClasses.entrySet()) {
-                        String implementation = entry.getValue().toLowerCase();
-                        if (implementation.contains("database") || implementation.contains("jdbc") || implementation.contains("jpa") || 
-                            implementation.contains("repository") || implementation.contains("@entity") || implementation.contains("@table") ||
-                            implementation.contains("files.") || implementation.contains("path.") || implementation.contains("inputstream") ||
-                            implementation.contains("http") || implementation.contains("resttemplate") || implementation.contains("webclient") ||
-                            implementation.contains("kafka") || implementation.contains("redis") || implementation.contains("elasticsearch")) {
-                            hasExternalDeps = true;
-                            prompt.append("- External dependency detected in ").append(entry.getKey()).append("\n");
-                        }
-                    }
-                    
-                    if (hasExternalDeps) {
-                        prompt.append("→ GUIDANCE: Create INTEGRATION scenarios for code paths using external dependencies\n");
-                        prompt.append("→ GUIDANCE: Create UNIT scenarios for pure business logic that doesn't use external dependencies\n");
-                    } else {
-                        prompt.append("→ GUIDANCE: Most scenarios should be UNIT type (no external dependencies detected)\n");
-                    }
-                    
+                    prompt.append("→ GUIDANCE: Create INTEGRATION scenarios for code paths using external dependencies\n");
+                    prompt.append("→ GUIDANCE: Create UNIT scenarios for pure business logic that doesn't use external dependencies\n");
+
                     prompt.append("\n=== ANALYZED CLASS IMPLEMENTATIONS ===\n");
                     for (var entry : analyzedClasses.entrySet()) {
                         prompt.append(String.format("Class: %s\n", entry.getKey()));

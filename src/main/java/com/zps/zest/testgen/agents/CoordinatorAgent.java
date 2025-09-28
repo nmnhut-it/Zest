@@ -247,10 +247,20 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         prompt.append("\nFramework Information:\n");
         if (contextTools != null) {
             prompt.append("- Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n");
+
+            // Add project dependencies for better test planning
+            String projectDeps = contextTools.getProjectDependencies();
+            if (projectDeps != null && !projectDeps.isEmpty()) {
+                prompt.append("\n").append(projectDeps).append("\n");
+                prompt.append("Use this dependency information to:\n");
+                prompt.append("- Choose appropriate test types (unit vs integration based on available frameworks)\n");
+                prompt.append("- Decide whether to use mocking frameworks or TestContainers\n");
+                prompt.append("- Select the right assertion libraries\n");
+            }
         } else {
             prompt.append("- Testing Framework: JUnit 5 (default)\n");
         }
-        
+
         // Include full context analysis using direct tool access
         if (contextTools != null) {
                 // Add detailed context notes

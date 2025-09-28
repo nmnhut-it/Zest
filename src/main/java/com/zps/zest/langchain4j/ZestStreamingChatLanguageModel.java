@@ -3,6 +3,7 @@ package com.zps.zest.langchain4j;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.ZestNotifications;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.util.EnvLoader;
@@ -298,13 +299,16 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
     private void handleRateLimitError(Exception e) {
         // Extract suggested wait time from error message if available
         long suggestedDelay = extractSuggestedDelay(e.getMessage());
-        
+
         // Use exponential backoff: either suggested delay or double the request delay
         long backoffDelay = suggestedDelay > 0 ? suggestedDelay : requestDelayMs * 2;
-        
+
         LOG.warn("Rate limit detected in streaming, applying exponential backoff: " + backoffDelay + "ms");
         LOG.warn("Rate limit error: " + e.getMessage());
-        
+
+        // Show notification to user
+        ZestNotifications.showWarning(naiveLlmService.getProject(), "API Rate Limit", e.getMessage());
+
         try {
             TimeUnit.MILLISECONDS.sleep(backoffDelay);
         } catch (InterruptedException ie) {
@@ -367,6 +371,8 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
                 // Check if we've exhausted retries
                 if (attempt == MAX_RETRY_ATTEMPTS) {
                     LOG.error("Maximum retry attempts (" + MAX_RETRY_ATTEMPTS + ") exceeded for rate limit error");
+                    // Show final error notification to user
+                    ZestNotifications.showError(naiveLlmService.getProject(), "API Rate Limit - Max Retries Exceeded", e.getMessage());
                     throw new RuntimeException("Rate limit error after " + MAX_RETRY_ATTEMPTS + " retries", e);
                 }
 

@@ -96,7 +96,9 @@ You are a context gatherer for test generation. The class analyzer captures all 
 IMPORTANT: All tool usage examples in this conversation are for illustration only. You MUST follow the actual tool signatures and parameter names as defined.
 IMPORTANT: You MUST call markContextCollectionDone when you have gathered sufficient context to test the code without assumptions.
 
-ALWAYS START WITH: 
+ALWAYS START WITH:
+1. Call findProjectDependencies() to understand available test frameworks and dependencies
+2. Then analyze the target class (if not already analyzed) 
 
 INITIAL EXPLORATION PLAN (mandatory before any tool usage):
 📋 What needs exploring, for example:
@@ -196,7 +198,7 @@ Stop when you can test the code without making assumptions about external resour
                 sendToUI("-".repeat(40) + "\n");
 
                 // Keep gathering context until explicitly marked as done
-                int maxIterations = 10; // Safety limit to prevent infinite loops
+                int maxIterations = 3 ; // Safety limit to prevent infinite loops
                 int iteration = 0;
 
                 while (!contextTools.isContextCollectionDone() && iteration < maxIterations) {
@@ -384,6 +386,7 @@ Stop when you can test the code without making assumptions about external resour
         private final List<String> contextNotes = Collections.synchronizedList(new ArrayList<>());
         private final Map<String, String> readFiles = new ConcurrentHashMap<>();
         private String frameworkInfo = "";
+        private String projectDependencies = "";  // Structured dependency information from build files
         private volatile boolean contextCollectionDone = false;
 
         // Individual tool instances
@@ -415,6 +418,7 @@ Stop when you can test the code without making assumptions about external resour
             contextNotes.clear();
             readFiles.clear();
             frameworkInfo = "";
+            projectDependencies = "";
             contextCollectionDone = false;
         }
 
@@ -454,6 +458,10 @@ Stop when you can test the code without making assumptions about external resour
         public String getFrameworkInfo() {
             detectFramework();
             return frameworkInfo;
+        }
+
+        public String getProjectDependencies() {
+            return projectDependencies;
         }
 
         /**
@@ -653,11 +661,16 @@ Stop when you can test the code without making assumptions about external resour
             var toolResult = readFileTool.execute(params);
             String result = toolResult.isSuccess() ? toolResult.getContent() : toolResult.getContent();
 
+            // Ensure result is never null or blank for LangChain4j
+            if (result == null || result.trim().isEmpty()) {
+                result = "File not found or empty: " + filePath;
+            }
+
             // Store in readFiles map
             readFiles.put(filePath, result);
 
             // Also send file read as context update
-            if (contextAgent != null && result != null && !result.isEmpty()) {
+            if (contextAgent != null && !result.startsWith("File not found")) {
                 ContextDisplayData contextData = createContextDisplayData(filePath, result);
                 contextAgent.sendContextFileAnalyzed(contextData);
             }
@@ -678,6 +691,203 @@ Stop when you can test the code without making assumptions about external resour
 
             notifyContextUpdate();
             return summary;
+        }
+
+        @Tool("Find and analyze project build files (pom.xml, build.gradle, *.iml) to understand available test frameworks and dependencies. " +
+              "This should be called at the start to understand what testing libraries are available in the project.")
+        public String findProjectDependencies(String dummyParams) {
+            notifyTool("findProjectDependencies", "Searching for build files");
+
+            StringBuilder dependencyInfo = new StringBuilder();
+            dependencyInfo.append("=== PROJECT DEPENDENCIES ===\n");
+
+            // Find build files using existing findFiles tool
+            String buildFilePatterns = "pom.xml,build.gradle,build.gradle.kts,*.iml";
+            String buildFilesFound = findFiles(buildFilePatterns);
+
+            if (buildFilesFound.contains("No files found")) {
+                projectDependencies = "No build files found. Cannot determine project dependencies.";
+                return projectDependencies;
+            }
+
+            // Parse the file list - look for lines with "Full path:" to get absolute paths
+            String[] lines = buildFilesFound.split("\n");
+            List<String> buildFiles = new ArrayList<>();
+            for (String line : lines) {
+                line = line.trim();
+                if (line.startsWith("Full path:")) {
+                    // Extract the full path for reading
+                    String fullPath = line.substring("Full path:".length()).trim();
+                    buildFiles.add(fullPath);
+                }
+            }
+
+            // Analyze each build file
+            Set<String> testFrameworks = new HashSet<>();
+            Set<String> mockFrameworks = new HashSet<>();
+            Set<String> otherDependencies = new HashSet<>();
+
+            for (String buildFile : buildFiles) {
+                if (buildFile.endsWith("pom.xml")) {
+                    // Read and analyze Maven POM
+                    String pomContent = readFile(buildFile);
+                    analyzeMavenDependencies(pomContent, testFrameworks, mockFrameworks, otherDependencies);
+                    dependencyInfo.append("\nMaven project detected (").append(buildFile).append(")\n");
+                } else if (buildFile.contains("build.gradle")) {
+                    // Read and analyze Gradle build file
+                    String gradleContent = readFile(buildFile);
+                    analyzeGradleDependencies(gradleContent, testFrameworks, mockFrameworks, otherDependencies);
+                    dependencyInfo.append("\nGradle project detected (").append(buildFile).append(")\n");
+                } else if (buildFile.endsWith(".iml")) {
+                    // Read and analyze IntelliJ module file
+                    String imlContent = readFile(buildFile);
+                    analyzeImlDependencies(imlContent, testFrameworks, mockFrameworks, otherDependencies);
+                    dependencyInfo.append("\nIntelliJ module detected (").append(buildFile).append(")\n");
+                }
+            }
+
+            // Build structured dependency information
+            if (!testFrameworks.isEmpty()) {
+                dependencyInfo.append("\nTest Frameworks:\n");
+                for (String framework : testFrameworks) {
+                    dependencyInfo.append("  - ").append(framework).append("\n");
+                    // Auto-create note about test framework
+                    takeNote("[TEST_FRAMEWORK] " + framework + " is available for testing");
+                }
+            }
+
+            if (!mockFrameworks.isEmpty()) {
+                dependencyInfo.append("\nMocking Frameworks:\n");
+                for (String framework : mockFrameworks) {
+                    dependencyInfo.append("  - ").append(framework).append("\n");
+                    // Auto-create note about mocking framework
+                    takeNote("[MOCK_FRAMEWORK] " + framework + " is available for mocking");
+                }
+            }
+
+            if (!otherDependencies.isEmpty()) {
+                dependencyInfo.append("\nOther Testing Dependencies:\n");
+                for (String dep : otherDependencies) {
+                    dependencyInfo.append("  - ").append(dep).append("\n");
+                }
+            }
+
+            if (testFrameworks.isEmpty() && mockFrameworks.isEmpty()) {
+                dependencyInfo.append("\n⚠️ No test frameworks detected in build files\n");
+                takeNote("[WARNING] No test frameworks found in build files - tests may need manual dependency setup");
+            }
+
+            projectDependencies = dependencyInfo.toString();
+            notifyContextUpdate();
+            return projectDependencies;
+        }
+
+        private void analyzeMavenDependencies(String pomContent, Set<String> testFrameworks,
+                                             Set<String> mockFrameworks, Set<String> otherDeps) {
+            // Check for JUnit
+            if (pomContent.contains("junit") || pomContent.contains("JUnit")) {
+                if (pomContent.contains("junit-jupiter") || pomContent.contains("junit5")) {
+                    testFrameworks.add("JUnit 5 (Jupiter)");
+                } else if (pomContent.contains("junit4") || pomContent.contains("<version>4.")) {
+                    testFrameworks.add("JUnit 4");
+                } else {
+                    testFrameworks.add("JUnit");
+                }
+            }
+
+            // Check for TestNG
+            if (pomContent.contains("testng")) {
+                testFrameworks.add("TestNG");
+            }
+
+            // Check for Mockito
+            if (pomContent.contains("mockito")) {
+                mockFrameworks.add("Mockito");
+            }
+
+            // Check for PowerMock
+            if (pomContent.contains("powermock")) {
+                mockFrameworks.add("PowerMock");
+            }
+
+            // Check for TestContainers
+            if (pomContent.contains("testcontainers")) {
+                otherDeps.add("TestContainers");
+            }
+
+            // Check for AssertJ
+            if (pomContent.contains("assertj")) {
+                otherDeps.add("AssertJ");
+            }
+
+            // Check for Hamcrest
+            if (pomContent.contains("hamcrest")) {
+                otherDeps.add("Hamcrest");
+            }
+
+            // Check for Spring Boot Test
+            if (pomContent.contains("spring-boot-starter-test")) {
+                otherDeps.add("Spring Boot Test");
+            }
+
+            // Check for REST Assured
+            if (pomContent.contains("rest-assured")) {
+                otherDeps.add("REST Assured");
+            }
+        }
+
+        private void analyzeGradleDependencies(String gradleContent, Set<String> testFrameworks,
+                                              Set<String> mockFrameworks, Set<String> otherDeps) {
+            // Similar analysis for Gradle
+            if (gradleContent.contains("junit") || gradleContent.contains("JUnit")) {
+                if (gradleContent.contains("junit-jupiter") || gradleContent.contains("junit:5")) {
+                    testFrameworks.add("JUnit 5 (Jupiter)");
+                } else if (gradleContent.contains("junit:4")) {
+                    testFrameworks.add("JUnit 4");
+                } else {
+                    testFrameworks.add("JUnit");
+                }
+            }
+
+            if (gradleContent.contains("testng")) {
+                testFrameworks.add("TestNG");
+            }
+
+            if (gradleContent.contains("mockito")) {
+                mockFrameworks.add("Mockito");
+            }
+
+            if (gradleContent.contains("testcontainers")) {
+                otherDeps.add("TestContainers");
+            }
+
+            if (gradleContent.contains("assertj")) {
+                otherDeps.add("AssertJ");
+            }
+
+            if (gradleContent.contains("spring-boot-starter-test")) {
+                otherDeps.add("Spring Boot Test");
+            }
+        }
+
+        private void analyzeImlDependencies(String imlContent, Set<String> testFrameworks,
+                                           Set<String> mockFrameworks, Set<String> otherDeps) {
+            // Analyze IntelliJ module file for library references
+            if (imlContent.contains("junit") || imlContent.contains("JUnit")) {
+                testFrameworks.add("JUnit");
+            }
+
+            if (imlContent.contains("testng")) {
+                testFrameworks.add("TestNG");
+            }
+
+            if (imlContent.contains("mockito")) {
+                mockFrameworks.add("Mockito");
+            }
+
+            if (imlContent.contains("testcontainers")) {
+                otherDeps.add("TestContainers");
+            }
         }
 
         public ContextDisplayData createContextDisplayData(String filePath, String analysisResult) {

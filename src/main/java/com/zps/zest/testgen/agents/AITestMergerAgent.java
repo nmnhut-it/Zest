@@ -136,6 +136,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                                       "External test framework dependencies")
            - suppressValidationErrors("Cannot resolve method '(assert\\w+|assertEquals|assertTrue|assertNotNull)'",
                                       "Test assertion methods from framework")
+                                      
            Then validateCurrentTestCode() again to see ONLY fixable issues
 
         C. For remaining VALIDATION_FAILED issues:
@@ -499,8 +500,19 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         request.append("Package: ").append(result.getPackageName()).append("\n");
         request.append("Framework: ").append(result.getFramework()).append("\n\n");
 
-        // Include context notes if available
+        // Include project dependencies if available
         if (contextTools != null) {
+            String projectDeps = contextTools.getProjectDependencies();
+            if (projectDeps != null && !projectDeps.isEmpty()) {
+                request.append("🔧 PROJECT DEPENDENCIES:\n");
+                request.append(projectDeps);
+                request.append("\nThese are the available test frameworks and libraries in the project.\n");
+                request.append("Use this information to:\n");
+                request.append("  - Know which test frameworks are actually available\n");
+                request.append("  - Suppress validation errors for known libraries\n");
+                request.append("  - Write tests using the correct framework versions\n\n");
+            }
+
             java.util.List<String> contextNotes = contextTools.getContextNotes();
             if (!contextNotes.isEmpty()) {
                 request.append("🔍 CRITICAL CONTEXT NOTES (from code analysis):\n");

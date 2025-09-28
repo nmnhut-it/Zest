@@ -778,12 +778,18 @@ public class TestWriterAgent extends StreamingBaseAgent {
      */
     private String buildTestWriterContext(ContextAgent.ContextGatheringTools contextTools, TestPlan testPlan) {
         StringBuilder info = new StringBuilder();
-        
+
         info.append("Test Generation Context:\n");
         info.append("Target Class: ").append(testPlan.getTargetClass()).append("\n");
         info.append("Target Methods: ").append(String.join(", ", testPlan.getTargetMethods())).append("\n");
         info.append("Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n\n");
-        
+
+        // Add project dependencies information
+        String projectDeps = contextTools.getProjectDependencies();
+        if (projectDeps != null && !projectDeps.isEmpty()) {
+            info.append(projectDeps).append("\n");
+        }
+
         // Add context notes with insights
         List<String> contextNotes = contextTools.getContextNotes();
         if (!contextNotes.isEmpty()) {

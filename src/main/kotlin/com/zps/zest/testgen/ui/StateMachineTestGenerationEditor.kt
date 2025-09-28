@@ -684,7 +684,7 @@ class StateMachineTestGenerationEditor(
         
         // Test Merging tab - merged class display with error review
         testMergingPanel = TestMergingPanel(project)
-        tabbedPane.addTab("Test Merging", testMergingPanel)
+        tabbedPane.addTab("Merge and Fix", testMergingPanel)
         
         return tabbedPane
     }

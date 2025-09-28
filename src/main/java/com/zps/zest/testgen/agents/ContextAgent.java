@@ -542,9 +542,29 @@ Stop when you can test the code without making assumptions about external resour
             - listFiles("src/main/resources", 1) → resources/ and immediate subdirs
             - listFiles("scripts/", 1) → scripts/ and immediate subdirs
             """)
-        public String listFiles(String directoryPath, int recursiveLevel) {
-            notifyTool("listFiles", directoryPath + " (level=" + recursiveLevel + ")");
-            return listFilesTool.listFiles(directoryPath, recursiveLevel);
+        public String listFiles(String directoryPath, Integer recursiveLevel) {
+            try {
+                // Validate parameters
+                if (directoryPath == null || directoryPath.trim().isEmpty()) {
+                    return "Error: directoryPath cannot be null or empty";
+                }
+
+                // Default recursiveLevel to 1 if null
+                if (recursiveLevel == null) {
+                    recursiveLevel = 1;
+                }
+
+                // Validate recursiveLevel range
+                if (recursiveLevel < 0 || recursiveLevel > 10) {
+                    return "Error: recursiveLevel must be between 0 and 10";
+                }
+
+                notifyTool("listFiles", directoryPath + " (level=" + recursiveLevel + ")");
+                return listFilesTool.listFiles(directoryPath, recursiveLevel);
+            } catch (Exception e) {
+                LOG.error("Error in listFiles tool", e);
+                return "Error listing files in " + directoryPath + ": " + e.getMessage();
+            }
         }
 
         @Tool("""
@@ -631,10 +651,32 @@ Stop when you can test the code without making assumptions about external resour
               → Find service instantiations with context
             """)
         public String searchCode(String query, String filePattern, String excludePattern,
-                                int beforeLines, int afterLines) {
-            notifyTool("searchCode", String.format("query=%s, filePattern=%s, excludePattern=%s, before=%d, after=%d",
-                                                   query, filePattern, excludePattern, beforeLines, afterLines));
-            return ripgrepCodeTool.searchCode(query, filePattern, excludePattern, beforeLines, afterLines);
+                                Integer beforeLines, Integer afterLines) {
+            try {
+                // Validate required parameters
+                if (query == null || query.trim().isEmpty()) {
+                    return "Error: query cannot be null or empty";
+                }
+
+                // Default integer parameters if null
+                if (beforeLines == null) beforeLines = 0;
+                if (afterLines == null) afterLines = 0;
+
+                // Validate ranges
+                if (beforeLines < 0 || beforeLines > 10) {
+                    return "Error: beforeLines must be between 0 and 10";
+                }
+                if (afterLines < 0 || afterLines > 10) {
+                    return "Error: afterLines must be between 0 and 10";
+                }
+
+                notifyTool("searchCode", String.format("query=%s, filePattern=%s, excludePattern=%s, before=%d, after=%d",
+                                                       query, filePattern, excludePattern, beforeLines, afterLines));
+                return ripgrepCodeTool.searchCode(query, filePattern, excludePattern, beforeLines, afterLines);
+            } catch (Exception e) {
+                LOG.error("Error in searchCode tool", e);
+                return "Error searching code with query '" + query + "': " + e.getMessage();
+            }
         }
 
         @Tool("Record crucial technical details needed for precise" +

@@ -68,10 +68,19 @@ public class RipgrepCodeTool {
         - searchCode("import.*React", "*.tsx,*.jsx", null, 2, 2) - Find React imports with context
         """)
     public String searchCode(String query, @Nullable String filePattern, @Nullable String excludePattern,
-                           int beforeLines, int afterLines) {
+                           Integer beforeLines, Integer afterLines) {
         if (query == null || query.trim().isEmpty()) {
             return "Error: Search query cannot be empty";
         }
+
+        // Check for null values and return error
+        if (beforeLines == null) {
+            return "Error: beforeLines parameter cannot be null";
+        }
+        if (afterLines == null) {
+            return "Error: afterLines parameter cannot be null";
+        }
+
         // Validate context lines are within reasonable bounds
         beforeLines = Math.max(0, Math.min(10, beforeLines));
         afterLines = Math.max(0, Math.min(10, afterLines));
@@ -111,15 +120,13 @@ public class RipgrepCodeTool {
         }
         return findFilesWithRipgrep(globPattern);
     }
-    
-    // Removed searchCodeWithContext, searchWithBeforeContext, and searchWithAfterContext
-    // These are now handled by the unified searchCode method with beforeLines/afterLines parameters
+     
     
     /**
      * Core ripgrep search implementation
      */
     private String searchWithRipgrep(String query, @Nullable String filePattern, @Nullable String excludePattern,
-                                   int beforeLines, int afterLines, boolean caseSensitive) {
+                                   Integer beforeLines, Integer afterLines, boolean caseSensitive) {
         try {
             String projectPath = project.getBasePath();
             if (projectPath == null) {
@@ -232,6 +239,7 @@ public class RipgrepCodeTool {
         
         return null;
     }
+
     
     /**
      * Get persistent AppData directory for storing ripgrep binary.
@@ -319,9 +327,9 @@ public class RipgrepCodeTool {
     /**
      * Build ripgrep command with flags
      */
-    private List<String> buildRipgrepCommand(String rgPath, String query, String projectPath, 
+    private List<String> buildRipgrepCommand(String rgPath, String query, String projectPath,
                                            @Nullable String filePattern, @Nullable String excludePattern,
-                                           int beforeLines, int afterLines, boolean caseSensitive) {
+                                           Integer beforeLines, Integer afterLines, boolean caseSensitive) {
         List<String> command = new ArrayList<>();
         command.add(rgPath);
         
@@ -331,11 +339,11 @@ public class RipgrepCodeTool {
         command.add("--no-heading");  // No file headers
         
         // Context options
-        if (beforeLines > 0) {
+        if (beforeLines != null && beforeLines > 0) {
             command.add("--before-context");
             command.add(String.valueOf(beforeLines));
         }
-        if (afterLines > 0) {
+        if (afterLines != null && afterLines > 0) {
             command.add("--after-context");
             command.add(String.valueOf(afterLines));
         }

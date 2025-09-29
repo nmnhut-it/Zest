@@ -98,7 +98,7 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
      * Finalize message content (render as markdown when streaming is complete)
      */
     fun finalizeMessage(messageId: String, finalContent: String) {
-        val messageIndex = conversationMessages.indexOfFirst { it.id == messageId }
+        val messageIndex = conversationMessages.indexOfLast { it.id == messageId }
         if (messageIndex >= 0) {
             val updatedMessage = conversationMessages[messageIndex].copy(content = finalContent)
             conversationMessages[messageIndex] = updatedMessage

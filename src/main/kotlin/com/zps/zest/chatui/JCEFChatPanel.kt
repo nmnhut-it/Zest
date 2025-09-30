@@ -15,11 +15,11 @@ import javax.swing.JPanel
  * JCEF-based chat panel for better HTML rendering with interactive features
  */
 class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
-    
+
     companion object {
         private val LOG = Logger.getInstance(JCEFChatPanel::class.java)
     }
-    
+
     private val browserManager: JCEFBrowserManager = JCEFBrowserService.getInstance(project).getBrowserManager(BrowserPurpose.CHAT)
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
     private val conversationMessages = mutableListOf<ChatMessageData>()
@@ -212,30 +212,27 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                         margin-left: 0;
                     }
                     
-                    pre { 
+                    pre {
                         background: ${if (isDarkTheme) "#2d2d30" else "#f6f8fa"};
-                        border: 1px solid ${if (isDarkTheme) "#3a3d40" else "#d0d7de"};
-                        border-radius: 6px;
-                        padding: 12px;
+                        border: 2px solid ${if (isDarkTheme) "#3a3d40" else "#d0d7de"};
+                        padding: 3px;
                         font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
                         font-size: 13px;
                         line-height: 1.4;
                         overflow-x: auto;
                         position: relative;
                     }
-                    
+
                     code {
                         background: ${if (isDarkTheme) "#3c3f41" else "#f3f4f6"};
-                        border-radius: 3px;
-                        padding: 2px 4px;
+                        padding: 3px;
                         font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
                         font-size: 13px;
                     }
-                    
+
                     pre code {
                         background: transparent;
                         padding: 0;
-                        border-radius: 0;
                     }
                     
                     .copy-button {
@@ -244,8 +241,7 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                         right: 8px;
                         background: ${if (isDarkTheme) "#464647" else "#e1e4e8"};
                         border: none;
-                        border-radius: 4px;
-                        padding: 4px 8px;
+                        padding: 3px;
                         font-size: 12px;
                         cursor: pointer;
                         color: ${if (isDarkTheme) "#d4d4d4" else "#333333"};
@@ -329,9 +325,8 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                         top: 8px;
                         left: 8px;
                         background: ${if (isDarkTheme) "#464647" else "#e1e4e8"};
-                        border: none;
-                        border-radius: 4px;
-                        padding: 4px 8px;
+                        border: 2px solid ${if (isDarkTheme) "#3a3d40" else "#d0d7de"};
+                        padding: 3px;
                         font-size: 11px;
                         cursor: pointer;
                         color: ${if (isDarkTheme) "#d4d4d4" else "#333333"};
@@ -339,19 +334,19 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                         transition: all 0.2s;
                         z-index: 10;
                     }
-                    
+
                     .collapse-button:hover {
                         opacity: 1;
                         background: ${if (isDarkTheme) "#5a5d5e" else "#d0d7de"};
                     }
-                    
+
                     .line-info {
                         position: absolute;
                         top: 8px;
                         left: 100px;
                         background: ${if (isDarkTheme) "#464647" else "#e1e4e8"};
-                        border-radius: 4px;
-                        padding: 4px 8px;
+                        border: 2px solid ${if (isDarkTheme) "#3a3d40" else "#d0d7de"};
+                        padding: 3px;
                         font-size: 10px;
                         color: ${if (isDarkTheme) "#aaaaaa" else "#666666"};
                         opacity: 0.7;
@@ -384,13 +379,12 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                     
                     .tool-call {
                         margin: 12px 0;
-                        padding: 12px;
+                        padding: 3px;
                         background: ${if (isDarkTheme) "#2a2d30" else "#f8f9fa"};
-                        border: 1px solid ${if (isDarkTheme) "#404448" else "#dee2e6"};
-                        border-radius: 8px;
+                        border: 2px solid ${if (isDarkTheme) "#404448" else "#dee2e6"};
                         border-left: 4px solid #3b82f6;
                     }
-                    
+
                     .tool-header {
                         display: flex;
                         align-items: center;
@@ -398,55 +392,53 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                         font-weight: 500;
                         margin-bottom: 8px;
                     }
-                    
+
                     .tool-icon {
                         font-size: 16px;
                     }
-                    
+
                     .tool-name {
                         color: #3b82f6;
                         font-family: 'JetBrains Mono', Consolas, monospace;
                     }
-                    
+
                     .tool-status {
                         color: ${if (isDarkTheme) "#9ca3af" else "#6b7280"};
                         font-size: 12px;
                         margin-left: auto;
                     }
-                    
+
                     .tool-args {
                         margin: 4px 0;
                     }
-                    
+
                     .tool-args code {
                         background: ${if (isDarkTheme) "#1e1e1e" else "#ffffff"};
-                        padding: 4px 8px;
-                        border-radius: 4px;
+                        padding: 3px;
                         font-size: 12px;
-                        border: 1px solid ${if (isDarkTheme) "#404448" else "#e5e7eb"};
+                        border: 2px solid ${if (isDarkTheme) "#404448" else "#e5e7eb"};
                     }
-                    
+
                     .tool-result {
                         margin-top: 8px;
                         padding-top: 8px;
-                        border-top: 1px solid ${if (isDarkTheme) "#404448" else "#e5e7eb"};
+                        border-top: 2px solid ${if (isDarkTheme) "#404448" else "#e5e7eb"};
                     }
-                    
+
                     .tool-result-header {
                         font-weight: 500;
                         color: ${if (isDarkTheme) "#9ca3af" else "#6b7280"};
                         font-size: 12px;
                         margin-bottom: 4px;
                     }
-                    
+
                     .tool-result-content {
                         background: ${if (isDarkTheme) "#1e1e1e" else "#ffffff"};
-                        padding: 8px;
-                        border-radius: 4px;
+                        padding: 3px;
                         font-size: 12px;
                         max-height: 200px;
                         overflow-y: auto;
-                        border: 1px solid ${if (isDarkTheme) "#404448" else "#e5e7eb"};
+                        border: 2px solid ${if (isDarkTheme) "#404448" else "#e5e7eb"};
                     }
                 </style>
             </head>

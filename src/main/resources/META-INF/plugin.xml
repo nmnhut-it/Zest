@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.899</version>
+    <version>1.9.901</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -340,6 +340,14 @@
                 description="Open ZPS Chat in full-screen editor tab / Mở chat AI ở chế độ toàn màn hình">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+
+        <!-- Tool-Enabled Chat Action -->
+        <action id="Zest.OpenToolEnabledChat"
+                class="com.zps.zest.browser.actions.OpenToolEnabledChatAction"
+                text="Chat with Tools / Chat với công cụ mạnh"
+                description="Open chat with code exploration tools / Mở chat với khả năng tìm kiếm và phân tích code">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
         
         <!-- Zest Update Info Action -->
         <action id="Zest.ShowUpdateInfo"
@@ -377,6 +385,24 @@
 
     <!-- Change notes for version updates -->
     <change-notes><![CDATA[
+        <h3>Version 1.9.901</h3>
+        <ul>
+            <li><b>🛠️ Tool-Enabled Chat:</b> Added "Chat with Tools" action in Tools menu - normal chat with powerful code exploration capabilities</li>
+            <li><b>🎨 UI Polish:</b> Reduced code block padding in chat for cleaner, more compact display</li>
+        </ul>
+
+        <h3>Version 1.9.900</h3>
+        <ul>
+            <li><b>🐛 Test Generation Bug Fixes:</b> Fixed duplicate test class display issue - tests now show correctly only once</li>
+            <li><b>💬 Chat Memory Fix:</b> Fixed "View Chat" button functionality - now properly displays conversation history from TestWriterAgent</li>
+            <li><b>🔄 Streaming Improvements:</b> TestWriterAgent now uses ChatUIService for proper real-time streaming display</li>
+            <li><b>🎯 Context Agent Enhancements:</b> Improved context gathering with better prompts and more accurate analysis</li>
+            <li><b>🤝 Human-in-the-Loop:</b> Added user intervention capability during test generation for better control</li>
+            <li><b>🛠️ Test Tools:</b> Enhanced Ripgrep code search with better pattern matching and error handling</li>
+            <li><b>📊 Test UX:</b> Improved test data flow, scenario display, and phase transition notifications</li>
+            <li><b>🧹 Code Quality:</b> Major refactoring of TestWriterAgent for better maintainability and streaming support</li>
+        </ul>
+
         <h3>Version 1.9.899</h3>
         <ul>
             <li><b>Responsive Git UI:</b> Improved responsiveness and performance of the Git interface</li>

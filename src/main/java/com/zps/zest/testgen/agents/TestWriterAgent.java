@@ -24,7 +24,6 @@ import java.util.stream.Collectors;
  * Uses ChatUIService.sendMessageStreaming for proper streaming display.
  */
 public class TestWriterAgent extends StreamingBaseAgent {
-    private final MessageWindowChatMemory chatMemory;
     private ChatUIService chatService;
 
     private static final String TEST_GENERATION_SYSTEM_PROMPT = """
@@ -87,9 +86,6 @@ public class TestWriterAgent extends StreamingBaseAgent {
 
         // Get ChatUIService for streaming
         this.chatService = project.getService(ChatUIService.class);
-
-        // Initialize chat memory for context
-        this.chatMemory = MessageWindowChatMemory.withMaxMessages(50);
     }
 
     /**
@@ -195,14 +191,6 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 // Parse the complete test class into TestGenerationResult
                 TestGenerationResult result = parseCompleteTestClass(completeTestClass, testPlan, contextTools);
 
-                // Send complete test to UI as GeneratedTestDisplayData
-                GeneratedTestDisplayData displayData = new GeneratedTestDisplayData(
-                    result.getClassName(),
-                    result.getCompleteTestClass(),
-                    System.currentTimeMillis()
-                );
-                sendTestGenerated(displayData);
-
                 // Summary
                 sendToUI("\n📊 Test Generation Summary:\n");
                 sendToUI("  - Test class: " + result.getClassName() + "\n");
@@ -225,11 +213,11 @@ public class TestWriterAgent extends StreamingBaseAgent {
     }
     
     /**
-     * Get the chat memory for UI integration
+     * Get the chat memory for UI integration - returns ChatUIService's memory directly
      */
     @NotNull
     public MessageWindowChatMemory getChatMemory() {
-        return chatMemory;
+        return chatService != null ? chatService.getChatMemory() : MessageWindowChatMemory.withMaxMessages(50);
     }
     
     
@@ -262,16 +250,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
         sendToUI("  - Extracted " + imports.size() + " imports\n");
         sendToUI("  - Extracted " + fields.size() + " fields\n");
         sendToUI("  - Extracted " + methods.size() + " test methods\n");
-        
-        // Send complete test class to UI for display
-        sendToUI("📤 Sending complete test class to UI...\n");
-        GeneratedTestDisplayData displayData = new GeneratedTestDisplayData(
-            className,
-            cleanTestClass,
-            System.currentTimeMillis()
-        );
-        sendTestGenerated(displayData);
-        
+
         // Create result with the complete test class
         TestGenerationResult result = new TestGenerationResult(
             packageName,

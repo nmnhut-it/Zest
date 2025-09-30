@@ -36,11 +36,14 @@ import javax.xml.parsers.DocumentBuilderFactory
 class ZestUpdateChecker : Disposable {
     companion object {
         private val logger = Logger.getInstance(ZestUpdateChecker::class.java)
-        const val UPDATE_URL = "https://zest-internal.zingplay.com/static/release/updatePlugins.xml"
+        private val UPDATE_URLS = listOf(
+            "https://zest-internal.zingplay.com/static/release/updatePlugins.xml",
+            "https://zest.zingplay.com/static/release/updatePlugins.xml"
+        )
         private const val PLUGIN_ID = "com.zps.Zest"
         private const val CHECK_INTERVAL_HOURS = 1L
         private const val NOTIFICATION_GROUP = "Zest Updates"
-        
+
         fun getInstance(): ZestUpdateChecker = ApplicationManager.getApplication().getService(ZestUpdateChecker::class.java)
     }
     
@@ -94,16 +97,29 @@ class ZestUpdateChecker : Disposable {
     }
     
     fun fetchUpdateInfo(): UpdateInfo? {
-        return try {
-            HttpRequests.request(UPDATE_URL)
-                .connect { request ->
-                    val content = request.readString()
-                    parseUpdateXml(content)
+        // Try each URL in order until one succeeds
+        for ((index, url) in UPDATE_URLS.withIndex()) {
+            try {
+                logger.info("Checking for updates from URL ${index + 1}/${UPDATE_URLS.size}: $url")
+
+                val updateInfo = HttpRequests.request(url)
+                    .connect { request ->
+                        val content = request.readString()
+                        parseUpdateXml(content)
+                    }
+
+                if (updateInfo != null) {
+                    logger.info("Successfully fetched update info from: $url")
+                    return updateInfo
                 }
-        } catch (e: Exception) {
-            logger.warn("Failed to fetch update info: ${e.message}")
-            null
+            } catch (e: Exception) {
+                logger.warn("Failed to fetch update info from $url: ${e.message}")
+                // Continue to next URL
+            }
         }
+
+        logger.error("Failed to fetch update info from all ${UPDATE_URLS.size} URLs")
+        return null
     }
     
     private fun parseUpdateXml(xmlContent: String): UpdateInfo? {

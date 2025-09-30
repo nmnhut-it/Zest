@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.899">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.901">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,6 +9,54 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
+            <h3>Version 1.9.901 - Tool-Enabled Chat & UI Polish ✨</h3>
+            <h4>🛠️ New Feature: Tool-Enabled Chat</h4>
+            <ul>
+                <li><b>Chat with Tools</b> - New action in Tools menu for normal chat with powerful code exploration capabilities</li>
+                <li><b>Smart Tool Access</b> - AI can automatically use file reading, code search, class analysis, and file listing tools</li>
+                <li><b>Seamless Integration</b> - Tools are invoked naturally during conversation when needed</li>
+            </ul>
+
+            <h4>🎨 UI Improvements</h4>
+            <ul>
+                <li><b>Cleaner Code Blocks</b> - Reduced padding in chat code blocks for more compact, readable display</li>
+                <li><b>Better Chat Layout</b> - Improved spacing and visual hierarchy in chat interface</li>
+            </ul>
+
+            <p><em>Enhanced chat experience with powerful exploration tools at your fingertips! 🚀</em></p>
+
+            <h3>Version 1.9.900 - Test Generation Bug Fixes & Improvements 🐛</h3>
+            <h4>🐛 Critical Bug Fixes</h4>
+            <ul>
+                <li><b>Duplicate Test Display Fixed</b> - Test classes now appear only once instead of showing duplicate copies</li>
+                <li><b>Chat Memory Fixed</b> - "View Chat" button now properly displays conversation history with actual chat context</li>
+                <li><b>Data Flow Corrected</b> - Fixed duplicate data sending between TestWriterAgent and TestGenerationHandler</li>
+            </ul>
+
+            <h4>🔄 Streaming & UX Improvements</h4>
+            <ul>
+                <li><b>Real-time Streaming</b> - TestWriterAgent refactored to use ChatUIService for proper live streaming display</li>
+                <li><b>Better Context</b> - Enhanced context gathering agent with improved prompts and analysis</li>
+                <li><b>Phase Notifications</b> - Improved test scenario display and phase transition feedback</li>
+                <li><b>Human-in-the-Loop</b> - Added user intervention capability during test generation process</li>
+            </ul>
+
+            <h4>🛠️ Tool Enhancements</h4>
+            <ul>
+                <li><b>Ripgrep Improvements</b> - Enhanced code search with better pattern matching and error handling</li>
+                <li><b>Test Data Flow</b> - Improved data handling between agents and UI components</li>
+                <li><b>Coordinator Agent</b> - Better test scenario planning and organization</li>
+            </ul>
+
+            <h4>🧹 Code Quality</h4>
+            <ul>
+                <li><b>Agent Refactoring</b> - Major cleanup of TestWriterAgent for better maintainability</li>
+                <li><b>Memory Management</b> - Proper delegation to ChatUIService memory for conversation tracking</li>
+                <li><b>Cleaner Architecture</b> - Separation of concerns between agents and orchestrators</li>
+            </ul>
+
+            <p><em>This release fixes critical test generation bugs and improves the overall testing workflow. 🚀</em></p>
+
             <h3>Version 1.9.898 - Smart JSON Parsing & Code Health Resilience 🛡️</h3>
             <h4>🧠 Smart JSON Parsing</h4>
             <ul>

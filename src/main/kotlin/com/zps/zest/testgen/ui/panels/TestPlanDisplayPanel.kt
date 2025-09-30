@@ -25,7 +25,7 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
     private var currentPlan: TestPlanDisplayData? = null
     private val scenarioCheckboxes = mutableMapOf<String, JCheckBox>()
     private val scenariosPanel = JPanel()
-    private val headerLabel = JBLabel("No test plan available")
+    private val headerLabel = JBLabel("Test plans are not available yet")
     private val summaryLabel = JBLabel("")
     private var selectionListener: ((Set<String>) -> Unit)? = null
     private var planningAgentMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null

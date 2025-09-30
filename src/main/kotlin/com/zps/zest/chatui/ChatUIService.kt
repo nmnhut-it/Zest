@@ -258,6 +258,13 @@ ${cachedProjectRules}
             emptyList()
         }
     }
+
+    /**
+     * Get the chat memory object directly (for TestWriterAgent integration)
+     */
+    fun getChatMemory(): MessageWindowChatMemory {
+        return chatMemory
+    }
     
     /**
      * Clear the current conversation

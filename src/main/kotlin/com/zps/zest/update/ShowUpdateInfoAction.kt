@@ -45,13 +45,18 @@ class ShowUpdateInfoAction : AnAction() {
             statusPanel.add(JBLabel("<html><b>Current Version:</b> $currentVersion</html>"))
             statusPanel.add(Box.createVerticalStrut(10))
             
-            // Update URL
-            statusPanel.add(JBLabel("<html><b>Update Server:</b></html>"))
-            val urlField = JBTextArea(ZestUpdateChecker.UPDATE_URL)
-            urlField.isEditable = false
-            urlField.lineWrap = true
-            urlField.wrapStyleWord = true
-            urlField.border = JBUI.Borders.empty(5)
+            // Update URLs
+            statusPanel.add(JBLabel("<html><b>Update Servers:</b></html>"))
+            val urlsText = """
+                Primary: https://zest-internal.zingplay.com/static/release/updatePlugins.xml
+                Fallback: https://zest.zingplay.com/static/release/updatePlugins.xml
+            """.trimIndent()
+            val urlField = JBTextArea(urlsText).apply {
+                isEditable = false
+                lineWrap = true
+                wrapStyleWord = true
+                border = JBUI.Borders.empty(5)
+            }
             statusPanel.add(urlField)
             statusPanel.add(Box.createVerticalStrut(10))
             

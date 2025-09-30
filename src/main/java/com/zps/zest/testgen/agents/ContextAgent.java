@@ -155,6 +155,7 @@ YOUR TASK: Find context needed to understand the code under test:
 - Database schemas or migration files
 - Message formats or protocol definitions
 - Existing test classes of the code under test, if such classes exist.
+- Usage of methods under test throughout the project. You can do this by searching for method calls or instance creation. You also need to pay attention to the class's imports so as not to be confused by similar names in different packages. 
 - Read *.iml (Intelij project file), pom (maven), gradle or ./lib(s) folders to understand what frameworks are being used and takeNote accordingly. 
 
 AVOID:

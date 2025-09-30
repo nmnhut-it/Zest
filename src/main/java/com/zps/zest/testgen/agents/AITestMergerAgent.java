@@ -178,18 +178,18 @@ public class AITestMergerAgent extends StreamingBaseAgent {
 
         3. DOCUMENT UNFIXABLE ISSUES IN CODE:
            If you cannot fix an issue, ADD A COMMENT in the test code:
-           // TODO: Fix required - [describe the issue]
+           // FIXME: [describe the issue]
            // FIXME: Missing dependency: org.testcontainers:testcontainers
-           // NOTE: This test requires manual configuration of [resource]
+           // FIXME: This test requires manual configuration of [resource]
 
            Use applySimpleFix() to add these comments above the problematic line:
-           applySimpleFix("@Test", "// TODO: Add @SpringBootTest if this is a Spring integration test\n    @Test")
+           applySimpleFix("@Test", "// FIXME: Add @SpringBootTest if this is a Spring integration test\n    @Test")
            After that, ALWAYS suppress the error.
            
         4. FIX STRATEGICALLY:
-           - Missing libraries → Add TODO comment explaining dependency needed
+           - Missing libraries → Add FIXME comment explaining dependency needed
            - Wrong API → Add FIXME comment with correct version needed
-           - Configuration issues → Add NOTE comment with setup instructions
+           - Configuration issues → Add FIXME comment with setup instructions
            - Missing imports → Try to add the import, or comment if unknown
 
         LIBRARY DEPENDENCY AWARENESS:

@@ -396,6 +396,8 @@ Stop when you can test the code without making assumptions about external resour
         private final RipgrepCodeTool ripgrepCodeTool;
         private final TakeNoteTool takeNoteTool;
         private final ReadFileTool readFileTool;
+        private final com.zps.zest.testgen.tools.LookupMethodTool lookupMethodTool;
+        private final com.zps.zest.testgen.tools.LookupClassTool lookupClassTool;
 
         public ContextGatheringTools(@NotNull Project project,
                                     @NotNull CodeExplorationToolRegistry toolRegistry,
@@ -412,6 +414,8 @@ Stop when you can test the code without making assumptions about external resour
             this.takeNoteTool = new TakeNoteTool(contextNotes);
             this.ripgrepCodeTool = new RipgrepCodeTool(project, new HashSet<>(), new ArrayList<>());
             this.readFileTool = new ReadFileTool(project);
+            this.lookupMethodTool = new com.zps.zest.testgen.tools.LookupMethodTool(project);
+            this.lookupClassTool = new com.zps.zest.testgen.tools.LookupClassTool(project);
         }
 
         public void reset() {
@@ -746,6 +750,54 @@ Stop when you can test the code without making assumptions about external resour
 
             notifyContextUpdate();
             return summary;
+        }
+
+        @Tool("""
+            Look up method signatures using fully qualified class name and method name.
+            Works with project classes, library JARs, and JDK classes (unlike ripgrep which only searches source files).
+
+            Parameters:
+            - className: Fully qualified class name (e.g., "java.util.List", "com.example.UserService")
+            - methodName: Method name to find (e.g., "add", "getUserById")
+
+            Returns: All matching method signatures with return types and parameters
+
+            Examples:
+            - lookupMethod("java.util.List", "add") → finds List.add() signatures
+            - lookupMethod("org.junit.jupiter.api.Assertions", "assertEquals") → finds JUnit assertion methods
+
+            Use this when:
+            - You need exact method signatures from libraries
+            - Ripgrep can't find the method (it's in a JAR)
+            - You need to verify method parameters/return types
+            """)
+        public String lookupMethod(String className, String methodName) {
+            notifyTool("lookupMethod", className + "." + methodName);
+            return lookupMethodTool.lookupMethod(className, methodName);
+        }
+
+        @Tool("""
+            Look up class implementation using fully qualified class name.
+            Works with project classes, library JARs, and JDK classes (unlike ripgrep which only searches source files).
+
+            Parameters:
+            - className: Fully qualified class name (e.g., "java.util.ArrayList", "com.example.UserService")
+
+            Returns: Class signature with modifiers, type parameters, superclass, interfaces, and member summary
+
+            Examples:
+            - lookupClass("java.util.ArrayList") → finds ArrayList class structure
+            - lookupClass("org.junit.jupiter.api.Test") → finds JUnit Test annotation
+            - lookupClass("com.example.UserService") → finds UserService class details
+
+            Use this when:
+            - You need class structure from libraries
+            - Ripgrep can't find the class (it's in a JAR)
+            - You need to understand class hierarchy and members
+            """)
+        public String lookupClass(String className) {
+            notifyTool("lookupClass", className);
+            return lookupClassTool.lookupClass(className);
         }
 
         @Tool("Find and analyze project build files (pom.xml, build.gradle, *.iml) to understand available test frameworks and dependencies. " +

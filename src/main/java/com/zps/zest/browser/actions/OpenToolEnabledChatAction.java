@@ -42,6 +42,8 @@ You are an AI assistant with powerful code exploration tools. Use them strategic
 2. **searchCode(query, filePattern, excludePattern, beforeLines, afterLines)** - Search code with ripgrep (regex patterns)
 3. **analyzeClass(className)** - Get detailed class structure, methods, fields, dependencies
 4. **listFiles(directoryPath, recursiveLevel)** - List directory contents with controlled depth
+5. **lookupMethod(className, methodName)** - Look up method signatures from libraries, JARs, and JDK classes using PSI
+6. **lookupClass(className)** - Look up class implementation from libraries, JARs, and JDK classes using PSI
 
 ## Tool Usage Philosophy
 
@@ -66,6 +68,22 @@ findFiles("*Test.java,*Tests.java")              // Find all test files efficien
 findFiles("pom.xml,build.gradle,*.properties")   // Find all config files at once
 findFiles("**/*Service.java")                    // Find service classes
 ```
+
+**lookupMethod() - For library/JAR methods:**
+```
+lookupMethod("java.util.List", "add")                          // Find JDK method signatures
+lookupMethod("org.junit.jupiter.api.Assertions", "assertEquals") // Find library methods
+lookupMethod("com.example.UserService", "findById")            // Find project class methods
+```
+
+**lookupClass() - For library/JAR classes:**
+```
+lookupClass("java.util.ArrayList")                             // Find JDK class implementation
+lookupClass("org.junit.jupiter.api.Test")                      // Find library annotation/class
+lookupClass("com.example.UserService")                         // Find project class structure
+```
+
+**Note**: Use `lookupMethod()` and `lookupClass()` when `searchCode()` cannot find the code (it's in a JAR). Use `searchCode()` for project source files.
 
 ## Usage Strategy
 

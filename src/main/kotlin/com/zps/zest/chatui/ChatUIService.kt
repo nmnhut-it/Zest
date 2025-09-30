@@ -15,6 +15,8 @@ import dev.langchain4j.service.TokenStream
 import com.zps.zest.testgen.tools.ReadFileTool
 import com.zps.zest.testgen.tools.AnalyzeClassTool
 import com.zps.zest.testgen.tools.ListFilesTool
+import com.zps.zest.testgen.tools.LookupMethodTool
+import com.zps.zest.testgen.tools.LookupClassTool
 import com.zps.zest.explanation.tools.RipgrepCodeTool
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
@@ -68,6 +70,8 @@ class ChatUIService(private val project: Project) : Disposable {
     private val searchTool = RipgrepCodeTool(project, mutableSetOf(), searchResults)
     private val analyzeClassTool = AnalyzeClassTool(project, HashMap())
     private val listFilesTool = ListFilesTool(project)
+    private val lookupMethodTool = LookupMethodTool(project)
+    private val lookupClassTool = LookupClassTool(project)
     private var toolEnabledAssistant: ChatAssistant? = null
     private var streamingToolEnabledAssistant: StreamingChatAssistant? = null
     
@@ -243,7 +247,7 @@ ${cachedProjectRules}
             .streamingChatModel(streamingChatModel)
             .chatMemory(chatMemory)
             .maxSequentialToolsInvocations(5)
-            .tools(readFileTool, searchTool, analyzeClassTool, listFilesTool)
+            .tools(readFileTool, searchTool, analyzeClassTool, listFilesTool, lookupMethodTool, lookupClassTool)
             .build()
     }
     

@@ -679,12 +679,24 @@ Stop when you can test the code without making assumptions about external resour
             }
         }
 
-        @Tool("Record crucial technical details needed for precise" +
-                " test writing. Focus on missing information not provided in initial context " +
-                "- concrete values, behaviors, contracts, or dependencies that tests must account for. " +
-                "Be specific: exact values, paths, formats, or behaviors rather than general observations. " +
-                "The note will be passed to a test writer. " +
-                "Format: '[Relevance] Finding - Specific detail/value'")
+        @Tool("Record distilled context findings essential for generating code that fits this project perfectly. " +
+                "Focus on project-specific patterns and conventions that new code must follow. " +
+                "\n\nCapture findings in categories (including but not limited to):" +
+                "\n• [PATTERN] How code is structured and organized in this project" +
+                "\n• [NAMING] Naming conventions used throughout the codebase" +
+                "\n• [DEPENDENCY] Available libraries/tools and how they're actually used" +
+                "\n• [CONVENTION] Project-specific conventions and practices" +
+                "\n• [VALIDATION] How and where input validation occurs" +
+                "\n• [ERROR] How errors are handled and propagated" +
+                "\n• [TEST] How tests are structured and what patterns they follow" +
+                "\n• [CONFIG] How configuration is managed and accessed" +
+                "\n• [BUSINESS] Domain rules and constraints that code must respect" +
+                "\n• [INTEGRATION] How this code integrates with other components" +
+                "\n• [DATA] How data is accessed, transformed, and returned" +
+                "\n• [UTIL] Common utilities or helpers frequently used" +
+                "\n\nExtract ACTUAL patterns from THIS codebase with specific examples. " +
+                "Focus on 'this project does X' not 'best practice is X'. " +
+                "Be specific enough that someone could write matching code.")
         public String takeNote(String note) {
             notifyTool("takeNote", note.length() > 50 ? note.substring(0, 50) + "..." : note);
             String result = takeNoteTool.takeNote(note);
@@ -744,7 +756,7 @@ Stop when you can test the code without making assumptions about external resour
             dependencyInfo.append("=== PROJECT DEPENDENCIES ===\n");
 
             // Find build files using existing findFiles tool
-            String buildFilePatterns = "pom.xml,build.gradle,build.gradle.kts,*.iml";
+            String buildFilePatterns = "pom.xml,build.gradle,build.gradle.kts,settings.gradle,*.iml,build.xml,.classpath,package.json,requirements.txt";
             String buildFilesFound = findFiles(buildFilePatterns);
 
             if (buildFilesFound.contains("No files found")) {
@@ -764,59 +776,58 @@ Stop when you can test the code without making assumptions about external resour
                 }
             }
 
-            // Analyze each build file
-            Set<String> testFrameworks = new HashSet<>();
-            Set<String> mockFrameworks = new HashSet<>();
-            Set<String> otherDependencies = new HashSet<>();
+            // Read all build files and include their FULL content
+            StringBuilder allDependencyContent = new StringBuilder();
 
             for (String buildFile : buildFiles) {
-                if (buildFile.endsWith("pom.xml")) {
-                    // Read and analyze Maven POM
-                    String pomContent = readFile(buildFile);
-                    analyzeMavenDependencies(pomContent, testFrameworks, mockFrameworks, otherDependencies);
-                    dependencyInfo.append("\nMaven project detected (").append(buildFile).append(")\n");
-                } else if (buildFile.contains("build.gradle")) {
-                    // Read and analyze Gradle build file
-                    String gradleContent = readFile(buildFile);
-                    analyzeGradleDependencies(gradleContent, testFrameworks, mockFrameworks, otherDependencies);
-                    dependencyInfo.append("\nGradle project detected (").append(buildFile).append(")\n");
-                } else if (buildFile.endsWith(".iml")) {
-                    // Read and analyze IntelliJ module file
-                    String imlContent = readFile(buildFile);
-                    analyzeImlDependencies(imlContent, testFrameworks, mockFrameworks, otherDependencies);
-                    dependencyInfo.append("\nIntelliJ module detected (").append(buildFile).append(")\n");
+                String fileName = buildFile.substring(Math.max(buildFile.lastIndexOf('/'), buildFile.lastIndexOf('\\')) + 1);
+                dependencyInfo.append("\n\nFound: ").append(fileName).append(" at ").append(buildFile).append("\n");
+
+                // Read the ENTIRE file content
+                String fileContent = readFile(buildFile);
+
+                // Add the full content with clear markers
+                allDependencyContent.append("\n=== FULL CONTENT: ").append(fileName).append(" ===\n");
+                allDependencyContent.append("File: ").append(buildFile).append("\n");
+                allDependencyContent.append("---START---\n");
+                allDependencyContent.append(fileContent);
+                allDependencyContent.append("\n---END---\n");
+            }
+
+            // Check for JAR files in lib folders
+            StringBuilder jarFilesList = new StringBuilder();
+            String[] libFolders = {"lib", "libs"};
+
+            for (String libFolder : libFolders) {
+                String libContents = listFiles(libFolder, 1);
+                if (!libContents.contains("Error") && !libContents.contains("not found")) {
+                    jarFilesList.append("\n=== JAR files in ").append(libFolder).append(" folder ===\n");
+                    String[] linesJar = libContents.split("\n");
+                    for (String line : linesJar) {
+                        if (line.endsWith(".jar")) {
+                            String jarName = line.substring(Math.max(line.lastIndexOf("/"), line.lastIndexOf("\\")) + 1);
+                            jarFilesList.append(jarName).append("\n");
+                        }
+                    }
                 }
             }
 
-            // Build structured dependency information
-            if (!testFrameworks.isEmpty()) {
-                dependencyInfo.append("\nTest Frameworks:\n");
-                for (String framework : testFrameworks) {
-                    dependencyInfo.append("  - ").append(framework).append("\n");
-                    // Auto-create note about test framework
-                    takeNote("[TEST_FRAMEWORK] " + framework + " is available for testing");
-                }
+            if (jarFilesList.length() > 0) {
+                allDependencyContent.append(jarFilesList.toString());
             }
 
-            if (!mockFrameworks.isEmpty()) {
-                dependencyInfo.append("\nMocking Frameworks:\n");
-                for (String framework : mockFrameworks) {
-                    dependencyInfo.append("  - ").append(framework).append("\n");
-                    // Auto-create note about mocking framework
-                    takeNote("[MOCK_FRAMEWORK] " + framework + " is available for mocking");
-                }
-            }
+            // Create a comprehensive note with ALL dependency information for the AI to interpret
+            if (allDependencyContent.length() > 0) {
+                String comprehensiveNote = "[PROJECT_DEPENDENCIES] Complete dependency information from build files:\n" +
+                                          allDependencyContent.toString();
+                takeNote(comprehensiveNote);
 
-            if (!otherDependencies.isEmpty()) {
-                dependencyInfo.append("\nOther Testing Dependencies:\n");
-                for (String dep : otherDependencies) {
-                    dependencyInfo.append("  - ").append(dep).append("\n");
-                }
-            }
-
-            if (testFrameworks.isEmpty() && mockFrameworks.isEmpty()) {
-                dependencyInfo.append("\n⚠️ No test frameworks detected in build files\n");
-                takeNote("[WARNING] No test frameworks found in build files - tests may need manual dependency setup");
+                dependencyInfo.append("\n\n=== DEPENDENCY INFORMATION CAPTURED ===\n");
+                dependencyInfo.append("All dependency information from build files and lib folders has been recorded.\n");
+                dependencyInfo.append("The AI will interpret these dependencies to understand available frameworks and libraries.\n");
+            } else {
+                dependencyInfo.append("\n⚠️ No dependency information found in build files\n");
+                takeNote("[WARNING] No build files found - cannot determine project dependencies");
             }
 
             projectDependencies = dependencyInfo.toString();
@@ -824,113 +835,6 @@ Stop when you can test the code without making assumptions about external resour
             return projectDependencies;
         }
 
-        private void analyzeMavenDependencies(String pomContent, Set<String> testFrameworks,
-                                             Set<String> mockFrameworks, Set<String> otherDeps) {
-            // Check for JUnit
-            if (pomContent.contains("junit") || pomContent.contains("JUnit")) {
-                if (pomContent.contains("junit-jupiter") || pomContent.contains("junit5")) {
-                    testFrameworks.add("JUnit 5 (Jupiter)");
-                } else if (pomContent.contains("junit4") || pomContent.contains("<version>4.")) {
-                    testFrameworks.add("JUnit 4");
-                } else {
-                    testFrameworks.add("JUnit");
-                }
-            }
-
-            // Check for TestNG
-            if (pomContent.contains("testng")) {
-                testFrameworks.add("TestNG");
-            }
-
-            // Check for Mockito
-            if (pomContent.contains("mockito")) {
-                mockFrameworks.add("Mockito");
-            }
-
-            // Check for PowerMock
-            if (pomContent.contains("powermock")) {
-                mockFrameworks.add("PowerMock");
-            }
-
-            // Check for TestContainers
-            if (pomContent.contains("testcontainers")) {
-                otherDeps.add("TestContainers");
-            }
-
-            // Check for AssertJ
-            if (pomContent.contains("assertj")) {
-                otherDeps.add("AssertJ");
-            }
-
-            // Check for Hamcrest
-            if (pomContent.contains("hamcrest")) {
-                otherDeps.add("Hamcrest");
-            }
-
-            // Check for Spring Boot Test
-            if (pomContent.contains("spring-boot-starter-test")) {
-                otherDeps.add("Spring Boot Test");
-            }
-
-            // Check for REST Assured
-            if (pomContent.contains("rest-assured")) {
-                otherDeps.add("REST Assured");
-            }
-        }
-
-        private void analyzeGradleDependencies(String gradleContent, Set<String> testFrameworks,
-                                              Set<String> mockFrameworks, Set<String> otherDeps) {
-            // Similar analysis for Gradle
-            if (gradleContent.contains("junit") || gradleContent.contains("JUnit")) {
-                if (gradleContent.contains("junit-jupiter") || gradleContent.contains("junit:5")) {
-                    testFrameworks.add("JUnit 5 (Jupiter)");
-                } else if (gradleContent.contains("junit:4")) {
-                    testFrameworks.add("JUnit 4");
-                } else {
-                    testFrameworks.add("JUnit");
-                }
-            }
-
-            if (gradleContent.contains("testng")) {
-                testFrameworks.add("TestNG");
-            }
-
-            if (gradleContent.contains("mockito")) {
-                mockFrameworks.add("Mockito");
-            }
-
-            if (gradleContent.contains("testcontainers")) {
-                otherDeps.add("TestContainers");
-            }
-
-            if (gradleContent.contains("assertj")) {
-                otherDeps.add("AssertJ");
-            }
-
-            if (gradleContent.contains("spring-boot-starter-test")) {
-                otherDeps.add("Spring Boot Test");
-            }
-        }
-
-        private void analyzeImlDependencies(String imlContent, Set<String> testFrameworks,
-                                           Set<String> mockFrameworks, Set<String> otherDeps) {
-            // Analyze IntelliJ module file for library references
-            if (imlContent.contains("junit") || imlContent.contains("JUnit")) {
-                testFrameworks.add("JUnit");
-            }
-
-            if (imlContent.contains("testng")) {
-                testFrameworks.add("TestNG");
-            }
-
-            if (imlContent.contains("mockito")) {
-                mockFrameworks.add("Mockito");
-            }
-
-            if (imlContent.contains("testcontainers")) {
-                otherDeps.add("TestContainers");
-            }
-        }
 
         public ContextDisplayData createContextDisplayData(String filePath, String analysisResult) {
             // Extract file name

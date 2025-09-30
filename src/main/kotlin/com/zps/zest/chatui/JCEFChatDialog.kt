@@ -193,7 +193,7 @@ class JCEFChatDialog(
         panel.border = EmptyBorder(8, 10, 10, 10)
 
         val refreshButton = JButton("Refresh")
-        refreshButton.addActionListener { loadMessages() }
+        refreshButton.addActionListener { loadMessages(forceRefresh = true) }
         panel.add(refreshButton)
 
         val exportButton = JButton("Export")
@@ -369,13 +369,21 @@ class JCEFChatDialog(
         inputArea.requestFocus()
     }
 
-    private fun loadMessages() {
-        chatPanel.clearMessages()
+    private fun loadMessages(forceRefresh: Boolean = false) {
+        if (forceRefresh) {
+            // Force a complete browser reload by clearing and rebuilding
+            chatPanel.clearMessages()
+            // Add small delay to ensure browser processes the clear
+            Thread.sleep(50)
+        } else {
+            chatPanel.clearMessages()
+        }
+
         val messages = chatService.getMessages()
 
         if (messages.isEmpty()) {
             chatPanel.addMessage(
-                "💬 **Welcome to Zest Chat!**", 
+                "💬 **Welcome to Zest Chat!**",
                 "Start a conversation by typing your question below..."
             )
         } else {
@@ -386,7 +394,7 @@ class JCEFChatDialog(
                     is AiMessage -> {
                         val aiText = message.text() ?: ""
                         val toolRequests = message.toolExecutionRequests()
-                        
+
                         if (toolRequests.isNullOrEmpty()) {
                             // Regular AI message without tools
                             chatPanel.addMessage("🤖 **AI**", aiText)

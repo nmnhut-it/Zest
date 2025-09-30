@@ -276,6 +276,9 @@ ${cachedProjectRules}
     fun clearConversation() {
         LOG.info("Clearing chat conversation")
         chatMemory.clear()
+        // Reset assistants to rebuild with fresh memory
+        toolEnabledAssistant = null
+        streamingToolEnabledAssistant = null
     }
     
     /**

@@ -322,10 +322,10 @@ class ChatMemoryDialog(
                 
                 if (userData is MessageNodeData) {
                     foreground = when (userData.message) {
-                        is SystemMessage -> if (UIUtil.isUnderDarcula()) Color(255, 200, 100) else Color(180, 120, 0)
-                        is UserMessage -> if (UIUtil.isUnderDarcula()) Color(120, 180, 255) else Color(70, 120, 200)
-                        is AiMessage -> if (UIUtil.isUnderDarcula()) Color(120, 255, 180) else Color(0, 150, 50)
-                        is ToolExecutionResultMessage -> if (UIUtil.isUnderDarcula()) Color(200, 200, 200) else Color(100, 100, 100)
+                        is SystemMessage -> if (com.zps.zest.util.ThemeUtils.isDarkTheme()) Color(255, 200, 100) else Color(180, 120, 0)
+                        is UserMessage -> if (com.zps.zest.util.ThemeUtils.isDarkTheme()) Color(120, 180, 255) else Color(70, 120, 200)
+                        is AiMessage -> if (com.zps.zest.util.ThemeUtils.isDarkTheme()) Color(120, 255, 180) else Color(0, 150, 50)
+                        is ToolExecutionResultMessage -> if (com.zps.zest.util.ThemeUtils.isDarkTheme()) Color(200, 200, 200) else Color(100, 100, 100)
                         else -> UIUtil.getTreeForeground()
                     }
                 }

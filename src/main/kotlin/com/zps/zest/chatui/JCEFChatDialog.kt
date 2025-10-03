@@ -515,5 +515,5 @@ class JCEFChatDialog(
         }
     }
 
-    private fun isDarkMode(): Boolean = UIUtil.isUnderDarcula()
+    private fun isDarkMode(): Boolean = com.zps.zest.util.ThemeUtils.isDarkTheme()
 }

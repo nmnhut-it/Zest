@@ -134,7 +134,7 @@ class AgentDebugDialog(
         val textArea = JBTextArea()
         textArea.isEditable = false
         textArea.font = Font(Font.MONOSPACED, Font.PLAIN, 11)
-        textArea.background = if (UIUtil.isUnderDarcula()) Color(43, 43, 43) else Color(250, 250, 250)
+        textArea.background = if (com.zps.zest.util.ThemeUtils.isDarkTheme()) Color(43, 43, 43) else Color(250, 250, 250)
         
         // Load execution history for this agent
         val history = getAgentHistory(agentName)
@@ -177,7 +177,7 @@ class AgentDebugDialog(
         val textArea = JBTextArea()
         textArea.isEditable = false
         textArea.font = Font(Font.MONOSPACED, Font.PLAIN, 11)
-        textArea.background = if (UIUtil.isUnderDarcula()) Color(43, 43, 43) else Color(250, 250, 250)
+        textArea.background = if (com.zps.zest.util.ThemeUtils.isDarkTheme()) Color(43, 43, 43) else Color(250, 250, 250)
         
         // Display LangChain4j memory/chat history
         val memoryContent = StringBuilder()
@@ -208,7 +208,7 @@ class AgentDebugDialog(
         val textArea = JBTextArea()
         textArea.isEditable = false
         textArea.font = Font(Font.MONOSPACED, Font.PLAIN, 11)
-        textArea.background = if (UIUtil.isUnderDarcula()) Color(43, 43, 43) else Color(250, 250, 250)
+        textArea.background = if (com.zps.zest.util.ThemeUtils.isDarkTheme()) Color(43, 43, 43) else Color(250, 250, 250)
         
         // Create timeline of all agent executions
         val allEntries = mutableListOf<AgentExecutionEntry>()

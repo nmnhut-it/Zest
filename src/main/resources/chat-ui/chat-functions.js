@@ -1,6 +1,11 @@
 /**
  * Zest Chat UI JavaScript Functions
  * Handles message rendering, streaming, tool calls, and interactive features
+ *
+ * Architecture: Data-driven rendering
+ * - Messages array is the single source of truth
+ * - All updates modify the array first, then trigger re-render
+ * - Streaming updates the data model progressively
  */
 
 // Configuration
@@ -17,6 +22,50 @@ document.addEventListener('DOMContentLoaded', function() {
         makeCodeBlocksCollapsible();
     }
 });
+
+/**
+ * Find a message in the array by ID
+ */
+function findMessage(messageId) {
+    return messages.find(msg => msg.id === messageId);
+}
+
+/**
+ * Update message content in the data array
+ */
+function updateMessageInArray(messageId, newContent) {
+    const message = findMessage(messageId);
+    if (message) {
+        message.content = newContent;
+    }
+}
+
+/**
+ * Add tool call to message in the data array
+ */
+function addToolCallToArray(messageId, toolCall) {
+    const message = findMessage(messageId);
+    if (message) {
+        if (!message.toolCalls) {
+            message.toolCalls = [];
+        }
+        message.toolCalls.push(toolCall);
+    }
+}
+
+/**
+ * Update tool call in message in the data array
+ */
+function updateToolCallInArray(messageId, toolCallId, status, result) {
+    const message = findMessage(messageId);
+    if (message && message.toolCalls) {
+        const toolCall = message.toolCalls.find(tc => tc.id === toolCallId);
+        if (toolCall) {
+            toolCall.status = status;
+            toolCall.result = result;
+        }
+    }
+}
 
 /**
  * Render all messages from the messages array
@@ -94,6 +143,59 @@ function renderMessages() {
 
         container.appendChild(messageDiv);
     }
+}
+
+/**
+ * Re-render a single message from the messages array (data-driven)
+ */
+function reRenderMessage(messageId) {
+    const message = findMessage(messageId);
+    if (!message) return;
+
+    const messageElement = document.getElementById(messageId);
+    if (!messageElement) return;
+
+    // Clear streaming state if any
+    if (messageElement._streamingState) {
+        delete messageElement._streamingState;
+    }
+
+    // Find and preserve the header
+    const headerDiv = messageElement.querySelector('.message-header');
+    const headerHtml = headerDiv ? headerDiv.outerHTML : '';
+
+    // Create new content div
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+
+    // Render markdown content if present
+    if (message.content) {
+        if (typeof marked !== 'undefined') {
+            contentDiv.innerHTML = marked.parse(message.content);
+        } else {
+            contentDiv.textContent = message.content;
+        }
+    }
+
+    // Render tool calls from data model
+    if (message.toolCalls && message.toolCalls.length > 0) {
+        message.toolCalls.forEach(function(toolCall) {
+            const toolCallDiv = renderToolCall(toolCall);
+            contentDiv.appendChild(toolCallDiv);
+        });
+    }
+
+    // Replace message content (preserve structure)
+    messageElement.innerHTML = headerHtml;
+    messageElement.appendChild(contentDiv);
+
+    // Re-apply syntax highlighting and interactivity
+    if (typeof hljs !== 'undefined') {
+        contentDiv.querySelectorAll('pre code').forEach(function(block) {
+            hljs.highlightElement(block);
+        });
+    }
+    makeCodeBlocksCollapsible();
 }
 
 /**
@@ -177,7 +279,7 @@ function makeCodeBlocksCollapsible() {
         if (pre.querySelector('.collapse-button')) return;
 
         const codeText = codeElement.textContent || '';
-        const lines = codeText.split('\\n');
+        const lines = codeText.split('\n');
         let lineCount = lines.length;
         if (lines.length > 0 && lines[lines.length - 1].trim() === '') {
             lineCount--;
@@ -399,32 +501,30 @@ window.chatFunctions = {
     },
 
     convertToMarkdown: function(messageId, content) {
-        const messageElement = document.getElementById(messageId);
-        if (messageElement) {
-            if (messageElement._streamingState) {
-                delete messageElement._streamingState;
-            }
+        // Update data model first
+        updateMessageInArray(messageId, content);
 
-            const contentDiv = messageElement.querySelector('.message-content');
-            if (contentDiv && typeof marked !== 'undefined') {
-                contentDiv.innerHTML = marked.parse(content);
-                if (typeof hljs !== 'undefined') {
-                    contentDiv.querySelectorAll('pre code').forEach(function(block) {
-                        hljs.highlightElement(block);
-                    });
-                }
-                makeCodeBlocksCollapsible();
-            }
+        // Re-render from data (includes tool calls from array)
+        reRenderMessage(messageId);
 
-            setTimeout(() => {
+        // Scroll to message
+        setTimeout(() => {
+            const messageElement = document.getElementById(messageId);
+            if (messageElement) {
                 messageElement.scrollIntoView({
                     behavior: 'smooth',
                     block: 'end',
                     inline: 'nearest'
                 });
-            }, 100);
-        }
+            }
+        }, 100);
     },
+
+    // Expose array update functions to Kotlin
+    updateMessageInArray: updateMessageInArray,
+    addToolCallToArray: addToolCallToArray,
+    updateToolCallInArray: updateToolCallInArray,
+    reRenderMessage: reRenderMessage,
 
     escapeHtml: function(text) {
         const div = document.createElement('div');

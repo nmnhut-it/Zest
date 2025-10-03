@@ -177,8 +177,10 @@ public class SendCodeReviewToChatBox extends BaseChatAction {
 
         if (!context.similarImplementations.isEmpty()) {
             prompt.append("**Similar Patterns in Codebase:**\n");
+            prompt.append("```\n");
             context.similarImplementations.forEach(impl ->
                 prompt.append("- ").append(impl).append("\n"));
+            prompt.append("```\n");
         }
 
         if (context.classStructure != null && !context.classStructure.isEmpty()) {

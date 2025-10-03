@@ -78,11 +78,17 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     /**
      * Update an existing message's content for streaming (sends chunk to client-side queue)
      * Note: This does NOT reload the page - only updates via JavaScript for better performance
+     * IMPORTANT: Preserves tool calls when updating content
      */
     fun updateMessage(messageId: String, newContent: String) {
         val messageIndex = conversationMessages.indexOfFirst { it.id == messageId }
         if (messageIndex >= 0) {
-            val updatedMessage = conversationMessages[messageIndex].copy(content = newContent)
+            val originalMessage = conversationMessages[messageIndex]
+            // Preserve toolCalls when updating content during streaming
+            val updatedMessage = originalMessage.copy(
+                content = newContent,
+                toolCalls = originalMessage.toolCalls
+            )
             conversationMessages[messageIndex] = updatedMessage
 
             // Send chunk to client-side streaming handler (no page reload)
@@ -97,14 +103,20 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     
     /**
      * Finalize message content (render as markdown when streaming is complete)
+     * IMPORTANT: Preserves tool calls by using copy() properly
      */
     fun finalizeMessage(messageId: String, finalContent: String) {
         val messageIndex = conversationMessages.indexOfLast { it.id == messageId }
         if (messageIndex >= 0) {
-            val updatedMessage = conversationMessages[messageIndex].copy(content = finalContent)
+            val originalMessage = conversationMessages[messageIndex]
+            // Must preserve toolCalls list when copying!
+            val updatedMessage = originalMessage.copy(
+                content = finalContent,
+                toolCalls = originalMessage.toolCalls  // Preserve tool calls
+            )
             conversationMessages[messageIndex] = updatedMessage
 
-            // Finalize message with proper markdown rendering
+            // Finalize message with proper markdown rendering (JS will re-render from updated data model)
             val escapedContent = escapeJavaScriptString(finalContent)
             browserManager.executeJavaScript("""
                 if (window.chatFunctions && window.chatFunctions.finalizeMessage) {
@@ -115,7 +127,7 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     /**
-     * Add a tool call to a message (updates data model and DOM)
+     * Add a tool call to a message (data-driven: updates both Kotlin and JS data models, then re-renders)
      */
     fun addToolCallToMessage(messageId: String, toolCallId: String, toolName: String, arguments: String) {
         val messageIndex = conversationMessages.indexOfFirst { it.id == messageId }
@@ -129,19 +141,28 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
             )
             message.toolCalls.add(toolCall)
 
-            // Also update the DOM via JavaScript
-            val escapedToolName = escapeJavaScriptString(toolName)
-            val escapedArgs = escapeJavaScriptString(arguments)
+            // Update JS data model and re-render from data
+            val toolCallJson = """
+                {
+                    "id": "${escapeJavaScriptString(toolCallId)}",
+                    "toolName": "${escapeJavaScriptString(toolName)}",
+                    "arguments": "${escapeJavaScriptString(arguments)}",
+                    "status": "executing",
+                    "result": null
+                }
+            """.trimIndent()
+
             browserManager.executeJavaScript("""
-                if (window.chatFunctions && window.chatFunctions.addToolCall) {
-                    window.chatFunctions.addToolCall('$messageId', '$escapedToolName', '$escapedArgs', 'executing', '$toolCallId');
+                if (window.chatFunctions) {
+                    window.chatFunctions.addToolCallToArray('$messageId', $toolCallJson);
+                    window.chatFunctions.reRenderMessage('$messageId');
                 }
             """)
         }
     }
 
     /**
-     * Update a tool call's status and result (updates data model and DOM)
+     * Update a tool call's status and result (data-driven: updates both Kotlin and JS data models, then re-renders)
      */
     fun updateToolCallStatus(messageId: String, toolCallId: String, status: String, result: String?) {
         val messageIndex = conversationMessages.indexOfFirst { it.id == messageId }
@@ -152,11 +173,15 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                 toolCall.status = status
                 toolCall.result = result
 
-                // Also update the DOM via JavaScript
-                val escapedResult = result?.let { escapeJavaScriptString(it) } ?: ""
+                // Update JS data model and re-render from data
+                val escapedStatus = escapeJavaScriptString(status)
+                val escapedResult = result?.let { escapeJavaScriptString(it) } ?: "null"
+                val resultJson = if (result != null) "\"$escapedResult\"" else "null"
+
                 browserManager.executeJavaScript("""
-                    if (window.chatFunctions && window.chatFunctions.updateToolCall) {
-                        window.chatFunctions.updateToolCall('$toolCallId', '$status', '$escapedResult');
+                    if (window.chatFunctions) {
+                        window.chatFunctions.updateToolCallInArray('$messageId', '$toolCallId', '$escapedStatus', $resultJson);
+                        window.chatFunctions.reRenderMessage('$messageId');
                     }
                 """)
             }
@@ -280,7 +305,7 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
      * Generate base HTML template with client-side markdown processing
      */
     private fun generateBaseChatHtml(messagesData: String): String {
-        val isDarkTheme = com.intellij.util.ui.UIUtil.isUnderDarcula()
+        val isDarkTheme = !com.intellij.ui.JBColor.isBright()
         val markedJs = loadResource("js/marked.min.js") ?: ""
         val highlightJs = loadResource("js/highlight.min.js") ?: ""
         val highlightCss = loadResource("js/${if (isDarkTheme) "github-dark" else "github"}.css") ?: ""

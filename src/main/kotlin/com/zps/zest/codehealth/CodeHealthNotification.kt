@@ -870,7 +870,7 @@ object CodeHealthNotification {
             val lowCount = realIssues.count { it.severity <= 2 }
             
             // Determine if dark theme
-            val isDarkTheme = UIUtil.isUnderDarcula()
+            val isDarkTheme = com.zps.zest.util.ThemeUtils.isDarkTheme()
             val bgColor = if (isDarkTheme) "#2b2b2b" else "#ffffff"
             val textColor = if (isDarkTheme) "#bbbbbb" else "#333333"
             val borderColor = if (isDarkTheme) "#3c3f41" else "#d0d0d0"

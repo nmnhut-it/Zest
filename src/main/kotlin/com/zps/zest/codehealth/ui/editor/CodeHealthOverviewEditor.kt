@@ -171,7 +171,7 @@ class CodeHealthOverviewEditor(
     private fun metric(title: String, value: String, color: Color): JComponent {
         val card = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            background = if (UIUtil.isUnderDarcula()) Color(60, 63, 65) else Color(245, 245, 245)
+            background = if (com.zps.zest.util.ThemeUtils.isDarkTheme()) Color(60, 63, 65) else Color(245, 245, 245)
             border = JBUI.Borders.compound(JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1), EmptyBorder(15, 15, 15, 15))
         }
         card.add(JBLabel(title).apply { font = font.deriveFont(12f); alignmentX = Component.CENTER_ALIGNMENT })
@@ -399,7 +399,7 @@ class CodeHealthOverviewEditor(
         }
     }
 
-    private fun bgForCards(): Color = if (UIUtil.isUnderDarcula()) Color(50, 50, 50) else Color(250, 250, 250)
+    private fun bgForCards(): Color = if (com.zps.zest.util.ThemeUtils.isDarkTheme()) Color(50, 50, 50) else Color(250, 250, 250)
 
 
 

@@ -128,6 +128,12 @@ When moving files between packages, remember to update:
 - Follow existing code patterns and conventions
 - Use existing utilities and helper classes to avoid duplication
 
+### Theme Detection
+**IMPORTANT**: Always use `ThemeUtils.isDarkTheme()` for theme detection
+- ✅ Use: `com.zps.zest.util.ThemeUtils.isDarkTheme()`
+- ❌ Don't use: `UIUtil.isUnderDarcula()` (only detects Darcula, not other dark themes)
+- Why: `ThemeUtils` uses `!JBColor.isBright()` which works with all dark themes (Darcula, High Contrast, New UI dark, etc.)
+
 ## Testing Approach
 - Check README or search codebase for test commands
 - Never assume specific test frameworks

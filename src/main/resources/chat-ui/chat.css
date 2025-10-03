@@ -1,22 +1,5 @@
 /* Zest Chat UI Styles */
-
-:root {
-    /* Theme colors will be set dynamically from Kotlin */
-    --bg-primary: #f6f8fa;
-    --bg-secondary: #ffffff;
-    --bg-tertiary: #0d1117;
-    --text-primary: #24292f;
-    --text-secondary: #57606a;
-    --text-link: #0969da;
-    --text-link-hover: #0550ae;
-    --border-primary: #d0d7de;
-    --border-secondary: #eaeef2;
-    --border-accent: #0969da;
-    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-    --code-bg: #eff1f3;
-    --code-border: #d0d7de;
-}
+/* Theme variables are injected dynamically from Kotlin based on IDE theme */
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;

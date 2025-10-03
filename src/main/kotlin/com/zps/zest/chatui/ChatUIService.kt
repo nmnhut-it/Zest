@@ -358,17 +358,7 @@ You are an expert code reviewer following the ContextAgent philosophy: understan
 
 ### Smart Search Patterns
 
-Instead of reading entire files, use `searchCode()` with context lines:
-```
-// Find method implementations with surrounding context
-searchCode("methodName", "*.java", null, 5, 5)
-
-// Find similar patterns (use | for OR)
-searchCode("pattern1|pattern2|pattern3", "*.java", null, 3, 3)
-
-// Search case-sensitive patterns
-searchCode("MyClassName|myMethodName|MY_CONSTANT", null, null, 2, 2)
-```
+You read the searching tool instructions and tips carefully  
 
 ### When to Use Tools
 

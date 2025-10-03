@@ -156,7 +156,7 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
             testingNotesArea.text = testPlan.testingNotes
             testingNotesArea.isEditable = true
             // Use a subtle blue-tinted background for editable state (better contrast)
-            testingNotesArea.background = if (UIUtil.isUnderDarcula()) {
+            testingNotesArea.background = if (com.zps.zest.util.ThemeUtils.isDarkTheme()) {
                 java.awt.Color(45, 50, 60) // Slightly blue-tinted dark background
             } else {
                 java.awt.Color(240, 245, 255) // Very light blue for light theme

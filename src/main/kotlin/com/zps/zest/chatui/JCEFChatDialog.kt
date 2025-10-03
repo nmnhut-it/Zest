@@ -266,25 +266,13 @@ class JCEFChatDialog(
                 }
             },
             onToolCall = { toolName, toolArgs, toolCallId ->
-                // Show tool call in UI
-                val escapedToolName = escapeJavaScriptString(toolName)
-                val escapedToolArgs = escapeJavaScriptString(toolArgs)
-                chatPanel.getBrowserManager().executeJavaScript("""
-                    if (window.chatFunctions && window.chatFunctions.addToolCall) {
-                        window.chatFunctions.addToolCall('$aiMessageId', '$escapedToolName', '$escapedToolArgs', 'executing', '$toolCallId');
-                    }
-                """)
+                // Add tool call to message using data model (persists through reloads)
+                chatPanel.addToolCallToMessage(aiMessageId, toolCallId, toolName, toolArgs)
             },
             onToolResult = { toolCallId, result ->
-                // Update tool call with result
-                val escapedResult = escapeJavaScriptString(result)
+                // Update tool call status and result in data model
                 val status = if (result.startsWith("❌")) "error" else "complete"
-
-                chatPanel.getBrowserManager().executeJavaScript("""
-                    if (window.chatFunctions && window.chatFunctions.updateToolCall) {
-                        window.chatFunctions.updateToolCall('$toolCallId', '$status', '$escapedResult');
-                    }
-                """)
+                chatPanel.updateToolCallStatus(aiMessageId, toolCallId, status, result)
             }
         )
     }
@@ -387,42 +375,72 @@ class JCEFChatDialog(
                 "Start a conversation by typing your question below..."
             )
         } else {
-            // Rebuild chat from all messages
-            messages.forEach { message ->
+            // Rebuild chat from all messages, grouping tool results with AI messages
+            var i = 0
+            while (i < messages.size) {
+                val message = messages[i]
                 when (message) {
-                    is UserMessage -> chatPanel.addMessage("👤 **You**", message.singleText())
+                    is UserMessage -> {
+                        chatPanel.addMessage("👤 **You**", message.singleText())
+                        i++
+                    }
                     is AiMessage -> {
                         val aiText = message.text() ?: ""
                         val toolRequests = message.toolExecutionRequests()
 
-                        if (toolRequests.isNullOrEmpty()) {
-                            // Regular AI message without tools
-                            chatPanel.addMessage("🤖 **AI**", aiText)
-                        } else {
-                            // AI message with tool requests - show both text and tool calls
-                            val fullContent = buildString {
-                                if (aiText.isNotBlank()) {
-                                    appendLine(aiText)
-                                    appendLine()
-                                }
+                        // Collect tool results that follow this AI message
+                        val toolResults = mutableListOf<ToolExecutionResultMessage>()
+                        var j = i + 1
+                        while (j < messages.size && messages[j] is ToolExecutionResultMessage) {
+                            toolResults.add(messages[j] as ToolExecutionResultMessage)
+                            j++
+                        }
+
+                        // Build content with tool calls and results
+                        val fullContent = buildString {
+                            if (aiText.isNotBlank()) {
+                                appendLine(aiText)
+                                appendLine()
+                            }
+
+                            if (!toolRequests.isNullOrEmpty()) {
                                 toolRequests.forEach { toolRequest ->
                                     appendLine("🔧 **Tool Call: ${toolRequest.name()}**")
-                                    appendLine("```")
+                                    appendLine("```json")
                                     appendLine(toolRequest.arguments())
                                     appendLine("```")
+
+                                    // Find matching tool result
+                                    val matchingResult = toolResults.find { it.toolName() == toolRequest.name() }
+                                    if (matchingResult != null) {
+                                        appendLine()
+                                        appendLine("**Result:**")
+                                        appendLine("```")
+                                        appendLine(matchingResult.text())
+                                        appendLine("```")
+                                    }
                                     appendLine()
                                 }
                             }
-                            chatPanel.addMessage("🤖 **AI**", fullContent.trim())
                         }
+
+                        chatPanel.addMessage("🤖 **AI**", fullContent.trim())
+
+                        // Skip the tool result messages we've already processed
+                        i = j
                     }
-                    is dev.langchain4j.data.message.SystemMessage -> chatPanel.addMessage("⚙️ **System**", message.text())
-                    is dev.langchain4j.data.message.ToolExecutionResultMessage -> {
-                        // Display tool execution result as a proper tool call result
-                        val toolResultContent = "**Tool: ${message.toolName()}**\n\n```\n${message.text()}\n```"
-                        chatPanel.addMessage("🔧 **Tool Result**", toolResultContent)
+                    is dev.langchain4j.data.message.SystemMessage -> {
+                        chatPanel.addMessage("⚙️ **System**", message.text())
+                        i++
                     }
-                    else -> chatPanel.addMessage("💬 **Message**", message.toString())
+                    is ToolExecutionResultMessage -> {
+                        // Skip standalone tool results (they should have been grouped with AI message)
+                        i++
+                    }
+                    else -> {
+                        chatPanel.addMessage("💬 **Message**", message.toString())
+                        i++
+                    }
                 }
             }
         }

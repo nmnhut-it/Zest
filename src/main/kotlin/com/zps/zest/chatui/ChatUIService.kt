@@ -23,6 +23,7 @@ import com.google.gson.JsonSyntaxException
 import com.intellij.openapi.application.ApplicationManager
 import com.zps.zest.ConfigurationManager
 import com.zps.zest.rules.ZestRulesLoader
+import dev.langchain4j.service.V
 import java.net.HttpURLConnection
 import java.net.URL
 import java.io.BufferedReader
@@ -797,9 +798,11 @@ Be concise but descriptive.
  * LangChain4j service interfaces for tool-enabled chat
  */
 interface ChatAssistant {
+    @dev.langchain4j.service.UserMessage("{{it}}")
     fun chat(userMessage: String): String
 }
 
 interface StreamingChatAssistant {
+    @dev.langchain4j.service.UserMessage("{{it}}")
     fun chat(userMessage: String): TokenStream
 }

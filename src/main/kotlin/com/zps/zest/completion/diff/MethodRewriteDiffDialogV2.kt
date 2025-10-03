@@ -28,22 +28,81 @@ import java.util.HashSet
  * Custom dialog for showing method rewrite diff with better syntax highlighting
  * Uses LightVirtualFile for proper language support
  */
-class MethodRewriteDiffDialogV2(
-    private val project: Project,
-    private val editor: Editor,
-    private val methodStartOffset: Int,
-    private val methodEndOffset: Int,
-    private val originalContent: String,
-    private val modifiedContent: String,
-    private val fileType: FileType,
-    private val methodName: String,
-    private val onAccept: () -> Unit,
+class MethodRewriteDiffDialogV2 : DialogWrapper {
+
+    private val project: Project
+    private val editor: Editor
+    private val methodStartOffset: Int
+    private val methodEndOffset: Int
+    private val originalContent: String
+    private val modifiedContent: String
+    private val fileType: FileType
+    private val methodName: String
+    private val onAccept: () -> Unit
     private val onReject: () -> Unit
-) : DialogWrapper(project, false) {  // Non-modal
+
+    // Non-modal constructor (legacy)
+    constructor(
+        project: Project,
+        editor: Editor,
+        methodStartOffset: Int,
+        methodEndOffset: Int,
+        originalContent: String,
+        modifiedContent: String,
+        fileType: FileType,
+        methodName: String,
+        onAccept: () -> Unit,
+        onReject: () -> Unit
+    ) : super(project, false) {
+        this.project = project
+        this.editor = editor
+        this.methodStartOffset = methodStartOffset
+        this.methodEndOffset = methodEndOffset
+        this.originalContent = originalContent
+        this.modifiedContent = modifiedContent
+        this.fileType = fileType
+        this.methodName = methodName
+        this.onAccept = onAccept
+        this.onReject = onReject
+        commonInit()
+    }
+
+    // Modal constructor with parent component
+    constructor(
+        parent: Component,
+        project: Project,
+        editor: Editor,
+        methodStartOffset: Int,
+        methodEndOffset: Int,
+        originalContent: String,
+        modifiedContent: String,
+        fileType: FileType,
+        methodName: String,
+        onAccept: () -> Unit,
+        onReject: () -> Unit
+    ) : super(parent, true) {
+        this.project = project
+        this.editor = editor
+        this.methodStartOffset = methodStartOffset
+        this.methodEndOffset = methodEndOffset
+        this.originalContent = originalContent
+        this.modifiedContent = modifiedContent
+        this.fileType = fileType
+        this.methodName = methodName
+        this.onAccept = onAccept
+        this.onReject = onReject
+        commonInit()
+    }
+
+    private fun commonInit() {
+        title = "Review Method Rewrite: $methodName"
+        init()
+        setSize(1200, 800)
+    }
     
     companion object {
         private val logger = Logger.getInstance(MethodRewriteDiffDialogV2::class.java)
-        
+
         fun show(
             project: Project,
             editor: Editor,
@@ -65,16 +124,33 @@ class MethodRewriteDiffDialogV2(
                 dialog.show()
             }
         }
+
+        fun showWithParent(
+            parent: Component,
+            project: Project,
+            editor: Editor,
+            methodStartOffset: Int,
+            methodEndOffset: Int,
+            originalContent: String,
+            modifiedContent: String,
+            fileType: FileType,
+            methodName: String,
+            onAccept: () -> Unit,
+            onReject: () -> Unit
+        ) {
+            ApplicationManager.getApplication().invokeLater {
+                val dialog = MethodRewriteDiffDialogV2(
+                    parent, project, editor, methodStartOffset, methodEndOffset,
+                    originalContent, modifiedContent, fileType, methodName,
+                    onAccept, onReject
+                )
+                dialog.show()
+            }
+        }
     }
-    
+
     private var diffPanel: DiffRequestPanel? = null
-    
-    init {
-        title = "Review Method Rewrite: $methodName"
-        init()
-        setSize(1200, 800)
-    }
-    
+
     override fun createCenterPanel(): JComponent {
         val panel = JBPanel<JBPanel<*>>(BorderLayout())
         

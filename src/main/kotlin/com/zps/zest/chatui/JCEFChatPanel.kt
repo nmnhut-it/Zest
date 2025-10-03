@@ -328,6 +328,9 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                 </style>
             </head>
             <body>
+                <div class="collapse-all-container">
+                    <button id="collapse-all-btn" class="collapse-all-button" onclick="window.chatFunctions.toggleCollapseAll()">▲ Collapse All</button>
+                </div>
                 <div id="chat-container"></div>
                 
                 <script>

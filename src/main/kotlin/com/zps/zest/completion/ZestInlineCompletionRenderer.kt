@@ -286,11 +286,7 @@ class ZestInlineCompletionRenderer {
                     log("LEAN strategy: rendered ${lines.size} lines (${inlays.size} inlays) with line-by-line acceptance")
                 }
             }
-            
-            ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE -> {
-                // METHOD_REWRITE: Not used for inline rendering (uses floating windows)
-                log("METHOD_REWRITE strategy: skipping inline rendering (uses floating windows)")
-            }
+
         }
     }
     

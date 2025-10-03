@@ -658,20 +658,13 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
     }
 
     /**
-     * Cancel method rewrite operation
+     * Cancel method rewrite operation - DEPRECATED: Method rewrites now happen in ChatUIService
      */
     private fun cancelMethodRewrite() {
-        try {
-            // Get method rewrite service and cancel
-            val methodRewriteService = project.getService(com.zps.zest.completion.ZestQuickActionService::class.java)
-            methodRewriteService?.cancelCurrentRewrite()
-
-            clearMethodRewriteState()
-            logger.info("Method rewrite cancelled")
-
-        } catch (e: Exception) {
-            logger.warn("Failed to cancel method rewrite", e)
-        }
+        // Method rewrites no longer use this system - they happen in ChatUIService
+        // Just clear the state
+        clearMethodRewriteState()
+        logger.info("Method rewrite state cleared")
     }
 
     /**
@@ -701,13 +694,7 @@ class ZestCompletionStatusBarWidget(project: Project) : EditorBasedWidget(projec
         ApplicationManager.getApplication().invokeLater {
             try {
                 val currentStrategy = completionService.getCompletionStrategy()
-                val newStrategy = when (currentStrategy) {
-                    ZestCompletionProvider.CompletionStrategy.LEAN ->
-                        ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE
-
-                    ZestCompletionProvider.CompletionStrategy.METHOD_REWRITE ->
-                        ZestCompletionProvider.CompletionStrategy.LEAN
-                }
+                val newStrategy = ZestCompletionProvider.CompletionStrategy.LEAN;
 
                 completionService.setCompletionStrategy(newStrategy)
                 logger.info("Switched to ${newStrategy.name} strategy")

@@ -73,6 +73,12 @@ class ChatUIService(private val project: Project) : Disposable {
     private val listFilesTool = ListFilesTool(project)
     private val lookupMethodTool = LookupMethodTool(project)
     private val lookupClassTool = LookupClassTool(project)
+
+    // Code modification tools need dialog reference - created lazily
+    private fun getCodeModificationTools(): com.zps.zest.chatui.CodeModificationTools {
+        return com.zps.zest.chatui.CodeModificationTools(project, currentDialog)
+    }
+
     private var toolEnabledAssistant: ChatAssistant? = null
     private var streamingToolEnabledAssistant: StreamingChatAssistant? = null
     
@@ -236,7 +242,7 @@ ${cachedProjectRules}
         return AiServices.builder(ChatAssistant::class.java)
             .chatModel(chatModel)
             .chatMemory(chatMemory)
-            .tools(readFileTool, searchTool)
+            .tools(readFileTool, searchTool, analyzeClassTool, listFilesTool, lookupMethodTool, lookupClassTool, getCodeModificationTools())
             .build()
     }
 
@@ -247,8 +253,8 @@ ${cachedProjectRules}
         return AiServices.builder(StreamingChatAssistant::class.java)
             .streamingChatModel(streamingChatModel)
             .chatMemory(chatMemory)
-            .maxSequentialToolsInvocations(5)
-            .tools(readFileTool, searchTool, analyzeClassTool, listFilesTool, lookupMethodTool, lookupClassTool)
+            .maxSequentialToolsInvocations(10)
+            .tools(readFileTool, searchTool, analyzeClassTool, listFilesTool, lookupMethodTool, lookupClassTool, getCodeModificationTools())
             .build()
     }
     
@@ -420,6 +426,94 @@ You read the searching tool instructions and tips carefully
         }
     }
     
+    /**
+     * Prepare the chat with context for method rewriting
+     */
+    fun prepareForMethodRewrite() {
+        // Set context for method rewriting
+        setContext(ChatboxUtilities.EnumUsage.CHAT_CODE_REVIEW) // Reuse code review context for now
+
+        if (getMessages().isEmpty()) {
+            addSystemMessage(buildSystemPromptWithRules("""
+You are a method rewrite expert. Understand code thoroughly before modifying.
+
+## Available Tools
+
+You have access to tools for code exploration and modification. Use them strategically.
+
+### Context Gathering Tools
+- **Search codebase** for patterns, existing implementations, and usage examples
+- **Read files** to understand structure, dependencies, and configurations
+- **Analyze classes** to understand relationships and members
+- **List directories** to explore project structure
+- **Lookup methods/classes** to understand library APIs (works with JARs)
+
+### Code Modification Tools
+- **replaceCodeInFile** - Replace code with diff preview before applying
+- **createNewFile** - Create new file at project-relative path
+
+## Tool Usage Budget
+
+Aim for ~2-3 tool calls per interaction. Track your usage: "Tool 3/10 used"
+
+Start with lightweight tools (searchCode, findFiles) before expensive ones (readFile, analyzeClass).
+
+## Rewrite Process
+
+1. **Understand Context**
+   - What does this method do?
+   - Search for similar patterns: `searchCode("methodPattern", "*.java")` or search for its usages, then read the code around those places. 
+   - Check how other code handles similar tasks
+
+2. **Gather Requirements**
+   - Find usage examples to understand expected behavior
+   - Check dependencies and APIs used
+   - Identify project conventions from existing code
+
+3. **Propose Solution**
+   - Show clear before/after code blocks
+   - Explain reasoning based on what you found
+   - Reference similar implementations you discovered
+
+4. **Apply Changes**
+   - Use `replaceCodeInFile` to show diff and apply
+   - Ensure search pattern is unique (include context)
+   - User will review diff before accepting
+
+## Code Replacement Strategy
+
+When using `replaceCodeInFile`:
+- **Include context** in search pattern (2-3 surrounding lines)
+- **Make it unique** - pattern should match only once in file
+- **Use literal search** when possible (clearer than regex)
+- **Use regex** only for pattern matching (escape special chars: \\. \\( \\))
+- **Review carefully** - diff dialog will show exact changes
+
+Example:
+```
+searchPattern = "public User getUserById(Long id) {
+    return userRepository.findById(id);
+}"
+
+replacement = "public User getUserById(Long id) {
+    if (id == null) {
+        throw new IllegalArgumentException(\"User ID cannot be null\");
+    }
+    return userRepository.findById(id);
+}"
+```
+
+## Response Format
+
+Keep responses concise. Show:
+- Brief analysis of current code (1 line, less than 100 words) 
+- What you discovered using tools (1 line, less than 100 words) 
+- Why the incoming changes improve the code
+- Proposed changes (before/after code blocks - use code modification tools - do not write out)  
+            """.trimIndent()))
+        }
+    }
+
     /**
      * Prepare the chat with context for commit message generation
      */

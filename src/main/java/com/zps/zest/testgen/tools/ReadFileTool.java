@@ -198,7 +198,7 @@ public class ReadFileTool {
                 result.append(content.length() - preview.length()).append(" more characters]");
             }
             result.append("\n```\n\n");
-            result.append("✅ Full content has been stored for test generation context.");
+            result.append("✅ Full content has been stored.");
         } else {
             // Show full content for smaller files
             result.append("Content:\n");

@@ -69,7 +69,7 @@ class ZestMethodDiffRenderer {
         methodContext: MethodContext,
         originalContent: String,
         rewrittenContent: String,
-        onAccept: () -> Unit,
+         onAccept: () -> Unit,
         onReject: () -> Unit
     ) {
         ApplicationManager.getApplication().assertIsDispatchThread()

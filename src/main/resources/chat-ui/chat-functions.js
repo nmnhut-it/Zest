@@ -11,6 +11,10 @@
 // Configuration
 let showAllMessages = false;
 const VISIBLE_MESSAGE_COUNT = 3;
+const PREVIEW_LENGTH = 100;
+
+// Track collapse state for each message
+const messageCollapseState = {};
 
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', function() {
@@ -111,10 +115,20 @@ function renderMessages() {
         messageDiv.id = message.id;
         messageDiv.className = 'chat-message';
 
-        // Create header
+        // Apply collapse state if exists
+        if (messageCollapseState[message.id]) {
+            messageDiv.classList.add('collapsed');
+        }
+
+        // Create header with collapse indicator
         const headerDiv = document.createElement('div');
         headerDiv.className = 'message-header';
-        headerDiv.textContent = message.header + ' - (' + message.timestamp + ')';
+        const collapseIcon = messageCollapseState[message.id] ? '▶' : '▼';
+        headerDiv.innerHTML = '<span class="collapse-indicator">' + collapseIcon + '</span>' +
+                             escapeHtml(message.header + ' - (' + message.timestamp + ')');
+        headerDiv.onclick = function() {
+            window.chatFunctions.toggleMessageCollapse(message.id);
+        };
         messageDiv.appendChild(headerDiv);
 
         // Create content and render markdown
@@ -140,6 +154,12 @@ function renderMessages() {
                 contentDiv.appendChild(toolCallDiv);
             });
         }
+
+        // Create preview for collapsed state
+        const previewDiv = document.createElement('div');
+        previewDiv.className = 'message-preview';
+        previewDiv.textContent = generatePreview(message);
+        messageDiv.appendChild(previewDiv);
 
         container.appendChild(messageDiv);
     }
@@ -246,6 +266,31 @@ function escapeHtml(text) {
 }
 
 /**
+ * Generate preview text for collapsed messages
+ */
+function generatePreview(message) {
+    if (!message.content) {
+        if (message.toolCalls && message.toolCalls.length > 0) {
+            return 'Tool calls: ' + message.toolCalls.length;
+        }
+        return '(No content)';
+    }
+
+    const cleanText = message.content
+        .replace(/```[\s\S]*?```/g, '[code block]') // Replace code blocks
+        .replace(/`[^`]+`/g, '[code]') // Replace inline code
+        .replace(/\n+/g, ' ') // Replace newlines with spaces
+        .replace(/\s+/g, ' ') // Normalize whitespace
+        .trim();
+
+    if (cleanText.length <= PREVIEW_LENGTH) {
+        return cleanText;
+    }
+
+    return cleanText.substring(0, PREVIEW_LENGTH) + '...';
+}
+
+/**
  * Add copy buttons to code blocks
  */
 function addCopyButtons() {
@@ -268,6 +313,21 @@ function addCopyButtons() {
         pre.style.position = 'relative';
         pre.appendChild(button);
     });
+}
+
+/**
+ * Update collapse all button text based on current state
+ */
+function updateCollapseAllButton() {
+    const button = document.getElementById('collapse-all-btn');
+    if (!button) return;
+
+    const allCollapsed = messages.every(msg => messageCollapseState[msg.id]);
+    if (allCollapsed) {
+        button.textContent = '▼ Expand All';
+    } else {
+        button.textContent = '▲ Collapse All';
+    }
 }
 
 /**
@@ -591,6 +651,64 @@ window.chatFunctions = {
     notifyJava: function(action, data) {
         if (window.intellijBridge) {
             window.intellijBridge.callIDE(action, data || '');
+        }
+    },
+
+    toggleMessageCollapse: function(messageId) {
+        const messageElement = document.getElementById(messageId);
+        if (!messageElement) return;
+
+        const isCollapsed = messageElement.classList.contains('collapsed');
+        messageCollapseState[messageId] = !isCollapsed;
+
+        if (isCollapsed) {
+            messageElement.classList.remove('collapsed');
+        } else {
+            messageElement.classList.add('collapsed');
+        }
+
+        // Update collapse indicator
+        const indicator = messageElement.querySelector('.collapse-indicator');
+        if (indicator) {
+            indicator.textContent = messageCollapseState[messageId] ? '▶' : '▼';
+        }
+
+        // Update button state if needed
+        updateCollapseAllButton();
+    },
+
+    collapseAllMessages: function() {
+        messages.forEach(function(message) {
+            messageCollapseState[message.id] = true;
+            const messageElement = document.getElementById(message.id);
+            if (messageElement) {
+                messageElement.classList.add('collapsed');
+                const indicator = messageElement.querySelector('.collapse-indicator');
+                if (indicator) indicator.textContent = '▶';
+            }
+        });
+        updateCollapseAllButton();
+    },
+
+    expandAllMessages: function() {
+        messages.forEach(function(message) {
+            messageCollapseState[message.id] = false;
+            const messageElement = document.getElementById(message.id);
+            if (messageElement) {
+                messageElement.classList.remove('collapsed');
+                const indicator = messageElement.querySelector('.collapse-indicator');
+                if (indicator) indicator.textContent = '▼';
+            }
+        });
+        updateCollapseAllButton();
+    },
+
+    toggleCollapseAll: function() {
+        const allCollapsed = messages.every(msg => messageCollapseState[msg.id]);
+        if (allCollapsed) {
+            this.expandAllMessages();
+        } else {
+            this.collapseAllMessages();
         }
     }
 };

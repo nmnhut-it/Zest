@@ -66,6 +66,8 @@ public class RipgrepCodeTool {
         - searchCode("TODO|FIXME", "*.java,*.kt", null, 0, 0) - Find TODO or FIXME in Java/Kotlin
         - searchCode("getUserById", "*.java", "test,generated", 0, 0) - Find in Java, exclude test/generated
         - searchCode("import.*React", "*.tsx,*.jsx", null, 2, 2) - Find React imports with context
+        
+        Those examples illustrate only notable usages of this tool, not how to call it.
         """)
     public String searchCode(String query, @Nullable String filePattern, @Nullable String excludePattern,
                            Integer beforeLines, Integer afterLines) {
@@ -113,6 +115,8 @@ public class RipgrepCodeTool {
         - findFiles("*Test.java,*Tests.java,*IT.java") - Find all test classes
         - findFiles("*.properties,*.yml,*.yaml") - Find all config files
         - findFiles("src/**/*.xml,src/**/*.properties") - Find XML and properties in src
+        
+        Those examples illustrate only notable usages of this tool, not how to call it.
         """)
     public String findFiles(String globPattern) {
         if (globPattern == null || globPattern.trim().isEmpty()) {

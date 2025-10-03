@@ -128,18 +128,13 @@ class ZestCompletionProvider(private val project: Project) {
     private val leanPromptBuilder = ZestLeanPromptBuilder(project)
     private val leanResponseParser = ZestLeanResponseParser()
 
-    // Method rewrite strategy components
-    private val quickActionService by lazy {
-        project.getService(ZestQuickActionService::class.java)
-    }
 
     // Configuration
     var strategy: CompletionStrategy = CompletionStrategy.LEAN // Default to LEAN mode
         private set
 
     enum class CompletionStrategy {
-        LEAN,           // Full-file with reasoning approach
-        METHOD_REWRITE  // Method-level rewrite with floating window preview
+        LEAN  // Full-file with reasoning approach
     }
 
     /**
@@ -167,17 +162,8 @@ class ZestCompletionProvider(private val project: Project) {
         currentRequestId = requestId
         log("Set currentRequestId to $requestId", "Provider", 1)
 
-        val result = when (strategy) {
-            CompletionStrategy.LEAN -> {
-                log("Using LEAN strategy", "Provider")
-                requestLeanCompletion(context, requestId, metricsCompletionId)
-            }
-
-            CompletionStrategy.METHOD_REWRITE -> {
-                log("Using METHOD_REWRITE strategy", "Provider")
-                requestMethodRewrite(context, requestId, metricsCompletionId)
-            }
-        }
+        log("Using LEAN strategy", "Provider")
+        val result = requestLeanCompletion(context, requestId, metricsCompletionId)
 
         log("requestCompletion result: ${result?.items?.size ?: 0} items", "Provider")
         return result
@@ -480,73 +466,6 @@ class ZestCompletionProvider(private val project: Project) {
         )
     }
 
-    /**
-     * Method rewrite strategy - shows floating window with method rewrites
-     */
-    private fun requestMethodRewrite(
-        context: CompletionContext,
-        requestId: Int,
-        completionId: String
-    ): ZestInlineCompletionList? {
-        return try {
-            logger.debug("Requesting method rewrite for ${context.fileName} at offset ${context.offset}")
-            val startTime = System.currentTimeMillis()
-            
-            val editor = getSelectedEditor()
-            if (editor == null) {
-                logger.debug("No active editor found for method rewrite")
-                return null
-            }
-            
-            triggerMethodRewrite(editor, context.offset, completionId)
-            
-            val totalTime = System.currentTimeMillis() - startTime
-            logger.info("Method rewrite triggered in ${totalTime}ms for request $requestId")
-            
-            ZestInlineCompletionList.EMPTY
-            
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            e.printStackTrace()
-            logger.warn("Method rewrite request failed", e)
-            null
-        }
-    }
-    
-    /**
-     * Get selected editor synchronously
-     */
-    private fun getSelectedEditor(): Editor? {
-        var selectedEditor: Editor? = null
-        ApplicationManager.getApplication().invokeAndWait {
-            try {
-                selectedEditor = FileEditorManager.getInstance(project).selectedTextEditor
-            } catch (e: Exception) {
-                selectedEditor = null
-            }
-        }
-        return selectedEditor
-    }
-    
-    /**
-     * Trigger method rewrite service
-     */
-    private fun triggerMethodRewrite(editor: Editor, offset: Int, completionId: String) {
-        val rewriteStartTime = System.currentTimeMillis()
-        
-        ApplicationManager.getApplication().invokeLater {
-            try {
-                quickActionService.rewriteCurrentMethod(editor, offset)
-                
-                val rewriteTime = System.currentTimeMillis() - rewriteStartTime
-                metricsService.trackLLMCallTime(completionId, rewriteTime)
-            } catch (e: Exception) {
-                logger.warn("Method rewrite failed", e)
-                e.printStackTrace()
-            }
-        }
-    }
 
     companion object {
 

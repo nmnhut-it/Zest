@@ -23,7 +23,10 @@ class JCEFChatDialog(
 
 
     private val chatService = project.getService(ChatUIService::class.java)
-    private val chatPanel = JCEFChatPanel(project)
+    private val chatPanel = JCEFChatPanel(project).apply {
+        // Connect to chat memory for rendering
+        setChatMemory(chatService.getChatMemory())
+    }
     private val inputArea = JBTextArea()
     private val sendButton = JButton("Send")
     private val clearButton = JButton("Clear")
@@ -33,13 +36,14 @@ class JCEFChatDialog(
         title = "💬 Zest Chat"
         setSize(1000, 700)
         isModal = false
-        
-        // Initialize with welcome message
-        chatPanel.addMessage(
-            "💬 **Welcome to Zest Chat!**", 
-            "Start a conversation by typing your question below..."
+
+        // Temporary welcome message (DOM only, NOT in ChatMemory)
+        chatPanel.addTemporaryChunk(
+            "💬 **Welcome to Zest Chat!**",
+            "Start a conversation by typing your question below...",
+            "system"
         )
-        
+
         init()
     }
 
@@ -219,46 +223,41 @@ class JCEFChatDialog(
         sendButton.text = "Streaming..."
         sendButton.isEnabled = false
 
-        // Add user message to chat
-        chatPanel.addMessage("👤 **You**", userMessage)
+        // Add temporary DOM-only chunks (AiServices will add to ChatMemory)
+        chatPanel.addTemporaryChunk("👤 **You**", userMessage, "user")
+        chatPanel.addTemporaryChunk("🤖 **AI**", "...", "ai")
 
-        // Add initial AI message placeholder for streaming
-        val aiMessageId = chatPanel.addMessage("🤖 **AI**", "...")
-        
-        val responseBuilder = StringBuilder()
-        
+        val currentResponse = StringBuilder()
+
         // Send to AI with streaming and tool support
         chatService.sendMessageStreaming(
             userMessage,
-            onToken = { chunk ->
-                // Send chunk to client-side streaming handler
-                val escapedChunk = escapeJavaScriptString(chunk)
-                chatPanel.getBrowserManager().executeJavaScript("""
-                    if (window.chatFunctions && window.chatFunctions.updateMessageStreaming) {
-                        window.chatFunctions.updateMessageStreaming('$aiMessageId', '$escapedChunk');
-                    }
-                """)
+            onToken = { token ->
+                currentResponse.append(token)
+                ApplicationManager.getApplication().invokeLater {
+                    chatPanel.updateLastMessage(currentResponse.toString())
+                }
             },
             onComplete = { fullResponse ->
                 ApplicationManager.getApplication().invokeLater {
-                    // Finalize message with proper markdown rendering
-                    chatPanel.finalizeMessage(aiMessageId, fullResponse)
-                    
+                    chatPanel.finalizeStreaming()
+
                     // Reset UI state
                     isProcessing = false
                     sendButton.text = "Send"
                     sendButton.isEnabled = true
-                    
+                    currentResponse.clear()
+
                     // Focus back to input
                     inputArea.requestFocus()
                 }
             },
             onError = { error ->
                 ApplicationManager.getApplication().invokeLater {
-                    // Show error in the message
-                    val errorMessage = "❌ Failed to get response: ${error.message}"
-                    chatPanel.finalizeMessage(aiMessageId, errorMessage)
-                    
+                    // Show error as temporary chunk
+                    chatPanel.addTemporaryChunk("❌ **Error**", "Failed: ${error.message}", "system")
+                    chatPanel.finalizeStreaming()
+
                     // Reset UI state
                     isProcessing = false
                     sendButton.text = "Send"
@@ -266,13 +265,15 @@ class JCEFChatDialog(
                 }
             },
             onToolCall = { toolName, toolArgs, toolCallId ->
-                // Add tool call to message using data model (persists through reloads)
-                chatPanel.addToolCallToMessage(aiMessageId, toolCallId, toolName, toolArgs)
+                ApplicationManager.getApplication().invokeLater {
+                    chatPanel.addToolCallChunkLive(toolName, toolArgs, toolCallId)
+                }
             },
             onToolResult = { toolCallId, result ->
-                // Update tool call status and result in data model
-                val status = if (result.startsWith("❌")) "error" else "complete"
-                chatPanel.updateToolCallStatus(aiMessageId, toolCallId, status, result)
+                ApplicationManager.getApplication().invokeLater {
+                    val toolName = extractToolNameFromId(toolCallId)
+                    chatPanel.addToolResultChunkLive(toolName, result)
+                }
             }
         )
     }
@@ -281,7 +282,26 @@ class JCEFChatDialog(
         inputArea.text = ""
         inputArea.requestFocus()
     }
-    
+
+    /**
+     * Extract tool name from tool call ID by looking up in chat memory
+     */
+    private fun extractToolNameFromId(toolCallId: String): String {
+        // Try to find the tool name from the last AI message in memory
+        val messages = chatService.getChatMemory().messages()
+        for (i in messages.size - 1 downTo 0) {
+            val msg = messages[i]
+            if (msg is dev.langchain4j.data.message.AiMessage) {
+                msg.toolExecutionRequests().forEach { tool ->
+                    if (tool.id() == toolCallId) {
+                        return tool.name()
+                    }
+                }
+            }
+        }
+        return "Tool" // Fallback
+    }
+
     /**
      * Escape JavaScript string for safe execution in executeJavaScript
      */
@@ -350,99 +370,28 @@ class JCEFChatDialog(
     private fun startNewChat() {
         chatService.clearConversation()
         chatPanel.clearMessages()
-        chatPanel.addMessage(
-            "💬 **Welcome to Zest Chat!**", 
-            "Start a conversation by typing your question below..."
+        chatPanel.addTemporaryChunk(
+            "💬 **Welcome to Zest Chat!**",
+            "Start a conversation by typing your question below...",
+            "system"
         )
         inputArea.requestFocus()
     }
 
     private fun loadMessages(forceRefresh: Boolean = false) {
-        if (forceRefresh) {
-            // Force a complete browser reload by clearing and rebuilding
-            chatPanel.clearMessages()
-            // Add small delay to ensure browser processes the clear
-            Thread.sleep(50)
-        } else {
-            chatPanel.clearMessages()
-        }
-
+        // Simply refresh from ChatMemory (generateChatHtml handles transformation)
         val messages = chatService.getMessages()
 
         if (messages.isEmpty()) {
-            chatPanel.addMessage(
+            chatPanel.clearMessages()
+            chatPanel.addTemporaryChunk(
                 "💬 **Welcome to Zest Chat!**",
-                "Start a conversation by typing your question below..."
+                "Start a conversation by typing your question below...",
+                "system"
             )
         } else {
-            // Rebuild chat from all messages, grouping tool results with AI messages
-            var i = 0
-            while (i < messages.size) {
-                val message = messages[i]
-                when (message) {
-                    is UserMessage -> {
-                        chatPanel.addMessage("👤 **You**", message.singleText())
-                        i++
-                    }
-                    is AiMessage -> {
-                        val aiText = message.text() ?: ""
-                        val toolRequests = message.toolExecutionRequests()
-
-                        // Collect tool results that follow this AI message
-                        val toolResults = mutableListOf<ToolExecutionResultMessage>()
-                        var j = i + 1
-                        while (j < messages.size && messages[j] is ToolExecutionResultMessage) {
-                            toolResults.add(messages[j] as ToolExecutionResultMessage)
-                            j++
-                        }
-
-                        // Build content with tool calls and results
-                        val fullContent = buildString {
-                            if (aiText.isNotBlank()) {
-                                appendLine(aiText)
-                                appendLine()
-                            }
-
-                            if (!toolRequests.isNullOrEmpty()) {
-                                toolRequests.forEach { toolRequest ->
-                                    appendLine("🔧 **Tool Call: ${toolRequest.name()}**")
-                                    appendLine("```json")
-                                    appendLine(toolRequest.arguments())
-                                    appendLine("```")
-
-                                    // Find matching tool result
-                                    val matchingResult = toolResults.find { it.toolName() == toolRequest.name() }
-                                    if (matchingResult != null) {
-                                        appendLine()
-                                        appendLine("**Result:**")
-                                        appendLine("```")
-                                        appendLine(matchingResult.text())
-                                        appendLine("```")
-                                    }
-                                    appendLine()
-                                }
-                            }
-                        }
-
-                        chatPanel.addMessage("🤖 **AI**", fullContent.trim())
-
-                        // Skip the tool result messages we've already processed
-                        i = j
-                    }
-                    is dev.langchain4j.data.message.SystemMessage -> {
-                        chatPanel.addMessage("⚙️ **System**", message.text())
-                        i++
-                    }
-                    is ToolExecutionResultMessage -> {
-                        // Skip standalone tool results (they should have been grouped with AI message)
-                        i++
-                    }
-                    else -> {
-                        chatPanel.addMessage("💬 **Message**", message.toString())
-                        i++
-                    }
-                }
-            }
+            // ChatPanel will transform ChatMessages → VisualChunks automatically
+            chatPanel.setChatMemory(chatService.getChatMemory())
         }
     }
 

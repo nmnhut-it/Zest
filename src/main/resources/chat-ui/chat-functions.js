@@ -1,20 +1,20 @@
 /**
  * Zest Chat UI JavaScript Functions
- * Handles message rendering, streaming, tool calls, and interactive features
+ * Handles visual chunk rendering, streaming, and interactive features
  *
- * Architecture: Data-driven rendering
- * - Messages array is the single source of truth
- * - All updates modify the array first, then trigger re-render
- * - Streaming updates the data model progressively
+ * Architecture: Visual chunks from LangChain4j ChatMessages
+ * - visualChunks array contains rendering units (text chunks and tools)
+ * - Each AiMessage is split into: text chunk + tool chunks
+ * - Tools are rendered using specialized renderers
  */
 
 // Configuration
-let showAllMessages = false;
-const VISIBLE_MESSAGE_COUNT = 3;
+let showAllChunks = false;
+const VISIBLE_CHUNK_COUNT = 10;
 const PREVIEW_LENGTH = 100;
 
-// Track collapse state for each message
-const messageCollapseState = {};
+// Track collapse state for each chunk
+const chunkCollapseState = {};
 
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', function() {
@@ -28,66 +28,29 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 /**
- * Find a message in the array by ID
+ * Find a visual chunk in the array by ID
  */
-function findMessage(messageId) {
-    return messages.find(msg => msg.id === messageId);
+function findChunk(chunkId) {
+    return visualChunks.find(chunk => chunk.id === chunkId);
 }
 
 /**
- * Update message content in the data array
- */
-function updateMessageInArray(messageId, newContent) {
-    const message = findMessage(messageId);
-    if (message) {
-        message.content = newContent;
-    }
-}
-
-/**
- * Add tool call to message in the data array
- */
-function addToolCallToArray(messageId, toolCall) {
-    const message = findMessage(messageId);
-    if (message) {
-        if (!message.toolCalls) {
-            message.toolCalls = [];
-        }
-        message.toolCalls.push(toolCall);
-    }
-}
-
-/**
- * Update tool call in message in the data array
- */
-function updateToolCallInArray(messageId, toolCallId, status, result) {
-    const message = findMessage(messageId);
-    if (message && message.toolCalls) {
-        const toolCall = message.toolCalls.find(tc => tc.id === toolCallId);
-        if (toolCall) {
-            toolCall.status = status;
-            toolCall.result = result;
-        }
-    }
-}
-
-/**
- * Render all messages from the messages array
+ * Render all visual chunks
  */
 function renderMessages() {
     const container = document.getElementById('chat-container');
     container.innerHTML = '';
 
-    const totalMessages = messages.length;
-    const hiddenCount = Math.max(0, totalMessages - VISIBLE_MESSAGE_COUNT);
+    const totalChunks = visualChunks.length;
+    const hiddenCount = Math.max(0, totalChunks - VISIBLE_CHUNK_COUNT);
 
-    // Add "Show More" button if there are hidden messages
-    if (!showAllMessages && hiddenCount > 0) {
+    // Add "Show More" button if there are hidden chunks
+    if (!showAllChunks && hiddenCount > 0) {
         const showMoreDiv = document.createElement('div');
         showMoreDiv.className = 'show-more-container';
         showMoreDiv.innerHTML =
             '<button class="show-more-button" onclick="window.chatFunctions.toggleShowAllMessages()">' +
-            '▼ Show ' + hiddenCount + ' older message' + (hiddenCount > 1 ? 's' : '') +
+            '▼ Show ' + hiddenCount + ' older item' + (hiddenCount > 1 ? 's' : '') +
             '</button>';
         container.appendChild(showMoreDiv);
 
@@ -97,163 +60,161 @@ function renderMessages() {
         container.appendChild(separator);
     }
 
-    // Determine which messages to show
-    const startIndex = showAllMessages ? 0 : Math.max(0, totalMessages - VISIBLE_MESSAGE_COUNT);
+    // Determine which chunks to show
+    const startIndex = showAllChunks ? 0 : Math.max(0, totalChunks - VISIBLE_CHUNK_COUNT);
 
-    for (let i = startIndex; i < messages.length; i++) {
-        const message = messages[i];
+    for (let i = startIndex; i < visualChunks.length; i++) {
+        const chunk = visualChunks[i];
 
-        // Add separator if needed (skip for first visible message)
-        if (i > startIndex && message.showSeparator) {
+        // Add separator if needed (skip for first visible chunk)
+        if (i > startIndex) {
             const separator = document.createElement('div');
             separator.className = 'message-separator';
             container.appendChild(separator);
         }
 
-        // Create message container
-        const messageDiv = document.createElement('div');
-        messageDiv.id = message.id;
-        messageDiv.className = 'chat-message';
+        // Create chunk container
+        const chunkDiv = document.createElement('div');
+        chunkDiv.id = chunk.id;
+        chunkDiv.className = 'chat-message';
+        chunkDiv.setAttribute('data-type', chunk.type);
 
-        // Apply collapse state if exists
-        if (messageCollapseState[message.id]) {
-            messageDiv.classList.add('collapsed');
+        // Auto-collapse logic based on chunk type
+        const isTool = chunk.type === 'tool_call' || chunk.type === 'tool_result';
+        const isRecent = i >= visualChunks.length - 2;
+
+        if (isTool) {
+            // ALWAYS collapse tool chunks by default
+            if (chunkCollapseState[chunk.id] === undefined) {
+                chunkCollapseState[chunk.id] = true;
+                chunkDiv.classList.add('collapsed');
+            } else if (chunkCollapseState[chunk.id]) {
+                chunkDiv.classList.add('collapsed');
+            }
+        } else if (!isRecent && chunkCollapseState[chunk.id] === undefined) {
+            // Auto-collapse older non-tool messages
+            chunkCollapseState[chunk.id] = true;
+            chunkDiv.classList.add('collapsed');
+        } else if (chunkCollapseState[chunk.id]) {
+            // Respect manual collapse state
+            chunkDiv.classList.add('collapsed');
         }
 
-        // Create header with collapse indicator
+        // Create header with CORRECT collapse indicator based on actual state
         const headerDiv = document.createElement('div');
         headerDiv.className = 'message-header';
-        const collapseIcon = messageCollapseState[message.id] ? '▶' : '▼';
+        const isCollapsed = chunkDiv.classList.contains('collapsed');
+        const collapseIcon = isCollapsed ? '▶' : '▼';
         headerDiv.innerHTML = '<span class="collapse-indicator">' + collapseIcon + '</span>' +
-                             escapeHtml(message.header + ' - (' + message.timestamp + ')');
+                             escapeHtml(chunk.header + ' - (' + chunk.timestamp + ')');
         headerDiv.onclick = function() {
-            window.chatFunctions.toggleMessageCollapse(message.id);
+            window.chatFunctions.toggleMessageCollapse(chunk.id);
         };
-        messageDiv.appendChild(headerDiv);
+        chunkDiv.appendChild(headerDiv);
 
-        // Create content and render markdown
+        // Create content
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
 
-        // Use marked.js to render markdown (if content exists)
-        if (message.content) {
+        // Render based on chunk type
+        if (chunk.type === 'tool_call') {
+            // Use tool renderer
+            const rendered = window.ToolRenderers.render(chunk);
+            contentDiv.appendChild(rendered);
+        } else if (chunk.type === 'tool_result') {
+            // Format tool result
+            const rendered = window.ToolRenderers.renderResult(chunk);
+            contentDiv.appendChild(rendered);
+        } else if (chunk.content) {
+            // Regular content - render as markdown
             if (typeof marked !== 'undefined') {
-                contentDiv.innerHTML = marked.parse(message.content);
+                contentDiv.innerHTML = marked.parse(chunk.content);
             } else {
-                // Fallback to plain text
-                contentDiv.textContent = message.content;
+                contentDiv.textContent = chunk.content;
             }
         }
 
-        messageDiv.appendChild(contentDiv);
-
-        // Render tool calls if present
-        if (message.toolCalls && message.toolCalls.length > 0) {
-            message.toolCalls.forEach(function(toolCall) {
-                const toolCallDiv = renderToolCall(toolCall);
-                contentDiv.appendChild(toolCallDiv);
-            });
-        }
+        chunkDiv.appendChild(contentDiv);
 
         // Create preview for collapsed state
         const previewDiv = document.createElement('div');
         previewDiv.className = 'message-preview';
-        previewDiv.textContent = generatePreview(message);
-        messageDiv.appendChild(previewDiv);
+        previewDiv.innerHTML = generatePreview(chunk);
+        chunkDiv.appendChild(previewDiv);
 
-        container.appendChild(messageDiv);
+        container.appendChild(chunkDiv);
     }
+
+    // Apply syntax highlighting
+    if (typeof hljs !== 'undefined') {
+        hljs.highlightAll();
+        makeCodeBlocksCollapsible();
+    }
+
+    // Update collapse all button text
+    updateCollapseAllButton();
 }
 
 /**
- * Re-render a single message from the messages array (data-driven)
+ * Create a chunk DOM element (used for both static and streaming chunks)
+ * @param {Object} chunk - Visual chunk data
+ * @returns {HTMLElement} Wrapper containing separator and chunk
  */
-function reRenderMessage(messageId) {
-    const message = findMessage(messageId);
-    if (!message) return;
+function createChunkElement(chunk) {
+    // Separator
+    const separator = document.createElement('div');
+    separator.className = 'message-separator';
 
-    const messageElement = document.getElementById(messageId);
-    if (!messageElement) return;
+    // Chunk container
+    const chunkDiv = document.createElement('div');
+    chunkDiv.id = chunk.id;
+    chunkDiv.className = 'chat-message';
+    chunkDiv.setAttribute('data-type', chunk.type);
 
-    // Clear streaming state if any
-    if (messageElement._streamingState) {
-        delete messageElement._streamingState;
-    }
+    // Header with collapse indicator
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'message-header';
+    const collapseIcon = '▼';
+    headerDiv.innerHTML = '<span class="collapse-indicator">' + collapseIcon + '</span>' +
+                         escapeHtml(chunk.header + ' - (' + chunk.timestamp + ')');
+    headerDiv.onclick = function() {
+        window.chatFunctions.toggleMessageCollapse(chunk.id);
+    };
+    chunkDiv.appendChild(headerDiv);
 
-    // Find and preserve the header
-    const headerDiv = messageElement.querySelector('.message-header');
-    const headerHtml = headerDiv ? headerDiv.outerHTML : '';
-
-    // Create new content div
+    // Content
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
 
-    // Render markdown content if present
-    if (message.content) {
+    if (chunk.type === 'tool_call') {
+        const rendered = window.ToolRenderers.render(chunk);
+        contentDiv.appendChild(rendered);
+    } else if (chunk.type === 'tool_result') {
+        const rendered = window.ToolRenderers.renderResult(chunk);
+        contentDiv.appendChild(rendered);
+    } else if (chunk.content) {
         if (typeof marked !== 'undefined') {
-            contentDiv.innerHTML = marked.parse(message.content);
+            contentDiv.innerHTML = marked.parse(chunk.content);
         } else {
-            contentDiv.textContent = message.content;
+            contentDiv.textContent = chunk.content;
         }
     }
 
-    // Render tool calls from data model
-    if (message.toolCalls && message.toolCalls.length > 0) {
-        message.toolCalls.forEach(function(toolCall) {
-            const toolCallDiv = renderToolCall(toolCall);
-            contentDiv.appendChild(toolCallDiv);
-        });
-    }
+    chunkDiv.appendChild(contentDiv);
 
-    // Replace message content (preserve structure)
-    messageElement.innerHTML = headerHtml;
-    messageElement.appendChild(contentDiv);
+    // Wrap in container with separator
+    const wrapper = document.createElement('div');
+    wrapper.appendChild(separator);
+    wrapper.appendChild(chunkDiv);
 
-    // Re-apply syntax highlighting and interactivity
+    // Syntax highlight if needed
     if (typeof hljs !== 'undefined') {
         contentDiv.querySelectorAll('pre code').forEach(function(block) {
             hljs.highlightElement(block);
         });
     }
-    makeCodeBlocksCollapsible();
-}
 
-/**
- * Render a single tool call
- */
-function renderToolCall(toolCall) {
-    const statusIcon = toolCall.status === 'executing' ? '⏳' :
-                     toolCall.status === 'complete' ? '✅' : '❌';
-    const statusText = toolCall.status === 'executing' ? 'Executing...' :
-                     toolCall.status === 'complete' ? 'Complete' : 'Error';
-
-    const toolCallDiv = document.createElement('div');
-    toolCallDiv.className = 'tool-call';
-    toolCallDiv.id = toolCall.id;
-
-    const toolHeader = document.createElement('div');
-    toolHeader.className = 'tool-header';
-    toolHeader.innerHTML =
-        '<span class="tool-icon">' + statusIcon + '</span>' +
-        '<span class="tool-name">' + escapeHtml(toolCall.toolName) + '</span>' +
-        '<span class="tool-status">' + statusText + '</span>';
-    toolCallDiv.appendChild(toolHeader);
-
-    const toolArgs = document.createElement('div');
-    toolArgs.className = 'tool-args';
-    toolArgs.innerHTML = '<code>' + escapeHtml(toolCall.arguments) + '</code>';
-    toolCallDiv.appendChild(toolArgs);
-
-    if (toolCall.result && toolCall.status === 'complete') {
-        const toolResult = document.createElement('div');
-        toolResult.className = 'tool-result';
-        toolResult.innerHTML =
-            '<div class="tool-result-header">📄 Result:</div>' +
-            '<pre class="tool-result-content">' + escapeHtml(toolCall.result) + '</pre>';
-        toolCallDiv.appendChild(toolResult);
-    }
-
-    return toolCallDiv;
+    return wrapper;
 }
 
 /**
@@ -266,17 +227,25 @@ function escapeHtml(text) {
 }
 
 /**
- * Generate preview text for collapsed messages
+ * Generate preview text for collapsed chunks
  */
-function generatePreview(message) {
-    if (!message.content) {
-        if (message.toolCalls && message.toolCalls.length > 0) {
-            return 'Tool calls: ' + message.toolCalls.length;
-        }
+function generatePreview(chunk) {
+    if (chunk.type === 'tool_call') {
+        // Show spinner if temporary (still executing), otherwise just tool name
+        return chunk.id.startsWith('temp-')
+            ? '<span class="tool-spinner">⟳</span> Executing...'
+            : 'Tool: ' + chunk.toolName;
+    }
+
+    if (chunk.type === 'tool_result') {
+        return 'Result from ' + chunk.toolName;
+    }
+
+    if (!chunk.content) {
         return '(No content)';
     }
 
-    const cleanText = message.content
+    const cleanText = chunk.content
         .replace(/```[\s\S]*?```/g, '[code block]') // Replace code blocks
         .replace(/`[^`]+`/g, '[code]') // Replace inline code
         .replace(/\n+/g, ' ') // Replace newlines with spaces
@@ -316,17 +285,22 @@ function addCopyButtons() {
 }
 
 /**
- * Update collapse all button text based on current state
+ * Update collapse all button text based on actual DOM state
  */
 function updateCollapseAllButton() {
     const button = document.getElementById('collapse-all-btn');
     if (!button) return;
 
-    const allCollapsed = messages.every(msg => messageCollapseState[msg.id]);
-    if (allCollapsed) {
-        button.textContent = '▼ Expand All';
-    } else {
+    // Check actual DOM state (not chunkCollapseState which has undefined values)
+    const hasExpanded = visualChunks.some(function(chunk) {
+        const element = document.getElementById(chunk.id);
+        return element && !element.classList.contains('collapsed');
+    });
+
+    if (hasExpanded) {
         button.textContent = '▲ Collapse All';
+    } else {
+        button.textContent = '▼ Expand All';
     }
 }
 
@@ -388,260 +362,232 @@ function makeCodeBlocksCollapsible() {
  */
 window.chatFunctions = {
     toggleShowAllMessages: function() {
-        showAllMessages = !showAllMessages;
+        showAllChunks = !showAllChunks;
         renderMessages();
-        if (typeof hljs !== 'undefined') {
-            hljs.highlightAll();
-            makeCodeBlocksCollapsible();
-        }
     },
 
-    scrollToMessage: function(messageId) {
-        const element = document.getElementById(messageId);
-        if (element) {
-            element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-    },
-
-    addMessage: function(messageId, html) {
+    /**
+     * Append a tool call chunk during streaming (temporary)
+     */
+    appendToolCallChunk: function(toolName, toolArgs, toolId) {
         const container = document.getElementById('chat-container');
-        const messageDiv = document.createElement('div');
-        messageDiv.id = messageId;
-        messageDiv.className = 'chat-message';
-        messageDiv.innerHTML = html;
-        container.appendChild(messageDiv);
 
-        if (typeof hljs !== 'undefined') {
-            hljs.highlightAll();
-            makeCodeBlocksCollapsible();
+        const chunk = {
+            id: 'temp-tool-' + Date.now(),
+            type: 'tool_call',
+            header: '🔧 ' + toolName,
+            timestamp: new Date().toLocaleTimeString(),
+            toolName: toolName,
+            toolArgs: toolArgs,
+            toolId: toolId
+        };
+
+        const chunkDiv = createChunkElement(chunk);
+        chunkDiv.classList.add('streaming-chunk', 'temporary');
+
+        // Auto-collapse with spinner in preview
+        chunkDiv.classList.add('collapsed');
+        chunkCollapseState[chunk.id] = true;
+
+        const previewDiv = chunkDiv.querySelector('.message-preview');
+        if (previewDiv) {
+            previewDiv.innerHTML = '<span class="tool-spinner">⟳</span> Executing...';
         }
 
-        this.scrollToMessage(messageId);
+        container.appendChild(chunkDiv);
+
+        // Fade in animation
+        setTimeout(function() {
+            chunkDiv.classList.add('visible');
+        }, 10);
+
+        // Auto-scroll
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     },
 
-    updateMessage: function(messageId, newContent) {
-        const messageElement = document.getElementById(messageId);
-        if (messageElement) {
-            const contentDiv = messageElement.querySelector('.message-content');
-            if (contentDiv) {
-                contentDiv.innerHTML = '<pre style="white-space: pre-wrap; font-family: inherit; margin: 0; background: none; border: none; padding: 0;">' + this.escapeHtml(newContent) + '</pre>';
-            }
-        }
+    /**
+     * Append a tool result chunk during streaming (temporary, collapsed)
+     */
+    appendToolResultChunk: function(toolName, result) {
+        const container = document.getElementById('chat-container');
+
+        const chunk = {
+            id: 'temp-result-' + Date.now(),
+            type: 'tool_result',
+            header: '📄 Result: ' + toolName,
+            timestamp: new Date().toLocaleTimeString(),
+            toolName: toolName,
+            content: result
+        };
+
+        const chunkDiv = createChunkElement(chunk);
+        chunkDiv.classList.add('streaming-chunk', 'temporary');
+
+        // Auto-collapse tool results
+        chunkDiv.classList.add('collapsed');
+        chunkCollapseState[chunk.id] = true;
+
+        container.appendChild(chunkDiv);
+
+        // Fade in animation
+        setTimeout(function() {
+            chunkDiv.classList.add('visible');
+        }, 10);
+
+        // Auto-scroll
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     },
 
-    updateMessageStreaming: function(messageId, newChunk) {
-        const messageElement = document.getElementById(messageId);
-        if (!messageElement) return;
+    /**
+     * Finalize with smooth animation (fade out streaming chunks)
+     */
+    finalizeWithAnimation: function() {
+        const container = document.getElementById('chat-container');
 
-        const contentDiv = messageElement.querySelector('.message-content');
+        // Remove streaming badges and states
+        document.querySelectorAll('.streaming-badge').forEach(function(badge) {
+            badge.remove();
+        });
+        document.querySelectorAll('.streaming').forEach(function(msg) {
+            msg.classList.remove('streaming');
+        });
+
+        // Show finalizing indicator
+        const indicator = document.createElement('div');
+        indicator.className = 'finalizing-indicator';
+        indicator.innerHTML = '<span class="spinner">⟳</span> Finalizing...';
+        container.appendChild(indicator);
+
+        // Fade out all content
+        container.classList.add('finalizing');
+
+        // The actual reload happens in Kotlin after 300ms
+    },
+
+    /**
+     * Add a temporary chunk (DOM only, not in data model)
+     * Will be replaced when reloading from ChatMemory
+     */
+    addTemporaryChunk: function(type, header, content) {
+        const container = document.getElementById('chat-container');
+
+        const chunk = {
+            id: 'temp-' + Date.now() + '-' + Math.random(),
+            type: type,
+            header: header,
+            timestamp: new Date().toLocaleTimeString(),
+            content: content
+        };
+
+        const chunkDiv = createChunkElement(chunk);
+        chunkDiv.classList.add('streaming-chunk', 'temporary');
+        container.appendChild(chunkDiv);
+
+        // Fade in
+        setTimeout(function() {
+            chunkDiv.classList.add('visible');
+        }, 10);
+
+        // Auto-scroll
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    },
+
+    /**
+     * Update the last message during streaming (blazingly fast char-by-char)
+     */
+    updateLastMessageStreaming: function(newChunk) {
+        const container = document.getElementById('chat-container');
+        const messages = container.querySelectorAll('.chat-message');
+        const lastMessage = messages[messages.length - 1];
+
+        if (!lastMessage) return;
+
+        const contentDiv = lastMessage.querySelector('.message-content');
         if (!contentDiv) return;
 
         // Initialize streaming state
-        if (!messageElement._streamingState) {
-            messageElement._streamingState = {
-                contentBuffer: '',
+        if (!lastMessage._streamingState) {
+            lastMessage._streamingState = {
                 displayedContent: '',
-                wordQueue: [],
-                isProcessing: false,
-                lastChunkTime: Date.now(),
-                chunkInterval: 2000,
-                adaptiveSpeed: 500,
-                lastScrollTime: 0,
-                isFinalized: false,
-                finalContent: null
+                charQueue: [],
+                isProcessing: false
             };
         }
 
-        const state = messageElement._streamingState;
-        const currentTime = Date.now();
-
-        // Calculate adaptive speed
-        if (state.lastChunkTime > 0) {
-            const timeSinceLastChunk = currentTime - state.lastChunkTime;
-            state.chunkInterval = timeSinceLastChunk;
-
-            if (timeSinceLastChunk < 500) {
-                state.adaptiveSpeed = Math.max(100, Math.min(200, timeSinceLastChunk / 3));
-            } else if (timeSinceLastChunk < 2000) {
-                state.adaptiveSpeed = Math.max(300, Math.min(500, timeSinceLastChunk / 2));
-            } else {
-                state.adaptiveSpeed = Math.max(800, Math.min(1500, timeSinceLastChunk / 2));
+        // Add streaming indicator (once)
+        if (!lastMessage._hasStreamingBadge) {
+            const headerDiv = lastMessage.querySelector('.message-header');
+            if (headerDiv) {
+                const badge = document.createElement('span');
+                badge.className = 'streaming-badge';
+                badge.textContent = '⏵';
+                headerDiv.appendChild(badge);
+                lastMessage._hasStreamingBadge = true;
             }
-        }
-        state.lastChunkTime = currentTime;
-
-        state.contentBuffer += newChunk;
-        const words = newChunk.split(/(\s+)/);
-        state.wordQueue.push(...words);
-
-        if (state.wordQueue.length > 50) {
-            state.adaptiveSpeed = Math.max(50, state.adaptiveSpeed / 2);
+            lastMessage.classList.add('streaming');
         }
 
+        const state = lastMessage._streamingState;
+
+        // Add new characters to queue
+        for (let i = 0; i < newChunk.length; i++) {
+            state.charQueue.push(newChunk[i]);
+        }
+
+        // Start processing if not already
         if (!state.isProcessing) {
-            this.processWordQueue(messageId);
+            this.processCharQueue(lastMessage);
         }
 
-        // Throttled scrolling
-        if (currentTime - state.lastScrollTime > 300) {
-            state.lastScrollTime = currentTime;
-            messageElement.scrollIntoView({
-                behavior: 'smooth',
-                block: 'end',
-                inline: 'nearest'
-            });
-        }
+        // Auto-scroll
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     },
 
-    processWordQueue: function(messageId) {
-        const messageElement = document.getElementById(messageId);
+    /**
+     * Process character queue for blazingly fast streaming animation
+     */
+    processCharQueue: function(messageElement) {
         if (!messageElement || !messageElement._streamingState) return;
 
         const state = messageElement._streamingState;
         const contentDiv = messageElement.querySelector('.message-content');
 
-        if (state.wordQueue.length === 0) {
+        if (state.charQueue.length === 0) {
             state.isProcessing = false;
-
-            if (state.isFinalized && state.finalContent) {
-                this.convertToMarkdown(messageId, state.finalContent);
-            }
             return;
         }
 
         state.isProcessing = true;
-        const nextWord = state.wordQueue.shift();
-        state.displayedContent += nextWord;
 
-        contentDiv.innerHTML = '<pre style="white-space: pre-wrap; font-family: inherit; margin: 0; background: none; border: none; padding: 0;">' + this.escapeHtml(state.displayedContent) + '<span class="streaming-cursor">▎</span></pre>';
-
-        const now = Date.now();
-        if (now - state.lastScrollTime > 500) {
-            state.lastScrollTime = now;
-            messageElement.scrollIntoView({
-                behavior: 'smooth',
-                block: 'end',
-                inline: 'nearest'
-            });
+        // Process multiple characters per frame for blazing speed
+        const charsPerFrame = Math.min(3, state.charQueue.length);
+        let batch = '';
+        for (let i = 0; i < charsPerFrame; i++) {
+            batch += state.charQueue.shift();
         }
 
-        const isSpace = /^\s+$/.test(nextWord);
-        const baseDelay = isSpace ? Math.max(50, state.adaptiveSpeed / 5) : state.adaptiveSpeed;
-        const randomFactor = 0.8 + (Math.random() * 0.4);
-        const delay = Math.floor(baseDelay * randomFactor);
+        state.displayedContent += batch;
 
-        setTimeout(() => {
-            this.processWordQueue(messageId);
+        // Render with cursor
+        contentDiv.innerHTML =
+            '<pre style="white-space: pre-wrap; font-family: inherit; margin: 0; background: none; border: none; padding: 0;">' +
+            escapeHtml(state.displayedContent) +
+            '<span class="streaming-cursor">▎</span></pre>';
+
+        // Blazingly fast: 10-20ms per frame (3 chars each = ~3-6ms per char)
+        const delay = state.charQueue.length > 100 ? 10 : 20;
+
+        const self = this;
+        setTimeout(function() {
+            self.processCharQueue(messageElement);
         }, delay);
     },
 
-    finalizeMessage: function(messageId, finalContent) {
-        const messageElement = document.getElementById(messageId);
-        if (!messageElement) return;
-
-        const state = messageElement._streamingState;
-        if (state) {
-            state.isFinalized = true;
-            state.finalContent = finalContent;
-
-            const remainingWords = finalContent.split(/(\s+)/).slice(state.displayedContent.split(/(\s+)/).length);
-            if (remainingWords.length > 0) {
-                state.wordQueue.push(...remainingWords);
-                state.adaptiveSpeed = Math.min(50, state.adaptiveSpeed / 4);
-
-                if (!state.isProcessing) {
-                    this.processWordQueue(messageId);
-                }
-            } else {
-                this.convertToMarkdown(messageId, finalContent);
-            }
-        } else {
-            this.convertToMarkdown(messageId, finalContent);
-        }
-    },
-
-    convertToMarkdown: function(messageId, content) {
-        // Update data model first
-        updateMessageInArray(messageId, content);
-
-        // Re-render from data (includes tool calls from array)
-        reRenderMessage(messageId);
-
-        // Scroll to message
-        setTimeout(() => {
-            const messageElement = document.getElementById(messageId);
-            if (messageElement) {
-                messageElement.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'end',
-                    inline: 'nearest'
-                });
-            }
-        }, 100);
-    },
-
-    // Expose array update functions to Kotlin
-    updateMessageInArray: updateMessageInArray,
-    addToolCallToArray: addToolCallToArray,
-    updateToolCallInArray: updateToolCallInArray,
-    reRenderMessage: reRenderMessage,
 
     escapeHtml: function(text) {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
-    },
-
-    addToolCall: function(messageId, toolName, toolArgs, status, toolCallId) {
-        const messageElement = document.getElementById(messageId);
-        if (!messageElement) return;
-
-        const contentDiv = messageElement.querySelector('.message-content');
-        if (!contentDiv) return;
-
-        const statusIcon = status === 'executing' ? '⏳' : status === 'complete' ? '✅' : '❌';
-        const statusText = status === 'executing' ? 'Executing...' : status === 'complete' ? 'Complete' : 'Error';
-
-        const toolCallHtml =
-            '<div class="tool-call" id="' + toolCallId + '">' +
-                '<div class="tool-header">' +
-                    '<span class="tool-icon">' + statusIcon + '</span>' +
-                    '<span class="tool-name">' + this.escapeHtml(toolName) + '</span>' +
-                    '<span class="tool-status">' + statusText + '</span>' +
-                '</div>' +
-                '<div class="tool-args">' +
-                    '<code>' + this.escapeHtml(toolArgs || '...') + '</code>' +
-                '</div>' +
-            '</div>';
-
-        const currentContent = contentDiv.innerHTML;
-        contentDiv.innerHTML = currentContent + toolCallHtml;
-    },
-
-    updateToolCall: function(toolCallId, status, result) {
-        const toolElement = document.getElementById(toolCallId);
-        if (!toolElement) {
-            console.log('Element for tool call id not found', toolCallId);
-            return;
-        }
-
-        const statusIcon = status === 'complete' ? '✅' : '❌';
-        const statusText = status === 'complete' ? 'Complete' : 'Error';
-
-        const statusSpan = toolElement.querySelector('.tool-status');
-        const iconSpan = toolElement.querySelector('.tool-icon');
-
-        if (statusSpan) statusSpan.textContent = statusText;
-        if (iconSpan) iconSpan.textContent = statusIcon;
-
-        if (result && status === 'complete') {
-            const resultHtml =
-                '<div class="tool-result">' +
-                    '<div class="tool-result-header">📄 Result:</div>' +
-                    '<pre class="tool-result-content">' + this.escapeHtml(result) + '</pre>' +
-                '</div>';
-            toolElement.innerHTML += resultHtml;
-        }
     },
 
     clearMessages: function() {
@@ -654,23 +600,23 @@ window.chatFunctions = {
         }
     },
 
-    toggleMessageCollapse: function(messageId) {
-        const messageElement = document.getElementById(messageId);
-        if (!messageElement) return;
+    toggleMessageCollapse: function(chunkId) {
+        const chunkElement = document.getElementById(chunkId);
+        if (!chunkElement) return;
 
-        const isCollapsed = messageElement.classList.contains('collapsed');
-        messageCollapseState[messageId] = !isCollapsed;
+        const isCollapsed = chunkElement.classList.contains('collapsed');
+        chunkCollapseState[chunkId] = !isCollapsed;
 
         if (isCollapsed) {
-            messageElement.classList.remove('collapsed');
+            chunkElement.classList.remove('collapsed');
         } else {
-            messageElement.classList.add('collapsed');
+            chunkElement.classList.add('collapsed');
         }
 
         // Update collapse indicator
-        const indicator = messageElement.querySelector('.collapse-indicator');
+        const indicator = chunkElement.querySelector('.collapse-indicator');
         if (indicator) {
-            indicator.textContent = messageCollapseState[messageId] ? '▶' : '▼';
+            indicator.textContent = chunkCollapseState[chunkId] ? '▶' : '▼';
         }
 
         // Update button state if needed
@@ -678,12 +624,12 @@ window.chatFunctions = {
     },
 
     collapseAllMessages: function() {
-        messages.forEach(function(message) {
-            messageCollapseState[message.id] = true;
-            const messageElement = document.getElementById(message.id);
-            if (messageElement) {
-                messageElement.classList.add('collapsed');
-                const indicator = messageElement.querySelector('.collapse-indicator');
+        visualChunks.forEach(function(chunk) {
+            chunkCollapseState[chunk.id] = true;
+            const chunkElement = document.getElementById(chunk.id);
+            if (chunkElement) {
+                chunkElement.classList.add('collapsed');
+                const indicator = chunkElement.querySelector('.collapse-indicator');
                 if (indicator) indicator.textContent = '▶';
             }
         });
@@ -691,12 +637,12 @@ window.chatFunctions = {
     },
 
     expandAllMessages: function() {
-        messages.forEach(function(message) {
-            messageCollapseState[message.id] = false;
-            const messageElement = document.getElementById(message.id);
-            if (messageElement) {
-                messageElement.classList.remove('collapsed');
-                const indicator = messageElement.querySelector('.collapse-indicator');
+        visualChunks.forEach(function(chunk) {
+            chunkCollapseState[chunk.id] = false;
+            const chunkElement = document.getElementById(chunk.id);
+            if (chunkElement) {
+                chunkElement.classList.remove('collapsed');
+                const indicator = chunkElement.querySelector('.collapse-indicator');
                 if (indicator) indicator.textContent = '▼';
             }
         });
@@ -704,13 +650,22 @@ window.chatFunctions = {
     },
 
     toggleCollapseAll: function() {
-        const allCollapsed = messages.every(msg => messageCollapseState[msg.id]);
-        if (allCollapsed) {
-            this.expandAllMessages();
-        } else {
+        // Check if ANY chunk is currently expanded (actual DOM state)
+        const hasExpanded = visualChunks.some(function(chunk) {
+            const element = document.getElementById(chunk.id);
+            return element && !element.classList.contains('collapsed');
+        });
+
+        if (hasExpanded) {
+            // At least one expanded → collapse all
             this.collapseAllMessages();
+        } else {
+            // All collapsed → expand all
+            this.expandAllMessages();
         }
     }
+
+
 };
 
 // Notify Java that chat is ready

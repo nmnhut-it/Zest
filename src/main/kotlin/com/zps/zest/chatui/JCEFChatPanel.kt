@@ -22,18 +22,26 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private val browserManager: JCEFBrowserManager = JCEFBrowserService.getInstance(project).getBrowserManager(BrowserPurpose.CHAT)
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
-    private val conversationMessages = mutableListOf<ChatMessageData>()
+    private var chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
     private var messageCounter = 0
     
     init {
-        
+
         // Initialize browser with empty chat
         initializeBrowser()
-        
+
         // Add browser component directly
         add(browserManager.browser.component, BorderLayout.CENTER)
     }
-    
+
+    /**
+     * Set the chat memory to render messages from
+     */
+    fun setChatMemory(memory: dev.langchain4j.memory.chat.MessageWindowChatMemory) {
+        this.chatMemory = memory
+        updateChatDisplay()
+    }
+
     private fun initializeBrowser() {
         val initialHtml = generateChatHtml()
         // Create base64 data URL to avoid encoding issues
@@ -53,146 +61,107 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     /**
-     * Add a new message to the chat
-     * @return the ID of the created message
+     * Add message to ChatMemory (for system prompts only, not UI messages)
+     * Use addTemporaryChunk() for UI-only messages like welcome text
      */
-    fun addMessage(header: String, content: String, messageType: String = "user"): String {
-        val timestamp = timeFormatter.format(Date())
-        messageCounter++
+    fun addMessage(header: String, content: String, messageType: String = "user") {
+        // Add to LangChain4j chat memory
+        when (messageType) {
+            "user" -> chatMemory?.add(dev.langchain4j.data.message.UserMessage.from(content))
+            "ai" -> chatMemory?.add(dev.langchain4j.data.message.AiMessage.from(content))
+            "system" -> chatMemory?.add(dev.langchain4j.data.message.SystemMessage.from(content))
+        }
 
-        val messageData = ChatMessageData(
-            id = "msg-$messageCounter",
-            messageType = messageType,
-            header = header,
-            content = content,
-            timestamp = timestamp,
-            toolCalls = mutableListOf()
-        )
-
-        conversationMessages.add(messageData)
+        // Trigger full re-render from chat memory
         updateChatDisplay()
-        scrollToMessage(messageData.id)
-        return messageData.id
-    }
-    
-    /**
-     * Update an existing message's content for streaming (sends chunk to client-side queue)
-     * Note: This does NOT reload the page - only updates via JavaScript for better performance
-     * IMPORTANT: Preserves tool calls when updating content
-     */
-    fun updateMessage(messageId: String, newContent: String) {
-        val messageIndex = conversationMessages.indexOfFirst { it.id == messageId }
-        if (messageIndex >= 0) {
-            val originalMessage = conversationMessages[messageIndex]
-            // Preserve toolCalls when updating content during streaming
-            val updatedMessage = originalMessage.copy(
-                content = newContent,
-                toolCalls = originalMessage.toolCalls
-            )
-            conversationMessages[messageIndex] = updatedMessage
-
-            // Send chunk to client-side streaming handler (no page reload)
-            val escapedContent = escapeJavaScriptString(newContent)
-            browserManager.executeJavaScript("""
-                if (window.chatFunctions && window.chatFunctions.updateMessageStreaming) {
-                    window.chatFunctions.updateMessageStreaming('$messageId', '$escapedContent');
-                }
-            """)
-        }
-    }
-    
-    /**
-     * Finalize message content (render as markdown when streaming is complete)
-     * IMPORTANT: Preserves tool calls by using copy() properly
-     */
-    fun finalizeMessage(messageId: String, finalContent: String) {
-        val messageIndex = conversationMessages.indexOfLast { it.id == messageId }
-        if (messageIndex >= 0) {
-            val originalMessage = conversationMessages[messageIndex]
-            // Must preserve toolCalls list when copying!
-            val updatedMessage = originalMessage.copy(
-                content = finalContent,
-                toolCalls = originalMessage.toolCalls  // Preserve tool calls
-            )
-            conversationMessages[messageIndex] = updatedMessage
-
-            // Finalize message with proper markdown rendering (JS will re-render from updated data model)
-            val escapedContent = escapeJavaScriptString(finalContent)
-            browserManager.executeJavaScript("""
-                if (window.chatFunctions && window.chatFunctions.finalizeMessage) {
-                    window.chatFunctions.finalizeMessage('$messageId', '$escapedContent');
-                }
-            """)
-        }
+        scrollToBottom()
     }
 
     /**
-     * Add a tool call to a message (data-driven: updates both Kotlin and JS data models, then re-renders)
+     * Add temporary DOM-only chunk for streaming (does NOT touch ChatMemory)
+     * Used for UI messages that will be replaced by ChatMemory reload
      */
-    fun addToolCallToMessage(messageId: String, toolCallId: String, toolName: String, arguments: String) {
-        val messageIndex = conversationMessages.indexOfFirst { it.id == messageId }
-        if (messageIndex >= 0) {
-            val message = conversationMessages[messageIndex]
-            val toolCall = ToolCallData(
-                id = toolCallId,
-                toolName = toolName,
-                arguments = arguments,
-                status = "executing"
-            )
-            message.toolCalls.add(toolCall)
+    fun addTemporaryChunk(header: String, content: String, chunkType: String = "user") {
+        val headerEscaped = escapeJavaScriptString(header)
+        val contentEscaped = escapeJavaScriptString(content)
+        val typeEscaped = escapeJavaScriptString(chunkType)
 
-            // Update JS data model and re-render from data
-            val toolCallJson = """
-                {
-                    "id": "${escapeJavaScriptString(toolCallId)}",
-                    "toolName": "${escapeJavaScriptString(toolName)}",
-                    "arguments": "${escapeJavaScriptString(arguments)}",
-                    "status": "executing",
-                    "result": null
-                }
-            """.trimIndent()
-
-            browserManager.executeJavaScript("""
-                if (window.chatFunctions) {
-                    window.chatFunctions.addToolCallToArray('$messageId', $toolCallJson);
-                    window.chatFunctions.reRenderMessage('$messageId');
-                }
-            """)
-        }
-    }
-
-    /**
-     * Update a tool call's status and result (data-driven: updates both Kotlin and JS data models, then re-renders)
-     */
-    fun updateToolCallStatus(messageId: String, toolCallId: String, status: String, result: String?) {
-        val messageIndex = conversationMessages.indexOfFirst { it.id == messageId }
-        if (messageIndex >= 0) {
-            val message = conversationMessages[messageIndex]
-            val toolCall = message.toolCalls.find { it.id == toolCallId }
-            if (toolCall != null) {
-                toolCall.status = status
-                toolCall.result = result
-
-                // Update JS data model and re-render from data
-                val escapedStatus = escapeJavaScriptString(status)
-                val escapedResult = result?.let { escapeJavaScriptString(it) } ?: "null"
-                val resultJson = if (result != null) "\"$escapedResult\"" else "null"
-
-                browserManager.executeJavaScript("""
-                    if (window.chatFunctions) {
-                        window.chatFunctions.updateToolCallInArray('$messageId', '$toolCallId', '$escapedStatus', $resultJson);
-                        window.chatFunctions.reRenderMessage('$messageId');
-                    }
-                """)
+        browserManager.executeJavaScript("""
+            if (window.chatFunctions && window.chatFunctions.addTemporaryChunk) {
+                window.chatFunctions.addTemporaryChunk(
+                    '$typeEscaped',
+                    '$headerEscaped',
+                    '$contentEscaped'
+                );
             }
-        }
+        """)
     }
+    
+    /**
+     * Update the last message during streaming (no message ID needed)
+     */
+    fun updateLastMessage(newContent: String) {
+        // Send chunk to client-side streaming handler (no page reload)
+        val escapedContent = escapeJavaScriptString(newContent)
+        browserManager.executeJavaScript("""
+            if (window.chatFunctions && window.chatFunctions.updateLastMessageStreaming) {
+                window.chatFunctions.updateLastMessageStreaming('$escapedContent');
+            }
+        """)
+    }
+
+    /**
+     * Finalize streaming with animation, reload from ChatMemory
+     * No message ID needed - reloads all from authoritative ChatMemory
+     */
+    fun finalizeStreaming() {
+        // Trigger animated finalize
+        browserManager.executeJavaScript("""
+            if (window.chatFunctions && window.chatFunctions.finalizeWithAnimation) {
+                window.chatFunctions.finalizeWithAnimation();
+            }
+        """)
+
+        // Schedule full reload from ChatMemory after animation starts
+        java.util.Timer().schedule(object : java.util.TimerTask() {
+            override fun run() {
+                updateChatDisplay()
+            }
+        }, 300) // 300ms matches fade-out animation
+    }
+
+    /**
+     * Add tool call chunk during streaming (temporary - replaced on finalize)
+     */
+    fun addToolCallChunkLive(toolName: String, toolArgs: String, toolId: String) {
+        val toolArgsEscaped = escapeJavaScriptString(toolArgs)
+        val toolNameEscaped = escapeJavaScriptString(toolName)
+        browserManager.executeJavaScript("""
+            if (window.chatFunctions && window.chatFunctions.appendToolCallChunk) {
+                window.chatFunctions.appendToolCallChunk('$toolNameEscaped', '$toolArgsEscaped', '$toolId');
+            }
+        """)
+    }
+
+    /**
+     * Add tool result chunk during streaming (temporary - replaced on finalize)
+     */
+    fun addToolResultChunkLive(toolName: String, result: String) {
+        val resultEscaped = escapeJavaScriptString(result)
+        val toolNameEscaped = escapeJavaScriptString(toolName)
+        browserManager.executeJavaScript("""
+            if (window.chatFunctions && window.chatFunctions.appendToolResultChunk) {
+                window.chatFunctions.appendToolResultChunk('$toolNameEscaped', '$resultEscaped');
+            }
+        """)
+    }
+
 
     /**
      * Clear all messages
      */
     fun clearMessages() {
-        conversationMessages.clear()
+        chatMemory?.clear()
         messageCounter = 0
         updateChatDisplay()
     }
@@ -209,52 +178,122 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
     
     /**
-     * Scroll to specific message with delay to ensure DOM is ready
+     * Scroll to bottom of chat with delay to ensure DOM is ready
      */
-    private fun scrollToMessage(messageId: String) {
-        // Add small delay to ensure DOM is fully rendered
+    private fun scrollToBottom() {
         browserManager.executeJavaScript("""
             setTimeout(function() {
-                if (window.chatFunctions) {
-                    window.chatFunctions.scrollToMessage('$messageId');
-                }
+                window.scrollTo(0, document.body.scrollHeight);
             }, 100);
         """)
     }
     
     /**
-     * Generate complete HTML for the chat using client-side markdown rendering
+     * Generate complete HTML for the chat by transforming ChatMessages into VisualChunks
      */
     private fun generateChatHtml(): String {
-        // Prepare message data for client-side processing, including tool calls
-        val messagesData = conversationMessages.mapIndexed { index, message ->
-            val toolCallsJson = message.toolCalls.joinToString(",\n") { toolCall ->
-                """
-                {
-                    "id": "${escapeJsonString(toolCall.id)}",
-                    "toolName": "${escapeJsonString(toolCall.toolName)}",
-                    "arguments": "${escapeJsonString(toolCall.arguments)}",
-                    "status": "${escapeJsonString(toolCall.status)}",
-                    "result": ${if (toolCall.result != null) "\"${escapeJsonString(toolCall.result!!)}\"" else "null"}
-                }
-                """.trimIndent()
-            }
+        val messages = chatMemory?.messages() ?: emptyList()
 
+        // Transform ChatMessage → VisualChunks (breaking AiMessage into text + tools)
+        val visualChunks = mutableListOf<VisualChunk>()
+        var chunkId = 0
+
+        messages.forEach { message ->
+            when (message) {
+                is dev.langchain4j.data.message.UserMessage -> {
+                    visualChunks.add(VisualChunk(
+                        id = "chunk-${chunkId++}",
+                        type = "user",
+                        header = "👤 You",
+                        content = message.singleText(),
+                        timestamp = timeFormatter.format(Date())
+                    ))
+                }
+
+                is dev.langchain4j.data.message.AiMessage -> {
+                    // AI text chunk (if exists)
+                    message.text()?.let { text ->
+                        if (text.isNotBlank()) {
+                            visualChunks.add(VisualChunk(
+                                id = "chunk-${chunkId++}",
+                                type = "ai",
+                                header = "🤖 Assistant",
+                                content = text,
+                                timestamp = timeFormatter.format(Date())
+                            ))
+                        }
+                    }
+
+                    // Each tool execution request as separate chunk
+                    message.toolExecutionRequests().forEachIndexed { index, tool ->
+                        visualChunks.add(VisualChunk(
+                            id = "chunk-${chunkId++}",
+                            type = "tool_call",
+                            header = "🔧 ${tool.name()}",
+                            content = null,  // Will be formatted in JS
+                            timestamp = timeFormatter.format(Date()),
+                            toolName = tool.name(),
+                            toolArgs = tool.arguments(),
+                            toolId = tool.id()
+                        ))
+                    }
+                }
+
+                is dev.langchain4j.data.message.ToolExecutionResultMessage -> {
+                    visualChunks.add(VisualChunk(
+                        id = "chunk-${chunkId++}",
+                        type = "tool_result",
+                        header = "📄 Result: ${message.toolName()}",
+                        content = message.text(),
+                        timestamp = timeFormatter.format(Date()),
+                        toolName = message.toolName()
+                    ))
+                }
+
+                is dev.langchain4j.data.message.SystemMessage -> {
+                    visualChunks.add(VisualChunk(
+                        id = "chunk-${chunkId++}",
+                        type = "system",
+                        header = "⚙️ System",
+                        content = message.text(),
+                        timestamp = timeFormatter.format(Date())
+                    ))
+                }
+            }
+        }
+
+        // Serialize visual chunks to JSON for JavaScript
+        val chunksJson = visualChunks.joinToString(",\n") { chunk ->
             """
             {
-                "id": "${message.id}",
-                "messageType": "${escapeJsonString(message.messageType)}",
-                "header": "${escapeJsonString(message.header)}",
-                "content": ${if (message.content != null) "\"${escapeJsonString(message.content!!)}\"" else "null"},
-                "timestamp": "${message.timestamp}",
-                "showSeparator": ${index > 0},
-                "toolCalls": [$toolCallsJson]
+                "id": "${chunk.id}",
+                "type": "${escapeJsonString(chunk.type)}",
+                "header": "${escapeJsonString(chunk.header)}",
+                "content": ${if (chunk.content != null) "\"${escapeJsonString(chunk.content)}\"" else "null"},
+                "timestamp": "${chunk.timestamp}",
+                "toolName": ${if (chunk.toolName != null) "\"${escapeJsonString(chunk.toolName)}\"" else "null"},
+                "toolArgs": ${if (chunk.toolArgs != null) "\"${escapeJsonString(chunk.toolArgs)}\"" else "null"},
+                "toolId": ${if (chunk.toolId != null) "\"${escapeJsonString(chunk.toolId)}\"" else "null"}
             }
-            """
-        }.joinToString(",\n")
+            """.trimIndent()
+        }
 
-        return generateBaseChatHtml(messagesData)
+        return generateBaseChatHtml(chunksJson)
     }
+
+    /**
+     * Data class for visual rendering chunks
+     */
+    private data class VisualChunk(
+        val id: String,
+        val type: String,         // "user", "ai", "tool_call", "tool_result", "system"
+        val header: String,
+        val content: String?,
+        val timestamp: String,
+        val toolName: String? = null,
+        val toolArgs: String? = null,
+        val toolId: String? = null
+    )
     
     /**
      * Generate theme CSS variables based on current IDE theme
@@ -302,15 +341,23 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     /**
-     * Generate base HTML template with client-side markdown processing
+     * Generate base HTML template with client-side markdown processing and tool renderers
      */
-    private fun generateBaseChatHtml(messagesData: String): String {
+    private fun generateBaseChatHtml(chunksData: String): String {
         val isDarkTheme = !com.intellij.ui.JBColor.isBright()
         val markedJs = loadResource("js/marked.min.js") ?: ""
         val highlightJs = loadResource("js/highlight.min.js") ?: ""
         val highlightCss = loadResource("js/${if (isDarkTheme) "github-dark" else "github"}.css") ?: ""
         val chatCss = loadResource("chat-ui/chat.css") ?: ""
         val chatJs = loadResource("chat-ui/chat-functions.js") ?: ""
+
+        // Load tool renderers
+        val toolRendererBase = loadResource("chat-ui/tool-renderer-base.js") ?: ""
+        val toolRendererReadFile = loadResource("chat-ui/tool-renderer-read-file.js") ?: ""
+        val toolRendererSearchCode = loadResource("chat-ui/tool-renderer-search-code.js") ?: ""
+        val toolRendererCodeMod = loadResource("chat-ui/tool-renderer-code-mod.js") ?: ""
+        val toolRendererDefault = loadResource("chat-ui/tool-renderer-default.js") ?: ""
+
         val themeVariables = generateThemeVariables(isDarkTheme)
 
         return """
@@ -332,17 +379,22 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                     <button id="collapse-all-btn" class="collapse-all-button" onclick="window.chatFunctions.toggleCollapseAll()">▲ Collapse All</button>
                 </div>
                 <div id="chat-container"></div>
-                
+
                 <script>
                     $markedJs
                     $highlightJs
 
-                    // Message data from Kotlin
-                    const messages = [$messagesData];
+                    // Visual chunks from Kotlin (transformed from ChatMessages)
+                    const visualChunks = [$chunksData];
                 </script>
 
                 <script>
                     $chatJs
+                    $toolRendererBase
+                    $toolRendererReadFile
+                    $toolRendererSearchCode
+                    $toolRendererCodeMod
+                    $toolRendererDefault
                 </script>
             </body>
             </html>
@@ -405,27 +457,4 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
      * Get the browser manager for developer tools access
      */
     fun getBrowserManager(): JCEFBrowserManager = browserManager
-    
-    /**
-     * Data class for chat messages - matches langchain4j AiMessage structure
-     */
-    private data class ChatMessageData(
-        val id: String,
-        val messageType: String, // "user", "ai", "system", "tool_result"
-        val header: String,
-        val content: String?,
-        val timestamp: String,
-        val toolCalls: MutableList<ToolCallData> = mutableListOf()
-    )
-
-    /**
-     * Data class for tool execution requests and results
-     */
-    private data class ToolCallData(
-        val id: String,
-        val toolName: String,
-        val arguments: String,
-        var status: String, // "executing", "complete", "error"
-        var result: String? = null
-    )
 }

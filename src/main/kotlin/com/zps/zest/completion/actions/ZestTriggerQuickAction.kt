@@ -91,6 +91,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             val chatService = project.getService(com.zps.zest.chatui.ChatUIService::class.java)
 
             // Prepare chat for method rewrite
+            chatService.clearConversation();
             chatService.prepareForMethodRewrite()
 
             // Format method context as markdown message

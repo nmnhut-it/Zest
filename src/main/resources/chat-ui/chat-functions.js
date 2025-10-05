@@ -81,10 +81,11 @@ function renderMessages() {
 
         // Auto-collapse logic based on chunk type
         const isTool = chunk.type === 'tool_call' || chunk.type === 'tool_result';
+        const isSystemPrompt = chunk.type === 'system';
         const isRecent = i >= visualChunks.length - 2;
 
-        if (isTool) {
-            // ALWAYS collapse tool chunks by default
+        if (isTool || isSystemPrompt) {
+            // ALWAYS collapse tools AND system prompts by default
             if (chunkCollapseState[chunk.id] === undefined) {
                 chunkCollapseState[chunk.id] = true;
                 chunkDiv.classList.add('collapsed');
@@ -92,7 +93,7 @@ function renderMessages() {
                 chunkDiv.classList.add('collapsed');
             }
         } else if (!isRecent && chunkCollapseState[chunk.id] === undefined) {
-            // Auto-collapse older non-tool messages
+            // Auto-collapse older user/AI messages
             chunkCollapseState[chunk.id] = true;
             chunkDiv.classList.add('collapsed');
         } else if (chunkCollapseState[chunk.id]) {

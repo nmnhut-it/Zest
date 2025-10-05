@@ -137,6 +137,7 @@ ${cachedProjectRules}
     fun sendMessageStreaming(
         userMessage: String,
         onToken: (String) -> Unit,
+        onIntermediateResponse: ((dev.langchain4j.model.chat.response.ChatResponse) -> Unit)? = null,
         onComplete: (String) -> Unit,
         onError: (Throwable) -> Unit,
         onToolCall: ((String, String, String) -> Unit)? = null,
@@ -177,12 +178,22 @@ ${cachedProjectRules}
                 .onPartialResponse { partialResponse ->
                     responseBuilder.append(partialResponse)
                     tokenBatch.append(partialResponse)
-                    
+
                     val currentTime = System.currentTimeMillis()
                     if (currentTime - lastBatchTime >= batchInterval || tokenBatch.length > 50) {
                         sendBatch()
                         lastBatchTime = currentTime
                     }
+                }
+                .onIntermediateResponse { response ->
+                    // AI finished streaming text, about to execute tools
+                    sendBatch()  // Send any remaining tokens
+
+                    ApplicationManager.getApplication().invokeLater {
+                        onIntermediateResponse?.invoke(response)
+                    }
+
+                    LOG.info("Intermediate response: ${response.aiMessage().toolExecutionRequests().size} tools to execute")
                 }
                 .beforeToolExecution { beforeToolExecution ->
                     // Show tool call in UI
@@ -435,7 +446,7 @@ You read the searching tool instructions and tips carefully
 
         if (getMessages().isEmpty()) {
             addSystemMessage(buildSystemPromptWithRules("""
-You are a method rewrite expert with code modification tools.
+You are a code modification expert. Make focused, single edits with immediate user review.
 
 ## Tool Budget
 
@@ -443,74 +454,53 @@ You are a method rewrite expert with code modification tools.
 - searchCode, readFile, findFiles, analyzeClass, listFiles, lookupMethod, lookupClass
 
 **Code modification tools** (FREE - do NOT count):
-- replaceCodeByLines, replaceCodeInFile, createNewFile
+- replaceCodeInFile, createNewFile
 
-**CRITICAL**: You MUST end every interaction with a code modification tool call.
-Never just suggest changes - always use replaceCodeByLines/replaceCodeInFile/createNewFile.
+## Workflow
 
-## PREFERRED WORKFLOW (Most Reliable)
+1. **Read file**: Use `readFile()` to see exact code with correct indentation
+2. **Make ONE focused edit**: Use `replaceCodeInFile()` to change one thing at a time
+3. **User reviews**: Diff dialog shows with TAB (accept) / ESC (reject)
+4. **Repeat if needed**: Make next edit after user accepts/rejects
+5. **Review your edit**: if you introduce duplicated logic or code, or produce syntax errors. 
 
-**Use replaceCodeByLines - it's the most reliable method:**
+## Code quality: 
 
-1. **Read file first**: Call readFile(filePath) to see actual code with line numbers
-2. **Identify lines**: Note the start and end line numbers of code to replace
-3. **Copy boundary text**: Copy a few words from start line and end line for validation
-4. **Call tool**: Use replaceCodeByLines(filePath, startLine, startBoundary, endLine, endBoundary, newCode)
+1. Follow user preferences as you can infer from the code. 
+2. Pay attention to existing code in the file and method
+3. Follow best practices for programming.
 
-**Example:**
-User: "Rewrite getUserScore method in Leaderboard.java"
+## Critical Syntax Rules
 
-Step 1: readFile("src/main/java/Leaderboard.java")
-→ Output shows:
-```
-    45    public LeaderboardScore getUserScore(String userId) {
-    46        try {
-    47            if (userId == null || userId.trim().isEmpty()) {
-    ...
-    58            throw new RuntimeException("Failed to get user score", e);
-    59        }
-    60    }
-```
+**When writing searchPattern and replacement:**
 
-Step 2: replaceCodeByLines(
-  filePath: "src/main/java/Leaderboard.java",
-  startLine: 45,
-  startBoundary: "public LeaderboardScore getUserScore",  ← Copy from line 45
-  endLine: 60,
-  endBoundary: "}",  ← Copy from line 60
-  replacement: "new implementation"
-)
+⚠️ **INDENTATION**: Copy exact spaces/tabs from readFile output - off by one space = not found
+⚠️ **BRACES**: Count carefully - every { needs matching }
+⚠️ **BRACKETS**: Every ( [ { must have closing ) ] }
+⚠️ **SEMICOLONS**: Don't forget ; at end of statements
+⚠️ **QUOTES**: Match " and ' exactly - escape if needed: \\"
+⚠️ **LINE BREAKS**: Use \\n for newlines in multiline patterns
 
-**Why line-based with boundaries is better:**
-✅ No pattern matching errors
-✅ Validates correct location (prevents replacing wrong code if file changed)
-✅ Simple: count lines + copy text from readFile output
-✅ Handles duplicate code correctly
-✅ Clear error messages if validation fails
-
-**When to use replaceCodeInFile:**
-Only if you need partial line replacement or don't have line numbers. Must use EXACT text from file.
-
-## Key Rules
-- Keep responses brief (2-3 sentences)
-- Track exploration budget: "Exploration tool 2/3 used"
-- **Prefer replaceCodeByLines over replaceCodeInFile**
-- **Always read file first before replacing**
-- **Always copy boundary text from readFile output for validation**
-- **Always end with code modification tool - no exceptions**
+**Best practice:** Copy searchPattern EXACTLY from readFile output - don't retype!
 
 ## Response Style
 
-**DO NOT** write placeholder text like "[calls tool]" or explain code.
-**DO** actually call tool directly.
-**DO NOT** show code blocks - the diff shows everything.
+**DO:**
+- Call tools directly - just use them
+- Keep responses brief (1-2 sentences max)
+- Make focused, single-purpose edits
 
-Just: read file → note lines + boundaries → call replaceCodeByLines → confirm.
+**DON'T:**
+- Say "Now I will call X tool..." - just call it
+- Show code blocks - the diff shows everything
+- Explain what tools do - just use them
+- Try to make multiple complex changes in one edit
 
-Example response:
-"Reading file to find method. Applying changes to lines 45-60."
-(Then AI calls readFile, then replaceCodeByLines with boundaries - no announcement needed)
-"✅ Done. Review diff with TAB/ESC."
+**Example:**
+User: "Add logging to processData method"
+→ [calls: readFile("Service.java")]
+→ [calls: replaceCodeInFile with single focused change]
+"✅ Added logging. Review with TAB/ESC."
             """.trimIndent()))
         }
     }

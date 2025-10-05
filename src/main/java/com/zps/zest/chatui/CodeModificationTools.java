@@ -46,7 +46,7 @@ public class CodeModificationTools {
           "Search pattern must be unique (appears exactly once). Include surrounding context to ensure uniqueness.")
     public String replaceCodeInFile(
             @dev.langchain4j.agent.tool.P("File path relative to project root (e.g., 'src/main/java/UserService.java'). Absolute paths are auto-converted to relative.") String filePath,
-            @dev.langchain4j.agent.tool.P("Code to find - must be unique in file. Include 2-3 surrounding lines for uniqueness. Use exact match from file.") String searchPattern,
+            @dev.langchain4j.agent.tool.P("Code to find - must be unique in file. Include 2-3 surrounding lines for uniqueness. Use exact match from file, including whitespaces.") String searchPattern,
             @dev.langchain4j.agent.tool.P("New code to replace with") String replacement,
             @dev.langchain4j.agent.tool.P("Use regex matching (default: false). Only use if pattern matching needed. Escape special chars: . → \\\\. ( → \\\\(") Boolean useRegex
     ) {
@@ -156,7 +156,14 @@ public class CodeModificationTools {
             Boolean accepted = resultFuture.get(5, TimeUnit.MINUTES);
 
             if (accepted) {
-                return "✅ Code replacement applied successfully in " + filePath;
+                // Get updated content after replacement to show context
+                String updatedContent = ApplicationManager.getApplication().runReadAction(
+                    (Computable<String>) () -> editor.getDocument().getText()
+                );
+                int newEndOffset = startOffset + modifiedContent.length();
+
+                return formatChangeContext(filePath, updatedContent, startOffset, newEndOffset,
+                                          originalCode, modifiedContent);
             } else {
                 return "❌ Code replacement rejected by user";
             }
@@ -167,162 +174,10 @@ public class CodeModificationTools {
         }
     }
 
-    @Tool("Replace code by line numbers with boundary validation - most reliable method. Read file first with readFile() tool, " +
-          "then specify line numbers and boundary text from those lines for validation. Lines are 1-indexed (first line = 1).")
-    public String replaceCodeByLines(
-            @P("File path relative to project root (e.g., 'src/main/java/UserService.java'). Absolute paths auto-converted.") String filePath,
-            @P("Start line number (1-indexed, inclusive). First line to replace. See readFile() output for line numbers.") int startLine,
-            @P("Text that must appear on start line (for validation). Copy from readFile() output to ensure correct location.") String startBoundary,
-            @P("End line number (1-indexed, inclusive). Last line to replace.") int endLine,
-            @P("Text that must appear on end line (for validation). Copy from readFile() output to ensure correct location.") String endBoundary,
-            @P("New code to replace with") String replacement
-    ) {
-        try {
-            LOG.info("replaceCodeByLines: " + filePath + ", lines " + startLine + "-" + endLine);
 
-            // Normalize path to relative (handles absolute paths)
-            filePath = normalizeToRelativePath(project, filePath);
 
-            // Find the file
-            VirtualFile virtualFile = findFile(filePath);
-            if (virtualFile == null) {
-                return "❌ File not found: " + filePath + "\nCheck path is relative to project root.";
-            }
 
-            // Get or open editor for the file FIRST
-            Editor editor = getOrOpenEditor(virtualFile);
-            if (editor == null) {
-                return "❌ Could not open editor for file: " + filePath;
-            }
 
-            // Get Document, validate line numbers, and validate boundaries in read action
-            int[] offsets = ApplicationManager.getApplication().runReadAction(
-                (Computable<int[]>) () -> {
-                    com.intellij.openapi.editor.Document document = editor.getDocument();
-                    int totalLines = document.getLineCount();
-
-                    // Validate line numbers (1-indexed user input)
-                    if (startLine < 1) {
-                        throw new IllegalArgumentException("Start line must be >= 1 (lines are 1-indexed)");
-                    }
-                    if (endLine > totalLines) {
-                        throw new IllegalArgumentException("End line " + endLine + " exceeds file length (" + totalLines + " lines)");
-                    }
-                    if (startLine > endLine) {
-                        throw new IllegalArgumentException("Start line (" + startLine + ") must be <= end line (" + endLine + ")");
-                    }
-
-                    // Convert 1-indexed to 0-indexed and get offsets using Document API
-                    int startLineOffset = document.getLineStartOffset(startLine - 1);
-                    int startLineEndOffset = document.getLineEndOffset(startLine - 1);
-                    int endLineOffset = document.getLineStartOffset(endLine - 1);
-                    int endLineEndOffset = document.getLineEndOffset(endLine - 1);
-
-                    // Extract actual text on start and end lines
-                    String actualStartLine = document.getText(new com.intellij.openapi.util.TextRange(startLineOffset, startLineEndOffset));
-                    String actualEndLine = document.getText(new com.intellij.openapi.util.TextRange(endLineOffset, endLineEndOffset));
-
-                    // Validate boundaries
-                    if (!actualStartLine.contains(startBoundary)) {
-                        throw new IllegalArgumentException(
-                            "Boundary validation failed on line " + startLine + ":\n" +
-                            "Expected to find: \"" + startBoundary + "\"\n" +
-                            "Actual line text: \"" + actualStartLine + "\"\n" +
-                            "File may have changed. Re-read file and try again."
-                        );
-                    }
-
-                    if (!actualEndLine.contains(endBoundary)) {
-                        throw new IllegalArgumentException(
-                            "Boundary validation failed on line " + endLine + ":\n" +
-                            "Expected to find: \"" + endBoundary + "\"\n" +
-                            "Actual line text: \"" + actualEndLine + "\"\n" +
-                            "File may have changed. Re-read file and try again."
-                        );
-                    }
-
-                    // Return offsets for the full range (start of first line to end of last line)
-                    return new int[]{startLineOffset, endLineEndOffset};
-                }
-            );
-
-            int startOffset = offsets[0];
-            int endOffset = offsets[1];
-
-            // Get current content for preview
-            String currentContent = ApplicationManager.getApplication().runReadAction(
-                (Computable<String>) () -> editor.getDocument().getText()
-            );
-
-            // Get the original code being replaced
-            String originalCode = currentContent.substring(startOffset, endOffset);
-
-            // Show diff dialog and wait for user decision
-            CompletableFuture<Boolean> resultFuture = new CompletableFuture<>();
-
-            ApplicationManager.getApplication().invokeLater(() -> {
-                // Use modal dialog with chat as parent if available
-                if (chatDialog != null) {
-                    MethodRewriteDiffDialogV2.Companion.showWithParent(
-                        chatDialog.getContentPane(),
-                        project,
-                        editor,
-                        startOffset,
-                        endOffset,
-                        originalCode,
-                        replacement,
-                        virtualFile.getFileType(),
-                        virtualFile.getName(),
-                        (kotlin.jvm.functions.Function0<kotlin.Unit>) () -> {
-                            // onAccept - Apply the change
-                            applyReplacement(editor, startOffset, endOffset, replacement);
-                            resultFuture.complete(true);
-                            return kotlin.Unit.INSTANCE;
-                        },
-                        (kotlin.jvm.functions.Function0<kotlin.Unit>) () -> {
-                            // onReject
-                            resultFuture.complete(false);
-                            return kotlin.Unit.INSTANCE;
-                        }
-                    );
-                } else {
-                    // Fallback to non-modal if no parent available
-                    MethodRewriteDiffDialogV2.Companion.show(
-                        project,
-                        editor,
-                        startOffset,
-                        endOffset,
-                        originalCode,
-                        replacement,
-                        virtualFile.getFileType(),
-                        virtualFile.getName(),
-                        (kotlin.jvm.functions.Function0<kotlin.Unit>) () -> {
-                            applyReplacement(editor, startOffset, endOffset, replacement);
-                            resultFuture.complete(true);
-                            return kotlin.Unit.INSTANCE;
-                        },
-                        (kotlin.jvm.functions.Function0<kotlin.Unit>) () -> {
-                            resultFuture.complete(false);
-                            return kotlin.Unit.INSTANCE;
-                        }
-                    );
-                }
-            });
-
-            // Wait for user decision (timeout after 5 minutes)
-            Boolean accepted = resultFuture.get(5, TimeUnit.MINUTES);
-
-            if (accepted) {
-                return "✅ Code replacement applied successfully in " + filePath + " (lines " + startLine + "-" + endLine + ")";
-            } else {
-                return "❌ Code replacement rejected by user";
-            }
-
-        } catch (Exception e) {
-            LOG.error("Failed to replace code by lines", e);
-            return "❌ Error: " + e.getMessage();
-        }
-    }
 
     @Tool("Create a new file with the specified content. Creates parent directories if needed. " +
           "Returns error if file already exists - use replaceCodeInFile for existing files.")
@@ -427,6 +282,21 @@ public class CodeModificationTools {
         return LocalFileSystem.getInstance().findFileByPath(fullPath);
     }
 
+    /**
+     * Normalize whitespace for flexible text matching.
+     * Trims and collapses multiple whitespace characters (spaces, tabs, newlines) into single spaces.
+     *
+     * @param text The text to normalize
+     * @return Normalized text with collapsed whitespace
+     */
+    private static String normalizeWhitespace(String text) {
+        if (text == null) {
+            return "";
+        }
+        // Trim and replace all whitespace sequences with single space
+        return text.trim().replaceAll("\\s+", " ");
+    }
+
     private static class MatchResult {
         final int startOffset;
         final int endOffset;
@@ -515,5 +385,63 @@ public class CodeModificationTools {
                 }
             });
         });
+    }
+
+    /**
+     * Format the change context showing 5 lines before and after the modification
+     */
+    private String formatChangeContext(String filePath, String updatedContent, int startOffset, int endOffset,
+                                      String oldCode, String newCode) {
+        String[] lines = updatedContent.split("\n", -1);
+
+        // Find which line the change starts and ends on
+        int currentOffset = 0;
+        int startLine = 0;
+        int endLine = 0;
+
+        for (int i = 0; i < lines.length; i++) {
+            int lineLength = lines[i].length() + 1; // +1 for newline
+
+            if (currentOffset <= startOffset && startOffset < currentOffset + lineLength) {
+                startLine = i;
+            }
+            if (currentOffset <= endOffset && endOffset <= currentOffset + lineLength) {
+                endLine = i;
+                break;
+            }
+
+            currentOffset += lineLength;
+        }
+
+        // Get 5 lines before and after
+        int contextStart = Math.max(0, startLine - 5);
+        int contextEnd = Math.min(lines.length - 1, endLine + 5);
+
+        StringBuilder result = new StringBuilder();
+        result.append("✅ Code replacement applied in ").append(filePath);
+        result.append(" (lines ").append(startLine + 1).append("-").append(endLine + 1).append(")\n\n");
+
+        // Show context before
+        for (int i = contextStart; i < startLine; i++) {
+            result.append(String.format("%5d: %s\n", i + 1, lines[i]));
+        }
+
+        // Show the changed lines with old code commented
+        String[] oldLines = oldCode.split("\n", -1);
+        for (String oldLine : oldLines) {
+            result.append(String.format("%5d: - %s\n", startLine + 1, oldLine));
+        }
+
+        // Show new code
+        for (int i = startLine; i <= endLine; i++) {
+            result.append(String.format("%5d: + %s\n", i + 1, lines[i]));
+        }
+
+        // Show context after
+        for (int i = endLine + 1; i <= contextEnd; i++) {
+            result.append(String.format("%5d: %s\n", i + 1, lines[i]));
+        }
+
+        return result.toString();
     }
 }

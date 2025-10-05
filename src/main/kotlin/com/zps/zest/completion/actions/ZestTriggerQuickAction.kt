@@ -650,16 +650,31 @@ private fun findMethodAtOffset(editor: Editor, offset: Int, project: Project): M
         val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java) ?: return@runReadAction null
         
         val methodText = method.text ?: ""
-        val fileName = psiFile.virtualFile?.name ?: "unknown"
-        val language = if (fileName.endsWith(".java")) "java" else "javascript"
-        
+        val virtualFile = psiFile.virtualFile
+        val fileName = virtualFile?.name ?: "unknown"
+
+        // Get relative path from project root
+        val filePath = if (virtualFile != null && project.basePath != null) {
+            val projectPath = project.basePath!!.replace('\\', '/')
+            val fullPath = virtualFile.path.replace('\\', '/')
+            if (fullPath.startsWith(projectPath)) {
+                fullPath.substring(projectPath.length + 1)
+            } else {
+                fileName
+            }
+        } else {
+            fileName
+        }
+
+        val language = if (fileName.endsWith(".java")) "java" else if (fileName.endsWith(".kt")) "kotlin" else "javascript"
+
         MethodContext(
             methodName = method.name,
             methodStartOffset = method.textRange.startOffset,
             methodEndOffset = method.textRange.endOffset,
             methodContent = methodText,
             language = language,
-            fileName = fileName,
+            fileName = filePath,
             isCocos2dx = false,
             relatedClasses = emptyMap(),
             methodSignature = method.name,

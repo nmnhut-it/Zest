@@ -159,6 +159,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
                         }
                         return kotlin.Unit.INSTANCE;
                     },
+                        null,
                     (String completeResponse) -> {
                         // Generation complete
                         isGeneratingTest = false;

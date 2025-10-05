@@ -12,7 +12,7 @@ object MethodContextFormatter {
             appendLine()
 
             // File and location
-            appendLine("**File:** `${context.fileName}:${getLineNumber(context)}`")
+            appendLine("**File:** `${context.fileName}`")
 
             // Class information
             if (context.containingClass != null) {
@@ -57,14 +57,8 @@ object MethodContextFormatter {
 
             // Instructions for AI
             appendLine("---")
-            appendLine("*Use available tools to understand the codebase before proposing changes.*")
+            appendLine("*The method content is shown above. For full file context, use `readFile()` first. Then make focused single edits with `replaceCodeInFile()`.*")
         }
-    }
-
-    private fun getLineNumber(context: MethodContext): Int {
-        // Estimate line number from offset (simple approximation)
-        // In real implementation, could count newlines in document up to offset
-        return 1 // Placeholder - actual line number calculation would need document access
     }
 
     private fun getLanguageForHighlight(language: String): String {

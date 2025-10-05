@@ -29,7 +29,6 @@ class JCEFChatDialog(
     }
     private val inputArea = JBTextArea()
     private val sendButton = JButton("Send")
-    private val clearButton = JButton("Clear")
     private var isProcessing = false
 
     init {
@@ -57,7 +56,7 @@ class JCEFChatDialog(
 
         // Main split pane: chat (top) and input (bottom)
         val splitPane = JSplitPane(JSplitPane.VERTICAL_SPLIT)
-        splitPane.resizeWeight = 0.7 // 70% for chat, 30% for input
+        splitPane.resizeWeight = 0.85 // 85% for chat, 15% for input
 
         // Chat panel
         splitPane.topComponent = chatPanel
@@ -65,7 +64,7 @@ class JCEFChatDialog(
 
         // Input panel
         val inputPanel = createInputPanel()
-        inputPanel.minimumSize = JBUI.size(400, 150)
+        inputPanel.minimumSize = JBUI.size(400, 100)
         splitPane.bottomComponent = inputPanel
 
         mainPanel.add(splitPane, BorderLayout.CENTER)
@@ -148,7 +147,7 @@ class JCEFChatDialog(
 
     private fun createInputPanel(): JComponent {
         val panel = JPanel(BorderLayout())
-        panel.border = EmptyBorder(10, 10, 0, 10)
+        panel.border = EmptyBorder(5, 10, 5, 10)
 
         // Input area
         inputArea.lineWrap = true
@@ -174,27 +173,15 @@ class JCEFChatDialog(
         })
 
         val inputScrollPane = com.intellij.ui.components.JBScrollPane(inputArea)
-        inputScrollPane.preferredSize = JBUI.size(400, 100)
+        inputScrollPane.preferredSize = JBUI.size(400, 80)
         panel.add(inputScrollPane, BorderLayout.CENTER)
-
-        // Button panel
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
-        
-        sendButton.addActionListener { sendMessage() }
-        sendButton.isEnabled = !isProcessing
-        
-        clearButton.addActionListener { clearInput() }
-        
-        buttonPanel.add(clearButton)
-        buttonPanel.add(sendButton)
-        panel.add(buttonPanel, BorderLayout.EAST)
 
         return panel
     }
 
     private fun createFooterPanel(): JComponent {
         val panel = JPanel(FlowLayout(FlowLayout.RIGHT))
-        panel.border = EmptyBorder(8, 10, 10, 10)
+        panel.border = EmptyBorder(10, 10, 10, 10)
 
         val refreshButton = JButton("Refresh")
         refreshButton.addActionListener { loadMessages(forceRefresh = true) }
@@ -207,6 +194,10 @@ class JCEFChatDialog(
         val newChatButton = JButton("New Chat")
         newChatButton.addActionListener { startNewChat() }
         panel.add(newChatButton)
+
+        sendButton.addActionListener { sendMessage() }
+        sendButton.isEnabled = !isProcessing
+        panel.add(sendButton)
 
         return panel
     }
@@ -228,6 +219,7 @@ class JCEFChatDialog(
         chatPanel.addTemporaryChunk("🤖 **AI**", "...", "ai")
 
         val currentResponse = StringBuilder()
+        var isFirstChunk = true
 
         // Send to AI with streaming and tool support
         chatService.sendMessageStreaming(
@@ -237,6 +229,15 @@ class JCEFChatDialog(
                 ApplicationManager.getApplication().invokeLater {
                     chatPanel.updateLastMessage(currentResponse.toString())
                 }
+            },
+            onIntermediateResponse = { response ->
+                // AI finished text chunk, tools about to execute
+                ApplicationManager.getApplication().invokeLater {
+                    // Keep current text displayed, tools will appear after it
+                    currentResponse.clear()
+                    isFirstChunk = false
+                }
+//                LOG.debug("Intermediate response: ${response.aiMessage().toolExecutionRequests().size} tools")
             },
             onComplete = { fullResponse ->
                 ApplicationManager.getApplication().invokeLater {
@@ -276,11 +277,6 @@ class JCEFChatDialog(
                 }
             }
         )
-    }
-
-    private fun clearInput() {
-        inputArea.text = ""
-        inputArea.requestFocus()
     }
 
     /**

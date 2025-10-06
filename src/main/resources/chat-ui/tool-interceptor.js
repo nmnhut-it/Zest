@@ -78,45 +78,127 @@
         }
     }
 
+    // Cache for OpenAPI spec
+    let cachedOpenApiSpec = null;
+    let cacheTimestamp = 0;
+    const CACHE_DURATION = 60000; // 1 minute
+
     /**
-     * Inject tool server into request body
+     * Fetch OpenAPI spec from tool server
+     */
+    async function fetchOpenApiSpec(toolServerUrl) {
+        const now = Date.now();
+
+        // Return cached spec if still valid
+        if (cachedOpenApiSpec && (now - cacheTimestamp) < CACHE_DURATION) {
+            return cachedOpenApiSpec;
+        }
+
+        try {
+            const response = await fetch(toolServerUrl + '/openapi.json');
+            if (!response.ok) {
+                throw new Error('Failed to fetch OpenAPI spec: ' + response.status);
+            }
+
+            cachedOpenApiSpec = await response.json();
+            cacheTimestamp = now;
+            console.log('[Zest Tool Interceptor] Fetched OpenAPI spec from', toolServerUrl);
+
+            return cachedOpenApiSpec;
+        } catch (error) {
+            console.error('[Zest Tool Interceptor] Error fetching OpenAPI spec:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Convert OpenAPI spec to inline tools format
+     */
+    function convertOpenApiToTools(openApiSpec) {
+        const tools = [];
+
+        if (!openApiSpec || !openApiSpec.paths) {
+            return tools;
+        }
+
+        // Iterate through paths and extract tool definitions
+        for (const [path, pathItem] of Object.entries(openApiSpec.paths)) {
+            if (pathItem.post) {
+                const operation = pathItem.post;
+                const toolName = operation.operationId || path.replace(/^\/api\/tools\//, '');
+
+                const tool = {
+                    type: 'function',
+                    function: {
+                        name: toolName,
+                        description: operation.summary || operation.description || '',
+                        parameters: {
+                            type: 'object',
+                            properties: {},
+                            required: []
+                        }
+                    }
+                };
+
+                // Extract parameters from requestBody schema
+                if (operation.requestBody?.content?.['application/json']?.schema) {
+                    const schema = operation.requestBody.content['application/json'].schema;
+                    tool.function.parameters = schema;
+                }
+
+                tools.push(tool);
+            }
+        }
+
+        console.log('[Zest Tool Interceptor] Converted', tools.length, 'tools from OpenAPI spec');
+        return tools;
+    }
+
+    /**
+     * Inject tools into request body
      */
     async function injectToolServer(bodyText, toolServerUrl) {
         try {
             const data = JSON.parse(bodyText);
 
-            // Add tool_servers array for OpenWebUI
-            if (!data.tool_servers) {
-                data.tool_servers = [];
+            // Fetch OpenAPI spec and convert to tools
+            const openApiSpec = await fetchOpenApiSpec(toolServerUrl);
+            if (!openApiSpec) {
+                console.warn('[Zest Tool Interceptor] Could not fetch OpenAPI spec, skipping injection');
+                return bodyText;
             }
 
-            // Check if our tool server is already in the array
-            const alreadyExists = data.tool_servers.some(server =>
-                server.url && server.url.includes(toolServerUrl)
+            const newTools = convertOpenApiToTools(openApiSpec);
+            if (newTools.length === 0) {
+                console.warn('[Zest Tool Interceptor] No tools extracted from OpenAPI spec');
+                return bodyText;
+            }
+
+            // Initialize tools array if needed
+            if (!data.tools) {
+                data.tools = [];
+            }
+
+            // Get existing tool names to avoid duplicates
+            const existingToolNames = new Set(
+                data.tools.map(tool => tool.function?.name).filter(Boolean)
             );
 
-            if (!alreadyExists) {
-                // Add our OpenAPI tool server
-                data.tool_servers.push({
-                    url: toolServerUrl,
-                    path: "openapi.json",
-                    config: {
-                        enable: true,
-                        access_control: {}
-                    },
-                    info: {
-                        name: "Zest Code Tools",
-                        description: "IntelliJ code exploration and modification tools"
-                    }
-                });
-
-                console.log('[Zest Tool Interceptor] Added tool server to request');
+            // Add new tools that don't already exist
+            let addedCount = 0;
+            for (const tool of newTools) {
+                if (!existingToolNames.has(tool.function.name)) {
+                    data.tools.push(tool);
+                    addedCount++;
+                }
             }
+
+            console.log('[Zest Tool Interceptor] Added', addedCount, 'new tools to request');
 
             return JSON.stringify(data);
 
         } catch (error) {
-            console.error('[Zest Tool Interceptor] Failed to inject tool server:', error);
+            console.error('[Zest Tool Interceptor] Failed to inject tools:', error);
             return bodyText;
         }
     }

@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.901</version>
+    <version>1.9.902</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -388,6 +388,16 @@
 
     <!-- Change notes for version updates -->
     <change-notes><![CDATA[
+        <h3>Version 1.9.902</h3>
+        <ul>
+            <li><b>🏗️ Architecture Simplification:</b> Replaced complex Javalin proxy with lightweight ToolApiServer - cleaner, faster, easier to maintain</li>
+            <li><b>🛠️ Multi-Project Tool Support:</b> Per-project tool servers with automatic filtering - work on multiple projects without tool conflicts</li>
+            <li><b>🌐 OpenWebUI Integration:</b> Native tool integration with OpenAPI 3.1.0 schema, settings-based registration, and project-aware filtering</li>
+            <li><b>🎯 Enhanced Agent Mode:</b> Added tool budget system (5 exploration tools max), code understanding patterns, and strategic usage guidelines</li>
+            <li><b>💬 Modern Chat UI:</b> Redesigned chat interface with better styling, improved dark mode support, and simplified tool rendering</li>
+            <li><b>🔧 Tool Enhancements:</b> Better file path resolution, improved lookup tools, and more robust code modification capabilities</li>
+        </ul>
+
         <h3>Version 1.9.901</h3>
         <ul>
             <li><b>🛠️ Tool-Enabled Chat:</b> Added "Chat with Tools" action in Tools menu - normal chat with powerful code exploration capabilities</li>

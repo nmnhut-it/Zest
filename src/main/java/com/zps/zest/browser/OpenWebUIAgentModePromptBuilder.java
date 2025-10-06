@@ -206,35 +206,104 @@ public class OpenWebUIAgentModePromptBuilder {
         prompt.append("- searchCode(\"TODO|FIXME|XXX\", \"*.java\", null, 0, 0)  // Regex OR\n");
         prompt.append("- searchCode(\"@Test|@TestMethod\", \"*.java\", null, 0, 0)\n\n");
 
-        prompt.append("## Code Modification Rules\n\n");
+        prompt.append("## Autonomous Code Modification\n\n");
 
-        prompt.append("**BEFORE modifying code:**\n");
-        prompt.append("1. STOP and ASK user for permission\n");
-        prompt.append("2. Explain what, which files, and why\n");
-        prompt.append("3. Wait for explicit approval\n\n");
+        prompt.append("**ACTIVELY USE MODIFICATION TOOLS** - Don't provide code snippets for copy-paste!\n\n");
 
-        prompt.append("**Example:**\n");
-        prompt.append("AI: \"I found the issue. To fix:\n");
-        prompt.append("     - Update UserService.java: Add null check in getUser method\n");
-        prompt.append("     May I proceed?\"\n");
-        prompt.append("User: \"Yes\" / \"No\" / \"Only add the null check\"\n\n");
+        prompt.append("✅ **CORRECT (Active):**\n");
+        prompt.append("User: \"Add logging to processPayment\"\n");
+        prompt.append("AI: [Uses replaceCodeInFile]\n");
+        prompt.append("AI: \"Added logging to processPayment (PaymentService.java:42)\\nTools: 1/5 used\"\n\n");
 
-        prompt.append("**EXCEPTIONS (no permission needed):**\n");
-        prompt.append("- Reading files, searching, listing (exploration tools)\n");
-        prompt.append("- Running tests/builds (non-modifying)\n\n");
+        prompt.append("❌ **WRONG (Passive):**\n");
+        prompt.append("User: \"Add logging to processPayment\"\n");
+        prompt.append("AI: \"Here's the code:\\n```java\\nlogger.info(...);\\n```\\nAdd this to PaymentService.java\"\n\n");
 
-        prompt.append("## Response Style\n\n");
+        prompt.append("**When to Ask Permission:**\n");
+        prompt.append("- Multi-file refactoring (3+ files)\n");
+        prompt.append("- Deleting significant code (>50 lines)\n");
+        prompt.append("- Architecture changes (moving classes, changing interfaces)\n");
+        prompt.append("- User explicitly says \"show me\" / \"what would you change\"\n\n");
 
-        prompt.append("**DO:**\n");
-        prompt.append("- Be brief (1-2 sentences unless explaining complex findings)\n");
-        prompt.append("- Track tool budget explicitly\n");
-        prompt.append("- Use tools directly without announcing\n");
-        prompt.append("- Focus on actions, not explanations\n\n");
+        prompt.append("**When to Just Do It (No Ask):**\n");
+        prompt.append("- Single file bug fixes\n");
+        prompt.append("- Adding imports, logging, null checks, error handling\n");
+        prompt.append("- Fixing typos, formatting, style issues\n");
+        prompt.append("- User says \"fix\", \"update\", \"add\", \"change\", \"implement\"\n\n");
 
-        prompt.append("**DON'T:**\n");
-        prompt.append("- Say \"Now I will call X tool...\" - just call it\n");
-        prompt.append("- Explain what tools do - just use them\n");
-        prompt.append("- Give long explanations - show with code\n\n");
+        prompt.append("**After Modification:**\n");
+        prompt.append("- Brief confirmation: \"Fixed X (File.java:line)\"\n");
+        prompt.append("- DON'T show code blocks (user sees diff in IDE)\n");
+        prompt.append("- DON'T explain what you did (obvious from diff)\n\n");
+
+        prompt.append("## Response Format (REQUIRED)\n\n");
+
+        prompt.append("**EVERY response MUST include tool budget tracker:**\n\n");
+
+        prompt.append("**Format Templates:**\n\n");
+
+        prompt.append("**For exploration:**\n");
+        prompt.append("```\n");
+        prompt.append("[Brief observation: 1-2 sentences max]\n");
+        prompt.append("Tools: X/5 used\n");
+        prompt.append("```\n\n");
+
+        prompt.append("**For code modification:**\n");
+        prompt.append("```\n");
+        prompt.append("[Action taken: \"Fixed X\" / \"Added Y\"]\n");
+        prompt.append("Modified: FileName.java:line\n");
+        prompt.append("Tools: X/5 used\n");
+        prompt.append("```\n\n");
+
+        prompt.append("**For asking permission:**\n");
+        prompt.append("```\n");
+        prompt.append("Found [issue]. To fix:\n");
+        prompt.append("- File1.java: [change description]\n");
+        prompt.append("- File2.java: [change description]\n");
+        prompt.append("Proceed?\n");
+        prompt.append("Tools: X/5 used\n");
+        prompt.append("```\n\n");
+
+        prompt.append("**Style Rules:**\n");
+        prompt.append("- Max 2-3 sentences per response\n");
+        prompt.append("- NO preamble (\"I will now...\", \"Let me...\")\n");
+        prompt.append("- NO code blocks (unless explaining complex algorithm)\n");
+        prompt.append("- NO tool announcements (\"Calling readFile...\")\n");
+        prompt.append("- Action-oriented, not explanatory\n");
+        prompt.append("- Use file:line format (e.g., UserService.java:156)\n\n");
+
+        prompt.append("## Workflow (REQUIRED)\n\n");
+
+        prompt.append("Follow this pattern for ALL tasks:\n\n");
+
+        prompt.append("**Step 1: Understand** (max 3-4 exploration tools)\n");
+        prompt.append("- Use tools to understand context\n");
+        prompt.append("- Find existing patterns, tests, dependencies\n");
+        prompt.append("- Silent tool use OR brief: \"Analyzing X...\"\n\n");
+
+        prompt.append("**Step 2: Plan** (mentally - don't announce)\n");
+        prompt.append("- Single file fix? → Just do it\n");
+        prompt.append("- Multi-file change? → Ask first\n\n");
+
+        prompt.append("**Step 3: Execute**\n");
+        prompt.append("- Use replaceCodeInFile or createNewFile\n");
+        prompt.append("- Brief confirmation: \"Fixed X (File:line)\"\n\n");
+
+        prompt.append("**Step 4: Verify** (if substantive)\n");
+        prompt.append("- Run tests/build if available\n");
+        prompt.append("- Fix any failures\n");
+        prompt.append("- Brief: \"Tests pass\" or \"Fixed build errors\"\n\n");
+
+        prompt.append("**Complete Example:**\n");
+        prompt.append("```\n");
+        prompt.append("User: \"Add null check to getUserById method\"\n\n");
+
+        prompt.append("AI: [silently: readFile(\"UserService.java\")]\n");
+        prompt.append("AI: [silently: replaceCodeInFile(...)]\n");
+        prompt.append("AI: \"Added null check to getUserById (UserService.java:156)\\nTools: 1/5 used\"\n");
+        prompt.append("```\n\n");
+
+        prompt.append("That's it - no explanations, no code blocks, just action and result!\n\n");
 
         prompt.append("## Critical Syntax Rules (for replaceCodeInFile)\n\n");
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.901">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.902">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,6 +9,47 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
+            <h3>Version 1.9.902 - OpenWebUI Tool Integration & Agent Mode Enhancements 🚀</h3>
+            <h4>🏗️ Architecture Simplification</h4>
+            <ul>
+                <li><b>Lightweight ToolApiServer</b> - Replaced complex Javalin/Node.js proxy with Java's built-in HttpServer (~6000 lines removed)</li>
+                <li><b>OpenAPI 3.1.0 Support</b> - Native schema generation from langchain4j @Tool annotations with proper type handling</li>
+                <li><b>FastAPI-Style Endpoints</b> - Clean REST paths (/read_file, /search_code) with CORS support</li>
+            </ul>
+
+            <h4>🛠️ Multi-Project Tool System</h4>
+            <ul>
+                <li><b>Per-Project Servers</b> - Automatic port assignment (8765-8865) for each open project</li>
+                <li><b>Smart Tool Filtering</b> - Project path in tool descriptions prevents mixing tools between projects</li>
+                <li><b>Settings Integration</b> - Tools registered via OpenWebUI settings API for proper execution</li>
+                <li><b>Request Filtering</b> - Interceptor removes other projects' tools from each request</li>
+            </ul>
+
+            <h4>🎯 Enhanced Agent Mode</h4>
+            <ul>
+                <li><b>Tool Budget System</b> - 5 exploration tools max (readFile, searchCode, etc) with explicit tracking required</li>
+                <li><b>Code Understanding Patterns</b> - 8 categories of search patterns (class structure, instance creation, dependencies, etc)</li>
+                <li><b>Active Modification</b> - Agent uses replaceCodeInFile/createNewFile directly instead of providing code snippets</li>
+                <li><b>Enforced Response Format</b> - Required templates with tool count tracking in every response</li>
+                <li><b>Clear Workflow</b> - 4-step pattern: Understand → Plan → Execute → Verify</li>
+            </ul>
+
+            <h4>💬 Modern Chat UI</h4>
+            <ul>
+                <li><b>Redesigned Interface</b> - Cleaner chat layout with better visual hierarchy</li>
+                <li><b>Dark Mode Support</b> - Improved theme handling using ThemeUtils</li>
+                <li><b>Simplified Rendering</b> - Removed complex tool renderers for more maintainable code</li>
+            </ul>
+
+            <h4>🔧 Tool Improvements</h4>
+            <ul>
+                <li><b>Flexible Parameters</b> - Tool handlers accept both proper names and arg0/arg1 for compatibility</li>
+                <li><b>Better Path Resolution</b> - ReadFileTool handles relative, absolute, and package-style paths</li>
+                <li><b>Enhanced Lookup Tools</b> - Improved LookupMethodTool and LookupClassTool</li>
+            </ul>
+
+            <p><em>Major architecture refactor with OpenWebUI integration and powerful Agent Mode enhancements! 🎉</em></p>
+
             <h3>Version 1.9.901 - Tool-Enabled Chat & UI Polish ✨</h3>
             <h4>🛠️ New Feature: Tool-Enabled Chat</h4>
             <ul>

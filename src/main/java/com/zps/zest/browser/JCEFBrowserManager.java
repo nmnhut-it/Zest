@@ -737,6 +737,7 @@ public class JCEFBrowserManager implements Disposable {
     }
 
     String  interceptorScript;
+    String  toolInjectorScript;
 //    String  projectModeInterceptorScript;
 //    String  augmentedModeInterceptorScript;
 //    String  interceptorAugmentedScript;
@@ -749,6 +750,10 @@ public class JCEFBrowserManager implements Disposable {
             // Load the tool interceptor script from file
             if (interceptorScript == null) {
                 interceptorScript = loadResourceAsString("/chat-ui/tool-interceptor.js");
+            }
+            // Load the tool injector script
+            if (toolInjectorScript == null) {
+                toolInjectorScript = loadResourceAsString("/chat-ui/tool-injector.js");
             }
 //            if (projectModeInterceptorScript == null) {
 //                projectModeInterceptorScript = loadResourceAsString("/js/projectModeInterceptor.js");
@@ -769,6 +774,8 @@ public class JCEFBrowserManager implements Disposable {
                 public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
                     // Inject our interceptor script
                     browser.executeJavaScript(interceptorScript, frame.getURL(), 0);
+                    // Inject tool injector script
+                    browser.executeJavaScript(toolInjectorScript, frame.getURL(), 0);
                     // Inject the project mode interceptor script
 //                    browser.executeJavaScript(projectModeInterceptorScript, frame.getURL(), 0);
 //                    // Inject the augmented mode interceptor script

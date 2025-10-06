@@ -18,9 +18,16 @@ public class SimpleOpenAPIGenerator {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     /**
+     * Convert camelCase to snake_case
+     */
+    private static String toSnakeCase(String camelCase) {
+        return camelCase.replaceAll("([a-z])([A-Z])", "$1_$2").toLowerCase();
+    }
+
+    /**
      * Generate OpenAPI 3.1.0 JSON schema from tool specifications.
      */
-    public static String generateSchema(String projectName, List<ToolSpecification> toolSpecs) {
+    public static String generateSchema(String projectName, String projectPath, List<ToolSpecification> toolSpecs) {
         JsonObject openapi = new JsonObject();
 
         // OpenAPI version
@@ -30,7 +37,7 @@ public class SimpleOpenAPIGenerator {
         JsonObject info = new JsonObject();
         info.addProperty("title", "Zest Code Tools - " + projectName);
         info.addProperty("version", "1.0.0");
-        info.addProperty("description", "IntelliJ code exploration and modification tools");
+        info.addProperty("description", "IntelliJ code exploration and modification tools for project: " + projectPath);
         openapi.add("info", info);
 
         // Servers
@@ -41,11 +48,11 @@ public class SimpleOpenAPIGenerator {
         servers.add(server);
         openapi.add("servers", servers);
 
-        // Paths - one for each tool
+        // Paths - one for each tool (convert to snake_case)
         JsonObject paths = new JsonObject();
         for (ToolSpecification tool : toolSpecs) {
-            String pathKey = "/api/tools/" + tool.name();
-            paths.add(pathKey, createPathItem(tool));
+            String pathKey = "/" + toSnakeCase(tool.name());
+            paths.add(pathKey, createPathItem(tool, projectPath));
         }
         openapi.add("paths", paths);
 
@@ -55,14 +62,15 @@ public class SimpleOpenAPIGenerator {
     /**
      * Create a path item (POST operation) for a tool.
      */
-    private static JsonObject createPathItem(ToolSpecification tool) {
+    private static JsonObject createPathItem(ToolSpecification tool, String projectPath) {
         JsonObject pathItem = new JsonObject();
         JsonObject post = new JsonObject();
 
-        // Operation ID and description
+        // Operation ID and description with project path prefix
+        String descriptionWithProject = "[Project: " + projectPath + "] " + tool.description();
         post.addProperty("operationId", tool.name());
-        post.addProperty("summary", tool.description());
-        post.addProperty("description", tool.description());
+        post.addProperty("summary", descriptionWithProject);
+        post.addProperty("description", descriptionWithProject);
 
         // Tags
         JsonArray tags = new JsonArray();

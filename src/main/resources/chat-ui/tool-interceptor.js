@@ -63,10 +63,10 @@
             // Parse and modify request body
             if (newInit.body) {
                 const bodyText = typeof newInit.body === 'string' ? newInit.body : await readBody(newInit.body);
-                const modifiedBody = await injectToolServer(bodyText, toolServerUrl);
+                const modifiedBody = await filterToolsByProject(bodyText);
                 newInit.body = modifiedBody;
 
-                console.log('[Zest Tool Interceptor] Injected tool server:', toolServerUrl);
+                console.log('[Zest Tool Interceptor] Filtered tools by project');
             }
 
             return originalFetch(input, newInit);
@@ -155,50 +155,41 @@
     }
 
     /**
-     * Inject tools into request body
+     * Filter tools to only include current project's tools
      */
-    async function injectToolServer(bodyText, toolServerUrl) {
+    async function filterToolsByProject(bodyText) {
         try {
             const data = JSON.parse(bodyText);
 
-            // Fetch OpenAPI spec and convert to tools
-            const openApiSpec = await fetchOpenApiSpec(toolServerUrl);
-            if (!openApiSpec) {
-                console.warn('[Zest Tool Interceptor] Could not fetch OpenAPI spec, skipping injection');
+            // Get current project path
+            const currentProjectPath = window.__project_info__?.projectFilePath;
+            if (!currentProjectPath) {
+                console.warn('[Zest Tool Interceptor] No project path available, skipping filter');
                 return bodyText;
             }
 
-            const newTools = convertOpenApiToTools(openApiSpec);
-            if (newTools.length === 0) {
-                console.warn('[Zest Tool Interceptor] No tools extracted from OpenAPI spec');
-                return bodyText;
-            }
+            // Filter tools array if it exists
+            if (data.tools && Array.isArray(data.tools)) {
+                const originalCount = data.tools.length;
 
-            // Initialize tools array if needed
-            if (!data.tools) {
-                data.tools = [];
-            }
+                // Keep only tools that match current project path in description
+                data.tools = data.tools.filter(tool => {
+                    const description = tool.function?.description || '';
+                    // Check if description contains current project path
+                    return description.includes('[Project: ' + currentProjectPath + ']');
+                });
 
-            // Get existing tool names to avoid duplicates
-            const existingToolNames = new Set(
-                data.tools.map(tool => tool.function?.name).filter(Boolean)
-            );
-
-            // Add new tools that don't already exist
-            let addedCount = 0;
-            for (const tool of newTools) {
-                if (!existingToolNames.has(tool.function.name)) {
-                    data.tools.push(tool);
-                    addedCount++;
+                const filteredCount = originalCount - data.tools.length;
+                if (filteredCount > 0) {
+                    console.log('[Zest Tool Interceptor] Filtered out', filteredCount, 'tools from other projects');
                 }
+                console.log('[Zest Tool Interceptor] Keeping', data.tools.length, 'tools for project:', currentProjectPath);
             }
-
-            console.log('[Zest Tool Interceptor] Added', addedCount, 'new tools to request');
 
             return JSON.stringify(data);
 
         } catch (error) {
-            console.error('[Zest Tool Interceptor] Failed to inject tools:', error);
+            console.error('[Zest Tool Interceptor] Failed to filter tools:', error);
             return bodyText;
         }
     }

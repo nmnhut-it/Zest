@@ -77,22 +77,22 @@ public class ToolApiServer {
             exchange.sendResponseHeaders(404, -1);
         });
 
-        // Tool endpoints
-        server.createContext("/api/tools/readFile", new ReadFileHandler());
-        server.createContext("/api/tools/searchCode", new SearchCodeHandler());
-        server.createContext("/api/tools/findFiles", new FindFilesHandler());
-        server.createContext("/api/tools/analyzeClass", new AnalyzeClassHandler());
-        server.createContext("/api/tools/listFiles", new ListFilesHandler());
-        server.createContext("/api/tools/lookupMethod", new LookupMethodHandler());
-        server.createContext("/api/tools/lookupClass", new LookupClassHandler());
-        server.createContext("/api/tools/replaceCodeInFile", new ReplaceCodeHandler());
-        server.createContext("/api/tools/createNewFile", new CreateFileHandler());
+        // Tool endpoints (FastAPI-style paths)
+        server.createContext("/read_file", new ReadFileHandler());
+        server.createContext("/search_code", new SearchCodeHandler());
+        server.createContext("/find_files", new FindFilesHandler());
+        server.createContext("/analyze_class", new AnalyzeClassHandler());
+        server.createContext("/list_files", new ListFilesHandler());
+        server.createContext("/lookup_method", new LookupMethodHandler());
+        server.createContext("/lookup_class", new LookupClassHandler());
+        server.createContext("/replace_code_in_file", new ReplaceCodeHandler());
+        server.createContext("/create_new_file", new CreateFileHandler());
 
         // OpenAPI schema endpoint
         server.createContext("/openapi.json", new OpenAPISchemaHandler());
 
         // Health check
-        server.createContext("/api/health", new HealthHandler());
+        server.createContext("/health", new HealthHandler());
 
         server.setExecutor(Executors.newFixedThreadPool(10));
     }
@@ -130,8 +130,9 @@ public class ToolApiServer {
                 toolSpecs.addAll(ToolSpecifications.toolSpecificationsFrom(lookupClassTool));
                 toolSpecs.addAll(ToolSpecifications.toolSpecificationsFrom(codeModificationTools));
 
-                // Generate OpenAPI schema
-                String schema = SimpleOpenAPIGenerator.generateSchema(project.getName(), toolSpecs);
+                // Generate OpenAPI schema with project path
+                String projectPath = project.getBasePath();
+                String schema = SimpleOpenAPIGenerator.generateSchema(project.getName(), projectPath, toolSpecs);
 
                 // Send response
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
@@ -154,7 +155,9 @@ public class ToolApiServer {
         public void handle(HttpExchange exchange) throws IOException {
             handlePost(exchange, body -> {
                 JsonObject request = GSON.fromJson(body, JsonObject.class);
-                String filePath = request.get("filePath").getAsString();
+                // Accept either 'filePath' or 'arg0' parameter name
+                String filePath = request.has("filePath") ? request.get("filePath").getAsString()
+                                : request.get("arg0").getAsString();
                 String result = readFileTool.readFile(filePath);
                 return createSuccessResponse(result);
             });
@@ -166,11 +169,11 @@ public class ToolApiServer {
         public void handle(HttpExchange exchange) throws IOException {
             handlePost(exchange, body -> {
                 JsonObject request = GSON.fromJson(body, JsonObject.class);
-                String query = request.get("query").getAsString();
-                String filePattern = getStringOrNull(request, "filePattern");
-                String excludePattern = getStringOrNull(request, "excludePattern");
-                Integer beforeLines = getIntOrDefault(request, "beforeLines", 0);
-                Integer afterLines = getIntOrDefault(request, "afterLines", 0);
+                String query = getStringParam(request, "query", "arg0");
+                String filePattern = getStringParam(request, "filePattern", "arg1");
+                String excludePattern = getStringParam(request, "excludePattern", "arg2");
+                Integer beforeLines = getIntParam(request, "beforeLines", "arg3", 0);
+                Integer afterLines = getIntParam(request, "afterLines", "arg4", 0);
 
                 String result = ripgrepTool.searchCode(query, filePattern, excludePattern, beforeLines, afterLines);
                 return createSuccessResponse(result);
@@ -183,7 +186,7 @@ public class ToolApiServer {
         public void handle(HttpExchange exchange) throws IOException {
             handlePost(exchange, body -> {
                 JsonObject request = GSON.fromJson(body, JsonObject.class);
-                String pattern = request.get("pattern").getAsString();
+                String pattern = getStringParam(request, "pattern", "arg0");
                 String result = ripgrepTool.findFiles(pattern);
                 return createSuccessResponse(result);
             });
@@ -195,7 +198,7 @@ public class ToolApiServer {
         public void handle(HttpExchange exchange) throws IOException {
             handlePost(exchange, body -> {
                 JsonObject request = GSON.fromJson(body, JsonObject.class);
-                String filePathOrClassName = request.get("filePathOrClassName").getAsString();
+                String filePathOrClassName = getStringParam(request, "filePathOrClassName", "arg0");
                 String result = analyzeClassTool.analyzeClass(filePathOrClassName);
                 return createSuccessResponse(result);
             });
@@ -207,8 +210,8 @@ public class ToolApiServer {
         public void handle(HttpExchange exchange) throws IOException {
             handlePost(exchange, body -> {
                 JsonObject request = GSON.fromJson(body, JsonObject.class);
-                String directoryPath = request.get("directoryPath").getAsString();
-                Integer recursiveLevel = getIntOrDefault(request, "recursiveLevel", 1);
+                String directoryPath = getStringParam(request, "directoryPath", "arg0");
+                Integer recursiveLevel = getIntParam(request, "recursiveLevel", "arg1", 1);
                 String result = listFilesTool.listFiles(directoryPath, recursiveLevel);
                 return createSuccessResponse(result);
             });
@@ -220,8 +223,8 @@ public class ToolApiServer {
         public void handle(HttpExchange exchange) throws IOException {
             handlePost(exchange, body -> {
                 JsonObject request = GSON.fromJson(body, JsonObject.class);
-                String className = request.get("className").getAsString();
-                String methodName = request.get("methodName").getAsString();
+                String className = getStringParam(request, "className", "arg0");
+                String methodName = getStringParam(request, "methodName", "arg1");
                 String result = lookupMethodTool.lookupMethod(className, methodName);
                 return createSuccessResponse(result);
             });
@@ -233,7 +236,7 @@ public class ToolApiServer {
         public void handle(HttpExchange exchange) throws IOException {
             handlePost(exchange, body -> {
                 JsonObject request = GSON.fromJson(body, JsonObject.class);
-                String className = request.get("className").getAsString();
+                String className = getStringParam(request, "className", "arg0");
                 String result = lookupClassTool.lookupClass(className);
                 return createSuccessResponse(result);
             });
@@ -245,10 +248,11 @@ public class ToolApiServer {
         public void handle(HttpExchange exchange) throws IOException {
             handlePost(exchange, body -> {
                 JsonObject request = GSON.fromJson(body, JsonObject.class);
-                String filePath = request.get("filePath").getAsString();
-                String searchPattern = request.get("searchPattern").getAsString();
-                String replacement = request.get("replacement").getAsString();
-                Boolean useRegex = request.has("useRegex") ? request.get("useRegex").getAsBoolean() : false;
+                String filePath = getStringParam(request, "filePath", "arg0");
+                String searchPattern = getStringParam(request, "searchPattern", "arg1");
+                String replacement = getStringParam(request, "replacement", "arg2");
+                Boolean useRegex = request.has("useRegex") ? request.get("useRegex").getAsBoolean()
+                                 : request.has("arg3") ? request.get("arg3").getAsBoolean() : false;
 
                 String result = codeModificationTools.replaceCodeInFile(
                     filePath, searchPattern, replacement, useRegex
@@ -263,8 +267,8 @@ public class ToolApiServer {
         public void handle(HttpExchange exchange) throws IOException {
             handlePost(exchange, body -> {
                 JsonObject request = GSON.fromJson(body, JsonObject.class);
-                String filePath = request.get("filePath").getAsString();
-                String content = request.get("content").getAsString();
+                String filePath = getStringParam(request, "filePath", "arg0");
+                String content = getStringParam(request, "content", "arg1");
 
                 String result = codeModificationTools.createNewFile(filePath, content);
                 return createSuccessResponse(result);
@@ -345,6 +349,26 @@ public class ToolApiServer {
         response.addProperty("success", false);
         response.addProperty("error", error);
         return GSON.toJson(response);
+    }
+
+    private String getStringParam(JsonObject json, String primaryKey, String fallbackKey) {
+        if (json.has(primaryKey) && !json.get(primaryKey).isJsonNull()) {
+            return json.get(primaryKey).getAsString();
+        }
+        if (json.has(fallbackKey) && !json.get(fallbackKey).isJsonNull()) {
+            return json.get(fallbackKey).getAsString();
+        }
+        return null;
+    }
+
+    private Integer getIntParam(JsonObject json, String primaryKey, String fallbackKey, int defaultValue) {
+        if (json.has(primaryKey) && !json.get(primaryKey).isJsonNull()) {
+            return json.get(primaryKey).getAsInt();
+        }
+        if (json.has(fallbackKey) && !json.get(fallbackKey).isJsonNull()) {
+            return json.get(fallbackKey).getAsInt();
+        }
+        return defaultValue;
     }
 
     private String getStringOrNull(JsonObject json, String key) {

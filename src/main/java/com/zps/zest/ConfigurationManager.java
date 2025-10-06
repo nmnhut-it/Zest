@@ -202,14 +202,14 @@ public class ConfigurationManager {
         return globalSettings;
     }
 
-    // Removed unused RAG and MCP methods
-    
-    public boolean isProxyServerEnabled() {
-        return projectSettings.proxyServerEnabled;
+    // Removed unused RAG, MCP, and proxy server methods
+
+    public boolean isToolServerEnabled() {
+        return projectSettings.toolServerEnabled;
     }
-    
-    public void setProxyServerEnabled(boolean enabled) {
-        projectSettings.proxyServerEnabled = enabled;
+
+    public void setToolServerEnabled(boolean enabled) {
+        projectSettings.toolServerEnabled = enabled;
     }
 
     public String getSystemPrompt() {
@@ -303,12 +303,20 @@ public class ConfigurationManager {
 
     public void setContinuousCompletionEnabled(boolean enabled) {
         globalSettings.continuousCompletionEnabled = enabled;
-        
+
         try {
             com.zps.zest.completion.ZestInlineCompletionService.Companion.notifyConfigurationChanged();
         } catch (Exception e) {
             LOG.warn("Failed to notify inline completion service of configuration change", e);
         }
+    }
+
+    public boolean isStreamingEnabled() {
+        return globalSettings.streamingEnabled;
+    }
+
+    public void setStreamingEnabled(boolean enabled) {
+        globalSettings.streamingEnabled = enabled;
     }
 
     // RAG-specific configurations for inline completion

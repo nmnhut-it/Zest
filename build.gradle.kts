@@ -52,23 +52,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.7.3")
 
-    // MCP SDK dependencies
-    implementation(platform("io.modelcontextprotocol.sdk:mcp-bom:0.9.0"))
-    implementation("io.modelcontextprotocol.sdk:mcp")
-    implementation("io.modelcontextprotocol.sdk:mcp-spring-webflux")
-
     // https://mvnrepository.com/artifact/dev.langchain4j/langchain4j
-    implementation("dev.langchain4j:langchain4j:1.3.0-beta9")
+    implementation("dev.langchain4j:langchain4j:1.7.1")
 
     // https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-agentic
-    implementation("dev.langchain4j:langchain4j-agentic:1.3.0-beta9")
+    implementation("dev.langchain4j:langchain4j-agentic:1.7.1-beta14")
 
     // https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-open-ai
-    implementation("dev.langchain4j:langchain4j-open-ai:1.3.0")
-
-    // Javalin for REST API server
-    implementation("io.javalin:javalin:5.6.3")
-
+    implementation("dev.langchain4j:langchain4j-open-ai:1.7.1")
 
     // Tree-sitter for AST-based code chunking
     implementation("io.github.bonede:tree-sitter:0.25.3")
@@ -143,7 +134,7 @@ tasks {
     // Add this to ensure resources are properly packaged
     processResources {
         duplicatesStrategy = DuplicatesStrategy.INCLUDE
-        
+
         // Include ripgrep binaries in the JAR
         from("src/main/resources/bin") {
             into("bin")

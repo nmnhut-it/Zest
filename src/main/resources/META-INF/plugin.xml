@@ -41,7 +41,7 @@
         <backgroundPostStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.startup.PromptMigrationStartupActivity"/>
-        <backgroundPostStartupActivity implementation="com.zps.zest.langchain4j.agent.network.ProxyStartupActivity"/>
+        <backgroundPostStartupActivity implementation="com.zps.zest.mcp.ToolApiServerStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.update.VersionUpdateNotifier"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
@@ -104,9 +104,12 @@
         
         <!-- Chat UI Service -->
         <projectService serviceImplementation="com.zps.zest.chatui.ChatUIService"/>
-        
+
         <!-- Browser Services -->
         <projectService serviceImplementation="com.zps.zest.browser.JCEFBrowserService"/>
+
+        <!-- Tool API Server Service -->
+        <projectService serviceImplementation="com.zps.zest.mcp.ToolApiServerService"/>
         
         <!-- Inline Completion Services -->
         <projectService serviceImplementation="com.zps.zest.completion.ZestInlineCompletionService"/>

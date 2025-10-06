@@ -17,7 +17,9 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import org.jetbrains.annotations.NotNull;
 
+import java.time.DayOfWeek;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Set;
@@ -306,17 +308,26 @@ public class ZestChatLanguageModel implements ChatModel {
     }
 
     /**
-     * Check if current time is within office hours (8:30 - 17:30)
+     * Check if current time is within office hours (8:30 - 17:30, Monday-Friday)
      * Copied from LLMService for consistency
      */
     private boolean isWithinOfficeHours() {
-        LocalTime now = LocalTime.now();
+        LocalDateTime nowDateTime = LocalDateTime.now();
+        DayOfWeek dayOfWeek = nowDateTime.getDayOfWeek();
+
+        // Exclude weekends
+        if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
+            LOG.debug("Weekend detected: " + dayOfWeek + ", not within office hours");
+            return false;
+        }
+
+        LocalTime now = nowDateTime.toLocalTime();
         LocalTime startTime = LocalTime.of(8, 30); // 8:30 AM
         LocalTime endTime = LocalTime.of(17, 30);  // 5:30 PM
-        
+
         boolean withinHours = !now.isBefore(startTime) && !now.isAfter(endTime);
         LOG.debug("Current time: " + now + ", Office hours: " + startTime + " - " + endTime + ", Within hours: " + withinHours);
-        
+
         return withinHours;
     }
     

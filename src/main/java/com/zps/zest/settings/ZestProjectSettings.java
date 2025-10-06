@@ -17,13 +17,13 @@ import org.jetbrains.annotations.Nullable;
     storages = @Storage("zest-plugin.xml")
 )
 public class ZestProjectSettings implements PersistentStateComponent<ZestProjectSettings> {
-    
-    // Removed unused settings (context injection, docs search, RAG, MCP)
+
+    // Removed unused settings (context injection, docs search, RAG, MCP, proxy server)
     public int maxIterations = 3;
-    
-    // Agent Proxy Server
-    public boolean proxyServerEnabled = false;
-    
+
+    // Tool API Server (for MCP/OpenWebUI integration)
+    public boolean toolServerEnabled = true;
+
     // Migration tracking
     public int promptVersion = 0;
     

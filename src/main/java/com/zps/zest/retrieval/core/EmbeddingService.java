@@ -19,7 +19,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.DayOfWeek;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -627,16 +629,25 @@ public final class EmbeddingService {
     }
     
     /**
-     * Check if current time is within office hours (8:30 - 17:30)
+     * Check if current time is within office hours (8:30 - 17:30, Monday-Friday)
      */
     private boolean isWithinOfficeHours() {
-        LocalTime now = LocalTime.now();
+        LocalDateTime nowDateTime = LocalDateTime.now();
+        DayOfWeek dayOfWeek = nowDateTime.getDayOfWeek();
+
+        // Exclude weekends
+        if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
+            LOG.debug("Weekend detected: " + dayOfWeek + ", not within office hours");
+            return false;
+        }
+
+        LocalTime now = nowDateTime.toLocalTime();
         LocalTime startTime = LocalTime.of(8, 30); // 8:30 AM
         LocalTime endTime = LocalTime.of(17, 30);  // 5:30 PM
-        
+
         boolean withinHours = !now.isBefore(startTime) && !now.isAfter(endTime);
         LOG.debug("Current time: " + now + ", Office hours: " + startTime + " - " + endTime + ", Within hours: " + withinHours);
-        
+
         return withinHours;
     }
     

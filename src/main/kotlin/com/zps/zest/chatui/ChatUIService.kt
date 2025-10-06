@@ -125,8 +125,50 @@ ${cachedProjectRules}
     }
 
     /**
+     * Send a message to the AI with non-streaming response and tool integration using AiServices
+     *
+     * @param userMessage The message to send
+     * @param onComplete Callback when response is complete
+     * @param onError Callback for errors
+     */
+    fun sendMessage(
+        userMessage: String,
+        onComplete: (String) -> Unit,
+        onError: (Throwable) -> Unit
+    ) {
+        LOG.info("Sending non-streaming message to AI: ${userMessage.take(100)}...")
+
+        try {
+            // Initialize tool-enabled assistant if not already done
+            if (toolEnabledAssistant == null) {
+                toolEnabledAssistant = createToolEnabledAssistant()
+            }
+
+            // Execute on background thread to avoid blocking UI
+            Thread {
+                try {
+                    val response = toolEnabledAssistant!!.chat(userMessage)
+                    LOG.info("Received non-streaming AI response: ${response.take(100)}...")
+                    ApplicationManager.getApplication().invokeLater {
+                        onComplete(response)
+                    }
+                } catch (e: Exception) {
+                    LOG.error("Failed to get non-streaming response", e)
+                    ApplicationManager.getApplication().invokeLater {
+                        onError(e)
+                    }
+                }
+            }.start()
+
+        } catch (e: Exception) {
+            LOG.error("Failed to start non-streaming message", e)
+            onError(e)
+        }
+    }
+
+    /**
      * Send a message to the AI with streaming response support and tool integration using AiServices
-     * 
+     *
      * @param userMessage The message to send
      * @param onToken Callback for each streaming token
      * @param onComplete Callback when streaming is complete
@@ -244,8 +286,7 @@ ${cachedProjectRules}
             onError(e)
         }
     }
-    
-    
+
     /**
      * Create a tool-enabled assistant with file reading and search capabilities
      */
@@ -858,10 +899,11 @@ Be concise but descriptive.
             
             // Clear chat memory to free up resources
             chatMemory.clear()
-            
-            // Clear tool-enabled assistant to free up resources
+
+            // Clear assistants to free up resources
             toolEnabledAssistant = null
-            
+            streamingToolEnabledAssistant = null
+
             LOG.info("ChatUIService disposed successfully")
         } catch (e: Exception) {
             LOG.error("Error during ChatUIService disposal", e)

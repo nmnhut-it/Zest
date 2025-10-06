@@ -82,19 +82,28 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
      * Used for UI messages that will be replaced by ChatMemory reload
      */
     fun addTemporaryChunk(header: String, content: String, chunkType: String = "user") {
+        println("[KOTLIN] addTemporaryChunk called: type=$chunkType, header=$header, contentLength=${content.length}")
+
         val headerEscaped = escapeJavaScriptString(header)
         val contentEscaped = escapeJavaScriptString(content)
         val typeEscaped = escapeJavaScriptString(chunkType)
 
         browserManager.executeJavaScript("""
+            console.log('[KOTLIN->JS] Executing addTemporaryChunk');
             if (window.chatFunctions && window.chatFunctions.addTemporaryChunk) {
+                console.log('[KOTLIN->JS] window.chatFunctions found, calling addTemporaryChunk');
                 window.chatFunctions.addTemporaryChunk(
                     '$typeEscaped',
                     '$headerEscaped',
                     '$contentEscaped'
                 );
+            } else {
+                console.error('[KOTLIN->JS] ERROR: window.chatFunctions or addTemporaryChunk not found!');
+                console.log('[KOTLIN->JS] window.chatFunctions:', window.chatFunctions);
             }
         """)
+
+        println("[KOTLIN] executeJavaScript completed")
     }
     
     /**
@@ -111,47 +120,45 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     /**
-     * Finalize streaming with animation, reload from ChatMemory
-     * No message ID needed - reloads all from authoritative ChatMemory
+     * Finalize streaming and reload from ChatMemory
      */
     fun finalizeStreaming() {
-        // Trigger animated finalize
+        // Trigger finalize
         browserManager.executeJavaScript("""
             if (window.chatFunctions && window.chatFunctions.finalizeWithAnimation) {
                 window.chatFunctions.finalizeWithAnimation();
             }
         """)
 
-        // Schedule full reload from ChatMemory after animation starts
+        // Reload from ChatMemory
         java.util.Timer().schedule(object : java.util.TimerTask() {
             override fun run() {
                 updateChatDisplay()
             }
-        }, 300) // 300ms matches fade-out animation
+        }, 200)
     }
 
     /**
-     * Add tool call chunk during streaming (temporary - replaced on finalize)
+     * Add tool badge to current AI message during streaming (temporary - replaced on finalize)
      */
-    fun addToolCallChunkLive(toolName: String, toolArgs: String, toolId: String) {
+    fun addToolBadgeLive(toolName: String, toolArgs: String, toolId: String) {
         val toolArgsEscaped = escapeJavaScriptString(toolArgs)
         val toolNameEscaped = escapeJavaScriptString(toolName)
         browserManager.executeJavaScript("""
-            if (window.chatFunctions && window.chatFunctions.appendToolCallChunk) {
-                window.chatFunctions.appendToolCallChunk('$toolNameEscaped', '$toolArgsEscaped', '$toolId');
+            if (window.chatFunctions && window.chatFunctions.appendToolBadge) {
+                window.chatFunctions.appendToolBadge('$toolNameEscaped', '$toolArgsEscaped', '$toolId');
             }
         """)
     }
 
     /**
-     * Add tool result chunk during streaming (temporary - replaced on finalize)
+     * Update tool badge with result during streaming (temporary - replaced on finalize)
      */
-    fun addToolResultChunkLive(toolName: String, result: String) {
+    fun updateToolBadgeWithResult(toolId: String, result: String) {
         val resultEscaped = escapeJavaScriptString(result)
-        val toolNameEscaped = escapeJavaScriptString(toolName)
         browserManager.executeJavaScript("""
-            if (window.chatFunctions && window.chatFunctions.appendToolResultChunk) {
-                window.chatFunctions.appendToolResultChunk('$toolNameEscaped', '$resultEscaped');
+            if (window.chatFunctions && window.chatFunctions.updateToolBadgeWithResult) {
+                window.chatFunctions.updateToolBadgeWithResult('$toolId', '$resultEscaped');
             }
         """)
     }
@@ -194,6 +201,14 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun generateChatHtml(): String {
         val messages = chatMemory?.messages() ?: emptyList()
 
+        // Build map of tool results: toolId → result text
+        val toolResultsMap = mutableMapOf<String, String>()
+        messages.forEach { message ->
+            if (message is dev.langchain4j.data.message.ToolExecutionResultMessage) {
+                toolResultsMap[message.id()] = message.text()
+            }
+        }
+
         // Transform ChatMessage → VisualChunks (breaking AiMessage into text + tools)
         val visualChunks = mutableListOf<VisualChunk>()
         var chunkId = 0
@@ -211,43 +226,34 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                 }
 
                 is dev.langchain4j.data.message.AiMessage -> {
-                    // AI text chunk (if exists)
-                    message.text()?.let { text ->
-                        if (text.isNotBlank()) {
-                            visualChunks.add(VisualChunk(
-                                id = "chunk-${chunkId++}",
-                                type = "ai",
-                                header = "🤖 Assistant",
-                                content = text,
-                                timestamp = timeFormatter.format(Date())
-                            ))
-                        }
+                    // Collect tool calls with their results (if available)
+                    val toolCalls = message.toolExecutionRequests().map { tool ->
+                        ToolCallInfo(
+                            id = tool.id(),
+                            name = tool.name(),
+                            args = tool.arguments(),
+                            result = toolResultsMap[tool.id()]  // Match result by ID
+                        )
                     }
 
-                    // Each tool execution request as separate chunk
-                    message.toolExecutionRequests().forEachIndexed { index, tool ->
+                    // AI text chunk with embedded tool calls
+                    val hasContent = message.text()?.isNotBlank() == true
+                    val hasTools = toolCalls.isNotEmpty()
+
+                    if (hasContent || hasTools) {
                         visualChunks.add(VisualChunk(
                             id = "chunk-${chunkId++}",
-                            type = "tool_call",
-                            header = "🔧 ${tool.name()}",
-                            content = null,  // Will be formatted in JS
+                            type = "ai",
+                            header = "🤖 Assistant",
+                            content = message.text()?.takeIf { it.isNotBlank() },
                             timestamp = timeFormatter.format(Date()),
-                            toolName = tool.name(),
-                            toolArgs = tool.arguments(),
-                            toolId = tool.id()
+                            toolCalls = toolCalls.takeIf { it.isNotEmpty() }
                         ))
                     }
                 }
 
                 is dev.langchain4j.data.message.ToolExecutionResultMessage -> {
-                    visualChunks.add(VisualChunk(
-                        id = "chunk-${chunkId++}",
-                        type = "tool_result",
-                        header = "📄 Result: ${message.toolName()}",
-                        content = message.text(),
-                        timestamp = timeFormatter.format(Date()),
-                        toolName = message.toolName()
-                    ))
+                    // Skip - results are now embedded in AI message tool badges
                 }
 
                 is dev.langchain4j.data.message.SystemMessage -> {
@@ -264,6 +270,15 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
 
         // Serialize visual chunks to JSON for JavaScript
         val chunksJson = visualChunks.joinToString(",\n") { chunk ->
+            val toolCallsJson = if (chunk.toolCalls != null) {
+                chunk.toolCalls.joinToString(",", "[", "]") { tool ->
+                    val resultJson = if (tool.result != null) "\"${escapeJsonString(tool.result)}\"" else "null"
+                    """{"id":"${escapeJsonString(tool.id)}","name":"${escapeJsonString(tool.name)}","args":"${escapeJsonString(tool.args)}","result":$resultJson}"""
+                }
+            } else {
+                "null"
+            }
+
             """
             {
                 "id": "${chunk.id}",
@@ -271,9 +286,7 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                 "header": "${escapeJsonString(chunk.header)}",
                 "content": ${if (chunk.content != null) "\"${escapeJsonString(chunk.content)}\"" else "null"},
                 "timestamp": "${chunk.timestamp}",
-                "toolName": ${if (chunk.toolName != null) "\"${escapeJsonString(chunk.toolName)}\"" else "null"},
-                "toolArgs": ${if (chunk.toolArgs != null) "\"${escapeJsonString(chunk.toolArgs)}\"" else "null"},
-                "toolId": ${if (chunk.toolId != null) "\"${escapeJsonString(chunk.toolId)}\"" else "null"}
+                "toolCalls": $toolCallsJson
             }
             """.trimIndent()
         }
@@ -282,17 +295,25 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     /**
+     * Data class for tool call information (embedded in VisualChunk)
+     */
+    private data class ToolCallInfo(
+        val id: String,
+        val name: String,
+        val args: String,
+        val result: String? = null
+    )
+
+    /**
      * Data class for visual rendering chunks
      */
     private data class VisualChunk(
         val id: String,
-        val type: String,         // "user", "ai", "tool_call", "tool_result", "system"
+        val type: String,         // "user", "ai", "tool_result", "system"
         val header: String,
         val content: String?,
         val timestamp: String,
-        val toolName: String? = null,
-        val toolArgs: String? = null,
-        val toolId: String? = null
+        val toolCalls: List<ToolCallInfo>? = null  // For ai type with tools
     )
     
     /**
@@ -351,13 +372,6 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
         val chatCss = loadResource("chat-ui/chat.css") ?: ""
         val chatJs = loadResource("chat-ui/chat-functions.js") ?: ""
 
-        // Load tool renderers
-        val toolRendererBase = loadResource("chat-ui/tool-renderer-base.js") ?: ""
-        val toolRendererReadFile = loadResource("chat-ui/tool-renderer-read-file.js") ?: ""
-        val toolRendererSearchCode = loadResource("chat-ui/tool-renderer-search-code.js") ?: ""
-        val toolRendererCodeMod = loadResource("chat-ui/tool-renderer-code-mod.js") ?: ""
-        val toolRendererDefault = loadResource("chat-ui/tool-renderer-default.js") ?: ""
-
         val themeVariables = generateThemeVariables(isDarkTheme)
 
         return """
@@ -375,26 +389,18 @@ class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
                 </style>
             </head>
             <body>
-                <div class="collapse-all-container">
-                    <button id="collapse-all-btn" class="collapse-all-button" onclick="window.chatFunctions.toggleCollapseAll()">▲ Collapse All</button>
-                </div>
                 <div id="chat-container"></div>
 
                 <script>
                     $markedJs
                     $highlightJs
 
-                    // Visual chunks from Kotlin (transformed from ChatMessages)
+                    // Visual chunks from Kotlin
                     const visualChunks = [$chunksData];
                 </script>
 
                 <script>
                     $chatJs
-                    $toolRendererBase
-                    $toolRendererReadFile
-                    $toolRendererSearchCode
-                    $toolRendererCodeMod
-                    $toolRendererDefault
                 </script>
             </body>
             </html>

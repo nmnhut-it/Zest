@@ -517,14 +517,6 @@ public class JCEFBrowserManager implements Disposable {
 //                String contextToggleScript = loadResourceAsString("/js/context-toggle.js");
 //                cefBrowser.executeJavaScript(contextToggleScript, frame.getURL(), 0);
 
-                // Load and inject the knowledge API script
-//                String knowledgeApiScript = loadResourceAsString("/js/knowledgeApi.js");
-//                cefBrowser.executeJavaScript(knowledgeApiScript, frame.getURL(), 0);
-
-                // Load and inject the tool injector script
-                String toolInjectorScript = loadResourceAsString("/js/tool-injector.js");
-                cefBrowser.executeJavaScript(toolInjectorScript, frame.getURL(), 0);
-
                 // Only ensure cookie persistence for non-local files
                 if (!isLocalFile) {
                     // Ensure cookie persistence
@@ -754,10 +746,9 @@ public class JCEFBrowserManager implements Disposable {
             // Ensure DevTools is enabled
             DevToolsRegistryManager.getInstance().ensureDevToolsEnabled();
 
-            // Load the interceptor script from file
-            // TODO: CACHE TH
+            // Load the tool interceptor script from file
             if (interceptorScript == null) {
-                interceptorScript = loadResourceAsString("/js/interceptor.js");
+                interceptorScript = loadResourceAsString("/chat-ui/tool-interceptor.js");
             }
 //            if (projectModeInterceptorScript == null) {
 //                projectModeInterceptorScript = loadResourceAsString("/js/projectModeInterceptor.js");
@@ -786,7 +777,7 @@ public class JCEFBrowserManager implements Disposable {
 //                    browser.executeJavaScript(interceptorAugmentedScript, frame.getURL(), 0);
 //                    // Inject the enhanced agent mode script
 //                    browser.executeJavaScript(agentModeEnhancedScript, frame.getURL(), 0);
-                    LOG.info("Injected request interceptor scripts with dynamic project info, RAG support, augmented mode, and enhanced agent mode");
+                    LOG.info("Injected tool interceptor script for Agent Mode OpenAPI tool injection");
                 }
             }, browser.getCefBrowser());
 

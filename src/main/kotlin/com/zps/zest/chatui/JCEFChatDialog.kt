@@ -208,15 +208,29 @@ class JCEFChatDialog(
 
         // Clear input immediately
         inputArea.text = ""
-        
+
+        // Read streaming setting from config
+        val config = com.zps.zest.ConfigurationManager.getInstance(project)
+        val useStreaming = config.isStreamingEnabled()
+
+        if (useStreaming) {
+            sendMessageStreaming(userMessage)
+        } else {
+            sendMessageNonStreaming(userMessage)
+        }
+    }
+
+    private fun sendMessageStreaming(userMessage: String) {
         // Update UI state
         isProcessing = true
         sendButton.text = "Streaming..."
         sendButton.isEnabled = false
 
         // Add temporary DOM-only chunks (AiServices will add to ChatMemory)
+        println("[DIALOG] Adding temporary chunks...")
         chatPanel.addTemporaryChunk("👤 **You**", userMessage, "user")
         chatPanel.addTemporaryChunk("🤖 **AI**", "...", "ai")
+        println("[DIALOG] Temporary chunks added")
 
         val currentResponse = StringBuilder()
         var isFirstChunk = true
@@ -267,13 +281,53 @@ class JCEFChatDialog(
             },
             onToolCall = { toolName, toolArgs, toolCallId ->
                 ApplicationManager.getApplication().invokeLater {
-                    chatPanel.addToolCallChunkLive(toolName, toolArgs, toolCallId)
+                    chatPanel.addToolBadgeLive(toolName, toolArgs, toolCallId)
                 }
             },
             onToolResult = { toolCallId, result ->
                 ApplicationManager.getApplication().invokeLater {
-                    val toolName = extractToolNameFromId(toolCallId)
-                    chatPanel.addToolResultChunkLive(toolName, result)
+                    chatPanel.updateToolBadgeWithResult(toolCallId, result)
+                }
+            }
+        )
+    }
+
+    private fun sendMessageNonStreaming(userMessage: String) {
+        // Update UI state
+        isProcessing = true
+        sendButton.text = "Waiting..."
+        sendButton.isEnabled = false
+
+        // Add temporary DOM-only chunks
+        chatPanel.addTemporaryChunk("👤 **You**", userMessage, "user")
+        chatPanel.addTemporaryChunk("🤖 **AI**", "Thinking...", "ai")
+
+        // Send to AI without streaming
+        chatService.sendMessage(
+            userMessage,
+            onComplete = { response ->
+                ApplicationManager.getApplication().invokeLater {
+                    chatPanel.finalizeStreaming()
+
+                    // Reset UI state
+                    isProcessing = false
+                    sendButton.text = "Send"
+                    sendButton.isEnabled = true
+
+                    // Focus back to input
+                    inputArea.requestFocus()
+                }
+            },
+            onError = { error ->
+                ApplicationManager.getApplication().invokeLater {
+                    // Show error as temporary chunk
+                    chatPanel.addTemporaryChunk("❌ **Error**", "Failed: ${error.message}", "system")
+                    chatPanel.finalizeStreaming()
+
+                    // Reset UI state
+                    isProcessing = false
+                    sendButton.text = "Send"
+                    sendButton.isEnabled = true
                 }
             }
         )

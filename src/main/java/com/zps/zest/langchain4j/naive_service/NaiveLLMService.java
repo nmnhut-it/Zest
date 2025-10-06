@@ -18,6 +18,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.time.DayOfWeek;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -1141,17 +1143,26 @@ public final class NaiveLLMService implements Disposable {
     }
 
     /**
-     * Check if current time is within office hours (8:30 - 17:30)
+     * Check if current time is within office hours (8:30 - 17:30, Monday-Friday)
      * Copied from EmbeddingService for consistency
      */
     private boolean isWithinOfficeHours() {
-        LocalTime now = LocalTime.now();
+        LocalDateTime nowDateTime = LocalDateTime.now();
+        DayOfWeek dayOfWeek = nowDateTime.getDayOfWeek();
+
+        // Exclude weekends
+        if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
+            LOG.debug("Weekend detected: " + dayOfWeek + ", not within office hours");
+            return false;
+        }
+
+        LocalTime now = nowDateTime.toLocalTime();
         LocalTime startTime = LocalTime.of(8, 30); // 8:30 AM
         LocalTime endTime = LocalTime.of(17, 30);  // 5:30 PM
-        
+
         boolean withinHours = !now.isBefore(startTime) && !now.isAfter(endTime);
         LOG.debug("Current time: " + now + ", Office hours: " + startTime + " - " + endTime + ", Within hours: " + withinHours);
-        
+
         return withinHours;
     }
 }

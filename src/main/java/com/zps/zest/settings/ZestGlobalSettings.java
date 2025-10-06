@@ -32,7 +32,8 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     public boolean autoTriggerEnabled = true;  // Changed to true by default
     public boolean backgroundContextEnabled = false;
     public boolean continuousCompletionEnabled = true; // Auto-trigger next completion after acceptance
-    
+    public boolean streamingEnabled = true; // Enable streaming chat responses by default
+
     // RAG and AST Settings for inline completion
     public boolean inlineCompletionRagEnabled = true;  // Enable RAG for inline completion
     public boolean astPatternMatchingEnabled = true;   // Enable AST pattern matching

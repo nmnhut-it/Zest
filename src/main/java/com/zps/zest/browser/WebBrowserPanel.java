@@ -15,11 +15,11 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.mcp.ToolApiServerService;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefLoadHandlerAdapter;
-import com.zps.zest.langchain4j.agent.network.ProjectProxyManager;
 
 import javax.swing.*;
 import java.awt.*;
@@ -145,22 +145,18 @@ public class WebBrowserPanel implements Disposable {
             @Override
             public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
                 setMode(currentMode);
-                
-                // Get project-specific proxy URL
-                String proxyUrl = ProjectProxyManager.getInstance().getProxyUrlForProject(project);
-                
-                // If no project-specific proxy, fall back to system property
-                if (proxyUrl == null || proxyUrl.isEmpty()) {
-                    proxyUrl = System.getProperty("zest.agent.proxy.url");
-                }
-                
-                // Enable automatic tool injection if proxy is available
-                if (proxyUrl != null && !proxyUrl.isEmpty()) {
-                    // Set the proxy URL for this project context
-                    System.setProperty("zest.agent.proxy.url", proxyUrl);
-                    
-                    browserManager.executeJavaScript("window.enableZestToolInjection && window.enableZestToolInjection(true);");
-                    LOG.info("Enabled automatic tool injection for project " + project.getName() + " with proxy: " + proxyUrl);
+
+                // Get tool server URL from service
+                ToolApiServerService toolServerService = project.getService(ToolApiServerService.class);
+                if (toolServerService != null && toolServerService.isRunning()) {
+                    String toolServerUrl = toolServerService.getBaseUrl();
+
+                    if (toolServerUrl != null) {
+                        // Inject tool server URL for JavaScript access
+                        String script = "window.__tool_server_url__ = '" + toolServerUrl + "';";
+                        browserManager.executeJavaScript(script);
+                        LOG.info("Injected tool server URL for project " + project.getName() + ": " + toolServerUrl);
+                    }
                 }
             }
         }, browserManager.getBrowser().getCefBrowser());

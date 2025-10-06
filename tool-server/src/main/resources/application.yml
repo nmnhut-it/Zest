@@ -1,0 +1,46 @@
+server:
+  port: 8765
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: zest-tool-server
+
+# OpenAPI/Swagger Configuration (FastAPI-compatible paths)
+springdoc:
+  api-docs:
+    path: /openapi.json        # Match FastAPI convention (OpenWebUI expects this)
+  swagger-ui:
+    path: /docs                 # Match FastAPI convention
+    operations-sorter: alpha
+    tags-sorter: alpha
+  info:
+    title: Zest Code Tools API
+    description: OpenAPI-compliant tool server for IntelliJ code exploration and modification
+    version: 1.0.0
+    contact:
+      name: Zest Plugin
+      url: https://github.com/your-repo/zest
+
+# IntelliJ Plugin Integration
+intellij:
+  plugin:
+    url: http://localhost:63342
+    project-name: Zest
+    connection-timeout: 5000
+    read-timeout: 30000
+
+# CORS for web clients (OpenWebUI, etc.)
+cors:
+  allowed-origins: "*"
+  allowed-methods: "GET,POST,PUT,DELETE,OPTIONS"
+  allowed-headers: "*"
+
+# Logging
+logging:
+  level:
+    root: INFO
+    com.zps.zest.toolserver: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

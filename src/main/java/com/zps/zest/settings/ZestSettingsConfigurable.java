@@ -10,7 +10,6 @@ import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.validation.CommitTemplateValidator;
-import com.zps.zest.langchain4j.agent.network.ProjectProxyManager;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,19 +41,19 @@ public class ZestSettingsConfigurable implements Configurable {
     private JBCheckBox autoTriggerCheckbox;
     private JBCheckBox backgroundContextCheckbox;
     private JBCheckBox continuousCompletionCheckbox;
+    private JBCheckBox streamingEnabledCheckbox;
     
     // Inline Completion RAG/AST Settings
     private JBCheckBox inlineRagEnabledCheckbox;
     private JBCheckBox astPatternMatchingCheckbox;
     private JSpinner maxRagContextSizeSpinner;
     private JSpinner embeddingCacheSizeSpinner;
-    
+
     // Context Settings (removed unused settings)
-    
-    // Agent Proxy Server Settings
-    private JBCheckBox proxyServerEnabledCheckbox;
-    private JLabel proxyDescLabel;
-    
+
+    // Tool Server Settings
+    private JBCheckBox toolServerEnabledCheckbox;
+
     // Prompt Section Configuration
     private JBCheckBox fileInfoSectionCheckbox;
     private JBCheckBox frameworkSectionCheckbox;
@@ -169,10 +168,15 @@ public class ZestSettingsConfigurable implements Configurable {
         continuousCompletionCheckbox = new JBCheckBox("Continuous completion (auto-trigger after acceptance)", config.isContinuousCompletionEnabled());
         continuousCompletionCheckbox.setEnabled(config.isInlineCompletionEnabled());
         builder.addComponent(continuousCompletionCheckbox);
-        
+
         backgroundContextCheckbox = new JBCheckBox("Collect context in background", config.isBackgroundContextEnabled());
         builder.addComponent(backgroundContextCheckbox);
-        
+
+        // Chat Settings
+        builder.addSeparator();
+        streamingEnabledCheckbox = new JBCheckBox("Enable streaming chat responses", config.isStreamingEnabled());
+        builder.addComponent(streamingEnabledCheckbox);
+
         // Inline Completion RAG/AST Settings
         builder.addSeparator();
         builder.addComponent(new JLabel("Advanced Inline Completion:"));
@@ -218,37 +222,17 @@ public class ZestSettingsConfigurable implements Configurable {
             maxRagContextSizeSpinner.setEnabled(inlineCompletionCheckbox.isSelected() && ragEnabled);
             embeddingCacheSizeSpinner.setEnabled(inlineCompletionCheckbox.isSelected() && ragEnabled);
         });
-        
-        // Agent Proxy Server Settings
+
+        // Tool Server Settings
         builder.addSeparator();
-        builder.addComponent(new TitledSeparator("Agent Proxy Server"));
-        
-        proxyServerEnabledCheckbox = new JBCheckBox("Enable agent proxy server", config.isProxyServerEnabled());
-        builder.addComponent(proxyServerEnabledCheckbox);
-        
-        proxyDescLabel = createDescriptionLabel("Automatically start proxy server for tool integration with MCP/OpenWebUI");
-        builder.addComponent(proxyDescLabel);
-        
-        // Add listener to immediately start/stop proxy when checkbox is toggled
-        proxyServerEnabledCheckbox.addItemListener(e -> {
-            boolean enabled = e.getStateChange() == ItemEvent.SELECTED;
-            ProjectProxyManager manager = ProjectProxyManager.getInstance();
-            
-            if (enabled) {
-                // Start proxy server immediately
-                int port = manager.startProxyForProject(project);
-                if (port > 0) {
-                    proxyDescLabel.setText("✅ Proxy server running on port " + port + " for MCP/OpenWebUI integration");
-                } else {
-                    proxyDescLabel.setText("❌ Failed to start proxy server");
-                }
-            } else {
-                // Stop proxy server immediately
-                manager.stopProxyForProject(project);
-                proxyDescLabel.setText("Automatically start proxy server for tool integration with MCP/OpenWebUI");
-            }
-        });
-        
+        builder.addComponent(new TitledSeparator("Tool API Server"));
+
+        toolServerEnabledCheckbox = new JBCheckBox("Enable Tool API Server", config.isToolServerEnabled());
+        builder.addComponent(toolServerEnabledCheckbox);
+
+        builder.addComponent(createDescriptionLabel(
+            "Automatically start REST API server for MCP/OpenWebUI tool integration (port 63342+)"));
+
         // Prompt Section Configuration
         builder.addSeparator();
         builder.addComponent(new TitledSeparator("Prompt Section Configuration"));
@@ -373,11 +357,12 @@ public class ZestSettingsConfigurable implements Configurable {
                autoTriggerCheckbox.isSelected() != config.isAutoTriggerEnabled() ||
                backgroundContextCheckbox.isSelected() != config.isBackgroundContextEnabled() ||
                continuousCompletionCheckbox.isSelected() != config.isContinuousCompletionEnabled() ||
+               streamingEnabledCheckbox.isSelected() != config.isStreamingEnabled() ||
                inlineRagEnabledCheckbox.isSelected() != config.isInlineCompletionRagEnabled() ||
                astPatternMatchingCheckbox.isSelected() != config.isAstPatternMatchingEnabled() ||
                !maxRagContextSizeSpinner.getValue().equals(config.getMaxRagContextSize()) ||
                !embeddingCacheSizeSpinner.getValue().equals(config.getEmbeddingCacheSize()) ||
-               proxyServerEnabledCheckbox.isSelected() != config.isProxyServerEnabled() ||
+               toolServerEnabledCheckbox.isSelected() != config.isToolServerEnabled() ||
                fileInfoSectionCheckbox.isSelected() != config.isFileInfoSectionIncluded() ||
                frameworkSectionCheckbox.isSelected() != config.isFrameworkSectionIncluded() ||
                contextAnalysisSectionCheckbox.isSelected() != config.isContextAnalysisSectionIncluded() ||
@@ -394,18 +379,6 @@ public class ZestSettingsConfigurable implements Configurable {
     
     @Override
     public void apply() {
-        // Validate commit template before saving
-        String newCommitTemplate = commitPromptTemplateArea.getText();
-        CommitTemplateValidator.ValidationResult templateResult = 
-            CommitTemplateValidator.validate(newCommitTemplate);
-        
-        if (!templateResult.isValid) {
-            Messages.showErrorDialog(project, 
-                "Commit template validation failed: " + templateResult.errorMessage, 
-                "Invalid Template");
-            return;
-        }
-        
         // Apply all settings
         config.setApiUrl(apiUrlField.getText().trim());
         config.setAuthToken(authTokenField.getText().trim());
@@ -416,11 +389,12 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setAutoTriggerEnabled(autoTriggerCheckbox.isSelected());
         config.setBackgroundContextEnabled(backgroundContextCheckbox.isSelected());
         config.setContinuousCompletionEnabled(continuousCompletionCheckbox.isSelected());
+        config.setStreamingEnabled(streamingEnabledCheckbox.isSelected());
         config.setInlineCompletionRagEnabled(inlineRagEnabledCheckbox.isSelected());
         config.setAstPatternMatchingEnabled(astPatternMatchingCheckbox.isSelected());
         config.setMaxRagContextSize((Integer) maxRagContextSizeSpinner.getValue());
         config.setEmbeddingCacheSize((Integer) embeddingCacheSizeSpinner.getValue());
-        config.setProxyServerEnabled(proxyServerEnabledCheckbox.isSelected());
+        config.setToolServerEnabled(toolServerEnabledCheckbox.isSelected());
         config.setFileInfoSectionIncluded(fileInfoSectionCheckbox.isSelected());
         config.setFrameworkSectionIncluded(frameworkSectionCheckbox.isSelected());
         config.setContextAnalysisSectionIncluded(contextAnalysisSectionCheckbox.isSelected());
@@ -432,7 +406,6 @@ public class ZestSettingsConfigurable implements Configurable {
         
         config.setSystemPrompt(systemPromptArea.getText());
         config.setCodeSystemPrompt(codeSystemPromptArea.getText());
-        config.setCommitPromptTemplate(newCommitTemplate);
         // Removed unused docs settings
         
         // Save project configuration
@@ -457,7 +430,8 @@ public class ZestSettingsConfigurable implements Configurable {
         backgroundContextCheckbox.setSelected(config.isBackgroundContextEnabled());
         continuousCompletionCheckbox.setSelected(config.isContinuousCompletionEnabled());
         continuousCompletionCheckbox.setEnabled(config.isInlineCompletionEnabled());
-        
+        streamingEnabledCheckbox.setSelected(config.isStreamingEnabled());
+
         inlineRagEnabledCheckbox.setSelected(config.isInlineCompletionRagEnabled());
         inlineRagEnabledCheckbox.setEnabled(config.isInlineCompletionEnabled());
         astPatternMatchingCheckbox.setSelected(config.isAstPatternMatchingEnabled());
@@ -466,9 +440,9 @@ public class ZestSettingsConfigurable implements Configurable {
         maxRagContextSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
         embeddingCacheSizeSpinner.setValue(config.getEmbeddingCacheSize());
         embeddingCacheSizeSpinner.setEnabled(config.isInlineCompletionEnabled() && config.isInlineCompletionRagEnabled());
-        
-        proxyServerEnabledCheckbox.setSelected(config.isProxyServerEnabled());
-        
+
+        toolServerEnabledCheckbox.setSelected(config.isToolServerEnabled());
+
         fileInfoSectionCheckbox.setSelected(config.isFileInfoSectionIncluded());
         frameworkSectionCheckbox.setSelected(config.isFrameworkSectionIncluded());
         contextAnalysisSectionCheckbox.setSelected(config.isContextAnalysisSectionIncluded());
@@ -476,21 +450,7 @@ public class ZestSettingsConfigurable implements Configurable {
         relatedClassesSectionCheckbox.setSelected(config.isRelatedClassesSectionIncluded());
         astPatternsSectionCheckbox.setSelected(config.isAstPatternsSectionIncluded());
         targetLineSectionCheckbox.setSelected(config.isTargetLineSectionIncluded());
-        
-        // Update proxy description label to show current status
-        if (config.isProxyServerEnabled()) {
-            ProjectProxyManager manager = ProjectProxyManager.getInstance();
-            String proxyUrl = manager.getProxyUrlForProject(project);
-            if (proxyUrl != null && proxyDescLabel != null) {
-                try {
-                    int port = Integer.parseInt(proxyUrl.split(":")[2]);
-                    proxyDescLabel.setText("✅ Proxy server running on port " + port + " for MCP/OpenWebUI integration");
-                } catch (Exception ex) {
-                    proxyDescLabel.setText("✅ Proxy server running for MCP/OpenWebUI integration");
-                }
-            }
-        }
-        
+
         // Removed unused setting resets
         
         systemPromptArea.setText(config.getSystemPrompt());

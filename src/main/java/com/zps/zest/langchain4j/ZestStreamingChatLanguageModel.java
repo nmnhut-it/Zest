@@ -10,14 +10,17 @@ import com.zps.zest.util.EnvLoader;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.response. StreamingChatResponseHandler;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.jetbrains.annotations.NotNull;
 
+import java.time.DayOfWeek;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.temporal.TemporalQueries;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -27,13 +30,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * This provides streaming chat capabilities with tool support through LangChain4j's agentic framework.
  */
 public class ZestStreamingChatLanguageModel implements StreamingChatModel {
-    
+
     private static final Logger LOG = Logger.getInstance(ZestStreamingChatLanguageModel.class);
     private final OpenAiStreamingChatModel delegateModel;
     private final NaiveLLMService naiveLlmService; // Keep for backward compatibility if needed
     private final ChatboxUtilities.EnumUsage usage;
     private final ConfigurationManager config;
-    
+
     // Rate limiting configuration - now configurable via environment variables
     private static final long DEFAULT_MIN_DELAY_MS = 2000; // Default 2 seconds for streaming (less than sync)
     private static final long DEFAULT_REQUEST_DELAY_MS = 3000; // Default 3 second delay for streaming
@@ -46,19 +49,19 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
 
     // Track last request time for rate limiting
     private final AtomicLong lastRequestTime = new AtomicLong(0);
-    
+
     /**
      * Apply rate limiting with configurable delays to prevent hitting API limits
      */
     private void applyRateLimit() {
         long currentTime = System.currentTimeMillis();
         long lastTime = lastRequestTime.get();
-        
+
         // Apply the configured request delay for conservative rate limiting
         if (lastTime > 0) {
             long timeSinceLastRequest = currentTime - lastTime;
             long requiredDelay = Math.max(minDelayMs, requestDelayMs);
-            
+
             if (timeSinceLastRequest < requiredDelay) {
                 long delayMs = requiredDelay - timeSinceLastRequest;
                 LOG.info("Rate limiting streaming: Delaying request by " + delayMs + "ms (total delay: " + requiredDelay + "ms)");
@@ -70,17 +73,17 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
                 }
             }
         }
-        
+
         lastRequestTime.set(System.currentTimeMillis());
     }
-    
+
     /**
      * Execute code with plugin classloader to avoid Jackson conflicts
      */
     private <T> T executeWithPluginClassLoader(java.util.function.Supplier<T> action) {
         return action.get();
     }
-    
+
     /**
      * Execute void operations with plugin classloader
      */
@@ -91,26 +94,26 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
     public ZestStreamingChatLanguageModel(NaiveLLMService naiveLlmService, ChatboxUtilities.EnumUsage usage) {
         this(naiveLlmService, usage, null);
     }
-    
+
     public ZestStreamingChatLanguageModel(NaiveLLMService naiveLlmService, ChatboxUtilities.EnumUsage usage, String selectedModel) {
         if (selectedModel == null)
             selectedModel = "local-model";
         this.naiveLlmService = naiveLlmService;
         this.usage = usage;
         this.config = ConfigurationManager.getInstance(naiveLlmService.getProject());
-        
+
         // Load configurable delays from environment variables (lower than sync model)
         this.minDelayMs = loadDelayFromEnv("OPENAI_STREAMING_MIN_DELAY_MS", DEFAULT_MIN_DELAY_MS);
         this.requestDelayMs = loadDelayFromEnv("OPENAI_STREAMING_REQUEST_DELAY_MS", DEFAULT_REQUEST_DELAY_MS);
-        
+
         LOG.info("Streaming rate limiting configured - Min delay: " + minDelayMs + "ms, Request delay: " + requestDelayMs + "ms");
-        
+
         this.delegateModel = createOpenAiStreamingModel(naiveLlmService.getProject(), selectedModel);
-        
+
         // Trigger username fetch
         NaiveLLMService.fetchAndStoreUsername(naiveLlmService.getProject());
     }
-    
+
     /**
      * Load delay configuration from environment variables with fallback to defaults
      */
@@ -161,7 +164,7 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
 
             if (!isWithinOfficeHours()) {
                 // Outside office hours: use chat/talk zingplay
-                apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
+                apiUrl = config.getApiUrl().replace("/v1/chat/completion", "");
                 if (apiUrl.contains("chat.zingplay"))
                     apiUrl = "https://chat.zingplay.com/api";
                 if (apiUrl.contains("talk.zingplay"))
@@ -172,7 +175,7 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
                         (selectedModel != null ? " (selected from UI)" : " (fallback)"));
             } else {
                 // Office hours: use litellm
-                apiUrl = config.getApiUrl().replace("/v1/chat/completion","");
+                apiUrl = config.getApiUrl().replace("/v1/chat/completion", "");
                 if (apiUrl.contains("chat.zingplay") || apiUrl.contains("openwebui.zingplay")) {
                     apiUrl = "https://litellm.zingplay.com/v1";
                     apiKey = "sk-0c1l7KCScBLmcYDN-Oszmg";
@@ -219,13 +222,14 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         // Use plugin classloader to avoid Jackson ServiceLoader conflicts
         return executeWithPluginClassLoader(() -> {
             OpenAiStreamingChatModel.OpenAiStreamingChatModelBuilder builder = OpenAiStreamingChatModel.builder()
-                .baseUrl(finalApiUrl)
-                .apiKey(finalApiKey)
-                .modelName(finalModelName)
-                .user(username != null && !username.isEmpty() ? username : null)
-                .logRequests(true)
-                .logResponses(true)
-                .timeout(Duration.ofSeconds(1200));
+                    .baseUrl(finalApiUrl)
+                    .apiKey(finalApiKey)
+                    .modelName(finalModelName)
+                    .user(username != null && !username.isEmpty() ? username : null)
+                    .logRequests(true)
+                    .logResponses(true)
+                    .parallelToolCalls(false)
+                    .timeout(Duration.ofSeconds(1200));
 
             // Add metadata for chat.zingplay/talk.zingplay APIs
             if (finalApiUrl.contains("chat.zingplay") || finalApiUrl.contains("talk.zingplay")) {
@@ -263,20 +267,30 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
     }
 
     /**
-     * Check if current time is within office hours (8:30 - 17:30)
+     * Check if current time is within office hours (8:30 - 17:30, Monday-Friday)
      * Copied from LLMService for consistency
      */
     private boolean isWithinOfficeHours() {
-        LocalTime now = LocalTime.now();
+        LocalDateTime nowDateTime = LocalDateTime.now();
+        DayOfWeek dayOfWeek = nowDateTime.getDayOfWeek();
+
+        // Exclude weekends
+        if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
+            LOG.debug("Weekend detected: " + dayOfWeek + ", not within office hours");
+            return false;
+        }
+
+        LocalTime now = nowDateTime.toLocalTime();
         LocalTime startTime = LocalTime.of(8, 30); // 8:30 AM
         LocalTime endTime = LocalTime.of(17, 30);  // 5:30 PM
-        
+
         boolean withinHours = !now.isBefore(startTime) && !now.isAfter(endTime);
+
         LOG.debug("Current time: " + now + ", Office hours: " + startTime + " - " + endTime + ", Within hours: " + withinHours);
-        
+
         return withinHours;
     }
-    
+
     /**
      * Check if the exception indicates a rate limit error
      */
@@ -284,15 +298,15 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         if (e.getMessage() == null) {
             return false;
         }
-        
+
         String message = e.getMessage().toLowerCase();
-        return message.contains("rate limit") || 
-               message.contains("too many requests") ||
-               message.contains("quota exceeded") ||
-               message.contains("429") ||
-               message.contains("tpm");
+        return message.contains("rate limit") ||
+                message.contains("too many requests") ||
+                message.contains("quota exceeded") ||
+                message.contains("429") ||
+                message.contains("tpm");
     }
-    
+
     /**
      * Handle rate limit errors with exponential backoff
      */
@@ -316,7 +330,7 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
             LOG.warn("Rate limit backoff was interrupted", ie);
         }
     }
-    
+
     /**
      * Extract suggested delay from rate limit error message
      * Example: "Please try again in 32.747s" -> returns 33000ms

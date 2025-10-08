@@ -79,12 +79,23 @@ public class CodeModificationTools {
             // Find matches
             List<MatchResult> matches = isRegex ?
                     findRegexMatches(currentContent, searchPattern) :
-                    findLiteralMatches(currentContent, searchPattern);
+                    findFlexibleMatches(currentContent, searchPattern);
 
             // Validate uniqueness
             if (matches.isEmpty()) {
-                return "❌ Search pattern not found in file.\nPattern:\n```\n" + searchPattern +
-                       "\n```\nCheck the pattern matches exactly.";
+                StringBuilder error = new StringBuilder("❌ Search pattern not found in file.\nPattern:\n```\n")
+                        .append(searchPattern).append("\n```\n");
+
+                if (detectWhitespaceMismatch(currentContent, searchPattern)) {
+                    error.append("\n💡 Pattern found with different whitespace. Flexible matching will handle this automatically.\n");
+                }
+
+                error.append("\n📄 File preview (first 200 chars):\n```\n")
+                     .append(currentContent.substring(0, Math.min(200, currentContent.length())))
+                     .append(currentContent.length() > 200 ? "..." : "")
+                     .append("\n```");
+
+                return error.toString();
             }
             if (matches.size() > 1) {
                 return "❌ Search pattern matches " + matches.size() + " times (must be unique).\n" +
@@ -297,7 +308,7 @@ public class CodeModificationTools {
         return text.trim().replaceAll("\\s+", " ");
     }
 
-    private static class MatchResult {
+    static class MatchResult {
         final int startOffset;
         final int endOffset;
 
@@ -318,6 +329,63 @@ public class CodeModificationTools {
             }
         }
         return results;
+    }
+
+    List<MatchResult> findFlexibleMatches(String content, String pattern) {
+        List<MatchResult> strictMatches = findLiteralMatches(content, pattern);
+        if (!strictMatches.isEmpty()) {
+            return strictMatches;
+        }
+
+        String normalizedContent = normalizeWhitespace(content);
+        String normalizedPattern = normalizeWhitespace(pattern);
+
+        List<MatchResult> flexibleResults = new ArrayList<>();
+        int normalizedIndex = 0;
+
+        while (normalizedIndex >= 0) {
+            normalizedIndex = normalizedContent.indexOf(normalizedPattern, normalizedIndex);
+            if (normalizedIndex >= 0) {
+                int originalStart = mapNormalizedToOriginalOffset(content, normalizedIndex);
+                int originalEnd = mapNormalizedToOriginalOffset(content, normalizedIndex + normalizedPattern.length());
+                flexibleResults.add(new MatchResult(originalStart, originalEnd));
+                normalizedIndex += normalizedPattern.length();
+            }
+        }
+
+        return flexibleResults;
+    }
+
+    private int mapNormalizedToOriginalOffset(String original, int normalizedOffset) {
+        String normalized = normalizeWhitespace(original);
+        if (normalizedOffset >= normalized.length()) {
+            return original.length();
+        }
+
+        int origIdx = 0;
+        int normIdx = 0;
+
+        while (normIdx < normalizedOffset && origIdx < original.length()) {
+            if (Character.isWhitespace(original.charAt(origIdx))) {
+                origIdx++;
+                continue;
+            }
+            normIdx++;
+            origIdx++;
+        }
+
+        return origIdx;
+    }
+
+    boolean detectWhitespaceMismatch(String content, String pattern) {
+        boolean hasStrictMatch = !findLiteralMatches(content, pattern).isEmpty();
+        if (hasStrictMatch) {
+            return false;
+        }
+
+        String normalizedContent = normalizeWhitespace(content);
+        String normalizedPattern = normalizeWhitespace(pattern);
+        return normalizedContent.contains(normalizedPattern);
     }
 
     private List<MatchResult> findRegexMatches(String content, String pattern) {

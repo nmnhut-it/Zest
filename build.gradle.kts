@@ -278,6 +278,6 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("243.0")
-        untilBuild.set("251.*") // Makes it compatible with 2024.3.x and beyond
+        untilBuild.set("259.*") // Makes it compatible with 2024.3.x and beyond
     }
 }

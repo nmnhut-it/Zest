@@ -206,7 +206,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
             "    }\n" +
             "}");
 
-        String result = ripgrepTool.searchWithBeforeContext("targetMethod", null, null, 2);
+        String result = ripgrepTool.searchCode("targetMethod", null, null, 2,0);
 
         if (!result.contains("Ripgrep not available")) {
             assertTrue("Should find target method", result.contains("targetMethod"));
@@ -223,7 +223,8 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
             "    }\n" +
             "}");
 
-        String result = ripgrepTool.searchWithAfterContext("setupMethod", null, null, 3);
+        String result = ripgrepTool.searchCode("targetMethod", null, null, 0,3);
+
 
         if (!result.contains("Ripgrep not available")) {
             assertTrue("Should find setup method", result.contains("setupMethod"));

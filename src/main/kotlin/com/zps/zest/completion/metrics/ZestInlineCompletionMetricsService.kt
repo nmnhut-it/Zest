@@ -4,7 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.zps.zest.langchain4j.naive_service.NaiveLLMService
+import com.zps.zest.settings.ZestGlobalSettings
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
@@ -22,9 +22,15 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     
     // Debug logging flag
     private var debugLoggingEnabled = false
-    
-    // Event queue for batching
-    private val eventChannel = Channel<MetricEvent>(Channel.UNLIMITED)
+
+    // Settings and HTTP client
+    private val settings by lazy { ZestGlobalSettings.getInstance() }
+    private val metricsHttpClient = MetricsHttpClient(project)
+
+    // Event queue for batching (bounded to prevent OOM)
+    private val eventChannel by lazy {
+        Channel<MetricEvent>(settings.metricsMaxQueueSize)
+    }
     
     // Track active completions
     private val activeCompletions = ConcurrentHashMap<String, CompletionSession>()
@@ -41,9 +47,6 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
     private val isEnabled = AtomicBoolean(true)
     private var processingJob: Job? = null
     
-    // LLM service for API calls
-    private val naiveLlmService by lazy { NaiveLLMService(project) }
-    
     init {
         logger.info("Initializing ZestInlineCompletionMetricsService")
         startEventProcessor()
@@ -57,12 +60,12 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         strategy: String,
         fileType: String,
         actualModel: String,
-        contextInfo: Map<String, Any> = emptyMap()
+        contextInfo: CompletionContextInfo = CompletionContextInfo()
     ) {
         if (!isEnabled.get()) return
-        
+
         log("Tracking completion requested: $completionId")
-        
+
         val session = CompletionSession(
             completionId = completionId,
             startTime = System.currentTimeMillis(),
@@ -283,7 +286,7 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         val elapsed = System.currentTimeMillis() - session.startTime
         
         // Only send if there were partial acceptances
-        if ((session.partialAcceptances ?: 0) > 0) {
+        if (session.partialAcceptances > 0) {
             val baseBuilder = MetricsUtils.createBaseMetadata(project, session.actualModel)
             sendEvent(MetricEvent.InlineDismiss(
                 completionId = completionId,
@@ -291,8 +294,8 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
                 elapsed = elapsed,
                 metadata = baseBuilder.buildInlineDismiss(
                     reason = reason,
-                    partialAcceptCount = session.partialAcceptances ?: 0,
-                    totalAcceptedLength = session.totalAcceptedLength ?: 0
+                    partialAcceptCount = session.partialAcceptances,
+                    totalAcceptedLength = session.totalAcceptedLength
                 )
             ))
         }
@@ -337,8 +340,8 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         
         // Update session state for partial acceptances
         if (!isAll) {
-            session.partialAcceptances = (session.partialAcceptances ?: 0) + 1
-            session.totalAcceptedLength = (session.totalAcceptedLength ?: 0) + completionContent.length
+            session.partialAcceptances += 1
+            session.totalAcceptedLength += completionContent.length
         }
         
         val baseBuilder = MetricsUtils.createBaseMetadata(project, session.actualModel)
@@ -353,8 +356,8 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
                 strategy = MetricsUtils.parseStrategy(session.strategy),
                 fileType = session.fileType,
                 isPartial = !isAll,
-                partialAcceptCount = session.partialAcceptances ?: 0,
-                totalAcceptedLength = session.totalAcceptedLength ?: completionContent.length,
+                partialAcceptCount = session.partialAcceptances,
+                totalAcceptedLength = if (session.totalAcceptedLength > 0) session.totalAcceptedLength else completionContent.length,
                 viewToAcceptTimeMs = session.viewedAt?.let { System.currentTimeMillis() - it } ?: 0L
             )
         ))
@@ -386,15 +389,23 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
         analysisData: CodeHealthAnalysisData
     ) {
         if (!isEnabled.get()) return
-        
+
         log("Tracking code health event: $eventType for $eventId")
-        
+
         val baseBuilder = MetricsUtils.createBaseMetadata(project, "local-model-mini")
         val metadata = baseBuilder.buildCodeHealth(
             eventType = eventType,
-            analysisData = analysisData.toMap()
+            trigger = CodeHealthTrigger.valueOf(analysisData.trigger.uppercase().replace(" ", "_")),
+            criticalIssues = analysisData.criticalIssues,
+            highIssues = analysisData.highIssues,
+            totalIssues = analysisData.totalIssues,
+            methodsAnalyzed = analysisData.methodsAnalyzed,
+            averageHealthScore = analysisData.averageHealthScore,
+            issuesByCategory = analysisData.issuesByCategory,
+            userAction = analysisData.userAction,
+            elapsedMs = analysisData.elapsedMs ?: 0
         )
-        
+
         sendEvent(MetricEvent.CodeHealthEvent(
             completionId = eventId,
             actualModel = "local-model-mini",
@@ -439,52 +450,191 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
      * Process a single metric event
      */
     private suspend fun processEvent(event: MetricEvent) {
-        if (!naiveLlmService.isConfigured()) {
-            logger.debug("LLM service not configured, skipping metric: ${event.eventType}")
+        if (!settings.metricsEnabled) {
+            logger.debug("Metrics disabled, skipping event: ${event.eventType}")
             return
         }
-        
+
         try {
-            // Print event details for debugging
-            log("Processing event: ${event.eventType}")
-            log("  - completionId: ${event.completionId}")
-            log("  - elapsed: ${event.elapsed}ms")
-            log("  - actualModel: ${event.actualModel}")
-            when (event) {
-                is MetricEvent.InlineSelect -> log("  - content length: ${event.completionContent.length}")
-                is MetricEvent.InlineCompletionResponse -> log("  - content length: ${event.completionContent.length}")
-                is MetricEvent.QuickActionSelect -> log("  - content length: ${event.completionContent.length}")
-                is MetricEvent.QuickActionResponse -> log("  - content length: ${event.completionContent.length}")
-                else -> {}
+            // Debug logging
+            logger.debug("Processing metric event: ${event.eventType} for ${event.completionId}")
+
+            // Determine endpoint from event type
+            val enumUsage = getEnumUsage(event)
+            val endpoint = MetricsEndpoint.fromUsage(enumUsage)
+
+            // Serialize event to JSON
+            val json = MetricsSerializer.serialize(event)
+
+            // Send via HTTP client
+            val success = metricsHttpClient.sendMetric(endpoint, event.eventType, json)
+
+            if (success) {
+                logger.debug("Successfully sent metric: ${event.eventType}")
+            } else {
+                logger.debug("Failed to send metric: ${event.eventType}")
             }
-            
-            // Determine the enum usage based on event type
-            val enumUsage = when (event) {
-                is MetricEvent.InlineCompletionRequest,
-                is MetricEvent.InlineCompletionResponse,
-                is MetricEvent.InlineView,
-                is MetricEvent.InlineSelect,
-                is MetricEvent.InlineDecline,
-                is MetricEvent.InlineDismiss -> "INLINE_COMPLETION_LOGGING"
-                is MetricEvent.QuickActionRequest,
-                is MetricEvent.QuickActionResponse,
-                is MetricEvent.QuickActionView,
-                is MetricEvent.QuickActionSelect,
-                is MetricEvent.QuickActionDecline,
-                is MetricEvent.QuickActionDismiss -> "QUICK_ACTION_LOGGING"
-                is MetricEvent.CodeHealthEvent -> "CODE_HEALTH_LOGGING"
-            }
-            
-            // Send the metric using the extension method
-            naiveLlmService.sendMetricEvent(event, enumUsage)
-            
-            log("Sent metric with enumUsage: $enumUsage and actualModel: ${event.actualModel}")
-            
-            logger.debug("Sent metric event: ${event.eventType} for ${event.completionId}")
-            
+
         } catch (e: Exception) {
-            logger.warn("Failed to send metric event: ${event.eventType}", e)
+            logger.warn("Error processing metric event: ${event.eventType}", e)
         }
+    }
+
+    /**
+     * Get enum usage string from event type
+     */
+    private fun getEnumUsage(event: MetricEvent): String {
+        return when (event) {
+            is MetricEvent.InlineCompletionRequest,
+            is MetricEvent.InlineCompletionResponse,
+            is MetricEvent.InlineView,
+            is MetricEvent.InlineSelect,
+            is MetricEvent.InlineDecline,
+            is MetricEvent.InlineDismiss -> "INLINE_COMPLETION_LOGGING"
+            is MetricEvent.QuickActionRequest,
+            is MetricEvent.QuickActionResponse,
+            is MetricEvent.QuickActionView,
+            is MetricEvent.QuickActionSelect,
+            is MetricEvent.QuickActionDecline,
+            is MetricEvent.QuickActionDismiss -> "QUICK_ACTION_LOGGING"
+            is MetricEvent.CodeHealthEvent -> "CODE_HEALTH_LOGGING"
+            is MetricEvent.DualEvaluationEvent -> "DUAL_EVALUATION_LOGGING"
+            is MetricEvent.CodeQualityEvent -> "CODE_QUALITY_LOGGING"
+            is MetricEvent.UnitTestEvent -> "UNIT_TEST_LOGGING"
+        }
+    }
+
+    /**
+     * Track dual evaluation metrics
+     */
+    fun trackDualEvaluation(
+        completionId: String,
+        originalPrompt: String,
+        models: List<String>,
+        results: List<ModelComparisonResult>,
+        elapsed: Long
+    ) {
+        if (!isEnabled.get()) return
+
+        val metadata = DualEvaluationMetadata(
+            model = "dual-eval",
+            projectId = MetricsUtils.getProjectHash(project),
+            userId = MetricsUtils.getUserHash(project),
+            user = MetricsUtils.getActualUsername(project),
+            ideVersion = MetricsUtils.getIdeVersion(),
+            pluginVersion = MetricsUtils.getPluginVersion(),
+            timestamp = System.currentTimeMillis(),
+            originalPrompt = originalPrompt,
+            models = models,
+            results = results
+        )
+
+        sendEvent(MetricEvent.DualEvaluationEvent(
+            completionId = completionId,
+            actualModel = "dual-eval",
+            elapsed = elapsed,
+            metadata = metadata
+        ))
+    }
+
+    /**
+     * Track code quality metrics
+     */
+    fun trackCodeQuality(
+        completionId: String,
+        linesOfCode: Int,
+        styleComplianceScore: Int,
+        selfReviewPassed: Boolean,
+        compilationErrors: Int,
+        logicBugsDetected: Int,
+        wasReviewed: Boolean,
+        wasImproved: Boolean
+    ) {
+        if (!isEnabled.get()) return
+
+        val compilationErrorsPer1000 = if (linesOfCode > 0) {
+            (compilationErrors * 1000f) / linesOfCode
+        } else 0f
+
+        val logicBugsPer1000 = if (linesOfCode > 0) {
+            (logicBugsDetected * 1000f) / linesOfCode
+        } else 0f
+
+        val metadata = CodeQualityMetadata(
+            model = "code-quality",
+            projectId = MetricsUtils.getProjectHash(project),
+            userId = MetricsUtils.getUserHash(project),
+            user = MetricsUtils.getActualUsername(project),
+            ideVersion = MetricsUtils.getIdeVersion(),
+            pluginVersion = MetricsUtils.getPluginVersion(),
+            timestamp = System.currentTimeMillis(),
+            completionId = completionId,
+            linesOfCode = linesOfCode,
+            styleComplianceScore = styleComplianceScore,
+            selfReviewPassed = selfReviewPassed,
+            compilationErrors = compilationErrors,
+            compilationErrorsPer1000Lines = compilationErrorsPer1000,
+            logicBugsDetected = logicBugsDetected,
+            logicBugsPer1000Lines = logicBugsPer1000,
+            wasReviewed = wasReviewed,
+            wasImproved = wasImproved
+        )
+
+        sendEvent(MetricEvent.CodeQualityEvent(
+            completionId = completionId,
+            actualModel = "code-quality",
+            elapsed = 0,
+            metadata = metadata
+        ))
+    }
+
+    /**
+     * Track unit test metrics
+     */
+    fun trackUnitTest(
+        testId: String,
+        totalTests: Int,
+        wordCount: Int,
+        generationTimeMs: Long,
+        testsCompiled: Int,
+        testsPassedImmediately: Int
+    ) {
+        if (!isEnabled.get()) return
+
+        val workOutOfBoxPct = if (totalTests > 0) {
+            (testsPassedImmediately * 100f) / totalTests
+        } else 0f
+
+        val avgWordsPerMin = settings.avgWordsPerMinute
+        val timeSavedMinutes = if (generationTimeMs > 0) {
+            (avgWordsPerMin * wordCount) / (generationTimeMs / 60000f)
+        } else 0f
+
+        val metadata = UnitTestMetadata(
+            model = "unit-test",
+            projectId = MetricsUtils.getProjectHash(project),
+            userId = MetricsUtils.getUserHash(project),
+            user = MetricsUtils.getActualUsername(project),
+            ideVersion = MetricsUtils.getIdeVersion(),
+            pluginVersion = MetricsUtils.getPluginVersion(),
+            timestamp = System.currentTimeMillis(),
+            testId = testId,
+            totalTests = totalTests,
+            wordCount = wordCount,
+            generationTimeMs = generationTimeMs,
+            testsCompiled = testsCompiled,
+            testsPassedImmediately = testsPassedImmediately,
+            workOutOfBoxPercentage = workOutOfBoxPct,
+            avgWordsPerMinute = avgWordsPerMin,
+            timeSavedMinutes = timeSavedMinutes
+        )
+
+        sendEvent(MetricEvent.UnitTestEvent(
+            completionId = testId,
+            actualModel = "unit-test",
+            elapsed = generationTimeMs,
+            metadata = metadata
+        ))
     }
     
     /**

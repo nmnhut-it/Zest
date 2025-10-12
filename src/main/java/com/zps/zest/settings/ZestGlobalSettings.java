@@ -28,7 +28,7 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     public String codeModel = "local-model";
     
     // Feature Toggles
-    public boolean inlineCompletionEnabled = true;  // Changed to true by default
+    public boolean inlineCompletionEnabled = false;  // Disabled by default
     public boolean autoTriggerEnabled = true;  // Changed to true by default
     public boolean backgroundContextEnabled = false;
     public boolean continuousCompletionEnabled = true; // Auto-trigger next completion after acceptance
@@ -60,6 +60,23 @@ public class ZestGlobalSettings implements PersistentStateComponent<ZestGlobalSe
     // Local Embedding Settings
     public boolean preferLocalEmbeddings = true;            // Prefer local Ollama embedding server when available
     public String localEmbeddingUrl = "http://localhost:11435/api/embeddings"; // Local embedding server URL
+
+    // Metrics Configuration
+    public boolean metricsEnabled = true;                    // Enable metrics collection
+    public String metricsServerBaseUrl = "https://zest-internal.zingplay.com";  // Metrics server base URL
+    public int metricsBatchSize = 10;                        // Batch size before sending
+    public int metricsBatchIntervalSeconds = 30;             // Max time before sending batch
+    public int metricsMaxQueueSize = 1000;                   // Max queue size to prevent OOM
+
+    // Dual Evaluation Settings
+    public boolean dualEvaluationEnabled = false;            // Enable multi-AI comparison
+    public String dualEvaluationModels = "gpt-4o-mini,claude-3-5-sonnet-20241022"; // Models for comparison
+
+    // Code Quality Metrics
+    public boolean aiSelfReviewEnabled = true;               // Enable AI self-review before showing code
+
+    // Unit Test Metrics
+    public float avgWordsPerMinute = 40.0f;                  // Average typing speed for time saved calculation
 
     // Version tracking for update notifications
     public String lastNotifiedVersion = null;               // Last version where update notification was shown

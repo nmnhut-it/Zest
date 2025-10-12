@@ -305,6 +305,30 @@
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F12"/>
         </action>
 
+        <!-- Code Context Agent Testing Action -->
+        <action id="Zest.TestCodeContext"
+                class="com.zps.zest.context.ui.TestCodeContextAction"
+                text="Test Code Context Agent / Kiểm tra tìm hiểu ngữ cảnh code"
+                description="Open test dialog for Code Context Agent / Mở hộp thoại thử nghiệm tìm hiểu code">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <!-- Metrics Testing Action -->
+        <action id="Zest.TestMetrics"
+                class="com.zps.zest.completion.metrics.testing.ui.TestMetricsAction"
+                text="Test Metrics System / Kiểm tra hệ thống metrics"
+                description="Open test dialog for Metrics System / Mở hộp thoại thử nghiệm metrics">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <!-- View Metrics Session Log Action -->
+        <action id="Zest.ViewMetricsSession"
+                class="com.zps.zest.completion.metrics.testing.ui.ViewMetricsSessionAction"
+                text="View Metrics Session Log / Xem log session metrics"
+                description="View complete session log of all metrics events / Xem log đầy đủ tất cả sự kiện metrics">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
         <!-- Code Health Debug Actions Group -->
         <group id="Zest.CodeHealthDebug" text="Debug Tools / Công cụ gỡ lỗi" popup="true">
 <!--            <add-to-group group-id="Zest.CodeHealth" anchor="last"/>-->

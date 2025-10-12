@@ -202,6 +202,10 @@ public class JavaScriptBridgeActions {
                 case "getProjectInfo":
                     return editorService.getProjectInfo();
 
+                // Current file context (synchronous - for dynamic prompt injection)
+                case "getCurrentFileContext":
+                    return editorService.getCurrentFileContext();
+
                 // Tool server info for injection
                 case "getToolServers":
                     return getToolServers();

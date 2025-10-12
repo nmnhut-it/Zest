@@ -877,4 +877,78 @@ public class ConfigurationManager {
     public void setTargetLineSectionIncluded(boolean included) {
         globalSettings.includeTargetLineSection = included;
     }
+
+    // Metrics Configuration Methods
+
+    public boolean isMetricsEnabled() {
+        return globalSettings.metricsEnabled;
+    }
+
+    public void setMetricsEnabled(boolean enabled) {
+        globalSettings.metricsEnabled = enabled;
+    }
+
+    public String getMetricsServerBaseUrl() {
+        return globalSettings.metricsServerBaseUrl;
+    }
+
+    public void setMetricsServerBaseUrl(String url) {
+        globalSettings.metricsServerBaseUrl = url;
+    }
+
+    public int getMetricsBatchSize() {
+        return globalSettings.metricsBatchSize;
+    }
+
+    public void setMetricsBatchSize(int size) {
+        globalSettings.metricsBatchSize = size;
+    }
+
+    public int getMetricsBatchIntervalSeconds() {
+        return globalSettings.metricsBatchIntervalSeconds;
+    }
+
+    public void setMetricsBatchIntervalSeconds(int seconds) {
+        globalSettings.metricsBatchIntervalSeconds = seconds;
+    }
+
+    public int getMetricsMaxQueueSize() {
+        return globalSettings.metricsMaxQueueSize;
+    }
+
+    public void setMetricsMaxQueueSize(int size) {
+        globalSettings.metricsMaxQueueSize = size;
+    }
+
+    public boolean isDualEvaluationEnabled() {
+        return globalSettings.dualEvaluationEnabled;
+    }
+
+    public void setDualEvaluationEnabled(boolean enabled) {
+        globalSettings.dualEvaluationEnabled = enabled;
+    }
+
+    public String getDualEvaluationModels() {
+        return globalSettings.dualEvaluationModels;
+    }
+
+    public void setDualEvaluationModels(String models) {
+        globalSettings.dualEvaluationModels = models;
+    }
+
+    public boolean isAiSelfReviewEnabled() {
+        return globalSettings.aiSelfReviewEnabled;
+    }
+
+    public void setAiSelfReviewEnabled(boolean enabled) {
+        globalSettings.aiSelfReviewEnabled = enabled;
+    }
+
+    public float getAvgWordsPerMinute() {
+        return globalSettings.avgWordsPerMinute;
+    }
+
+    public void setAvgWordsPerMinute(float avgWordsPerMinute) {
+        globalSettings.avgWordsPerMinute = avgWordsPerMinute;
+    }
 }

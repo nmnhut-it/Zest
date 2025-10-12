@@ -14,13 +14,16 @@ import javax.swing.JPanel
 /**
  * JCEF-based chat panel for better HTML rendering with interactive features
  */
-class JCEFChatPanel(private val project: Project) : JPanel(BorderLayout()) {
+class JCEFChatPanel(
+    private val project: Project,
+    private val purpose: BrowserPurpose = BrowserPurpose.CHAT
+) : JPanel(BorderLayout()) {
 
     companion object {
         private val LOG = Logger.getInstance(JCEFChatPanel::class.java)
     }
 
-    private val browserManager: JCEFBrowserManager = JCEFBrowserService.getInstance(project).getBrowserManager(BrowserPurpose.CHAT)
+    private val browserManager: JCEFBrowserManager = JCEFBrowserService.getInstance(project).getBrowserManager(purpose)
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
     private var chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
     private var messageCounter = 0

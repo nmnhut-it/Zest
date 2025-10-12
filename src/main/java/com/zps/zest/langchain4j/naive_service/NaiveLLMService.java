@@ -9,7 +9,10 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.browser.utils.ChatboxUtilities;
+import com.zps.zest.completion.metrics.ModelComparisonResult;
+import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService;
 import com.zps.zest.rules.ZestRulesLoader;
+import com.zps.zest.settings.ZestGlobalSettings;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -258,14 +261,24 @@ public final class NaiveLLMService implements Disposable {
     @Nullable
     public String queryWithParams(@NotNull LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) {
         try {
+            long startTime = System.currentTimeMillis();
+            String result;
+
             if (useOptimizedClient) {
                 // Use async implementation and wait for result with effective timeout
                 long effectiveTimeout = getEffectiveTimeout(params.getTimeoutMs());
-                return queryWithParamsAsync(params, enumUsage).get(effectiveTimeout, TimeUnit.MILLISECONDS);
+                result = queryWithParamsAsync(params, enumUsage).get(effectiveTimeout, TimeUnit.MILLISECONDS);
             } else {
                 // Use original implementation
-                return queryWithRetry(params, enumUsage);
+                result = queryWithRetry(params, enumUsage);
             }
+
+            // Dual Evaluation: Test with multiple models if enabled
+            if (result != null && shouldRunDualEvaluation(enumUsage)) {
+                runDualEvaluationAsync(params.getPrompt(), startTime);
+            }
+
+            return result;
         } catch (Exception e) {
             LOG.error("Failed to query LLM with params", e);
             return null;
@@ -1164,5 +1177,97 @@ public final class NaiveLLMService implements Disposable {
         LOG.debug("Current time: " + now + ", Office hours: " + startTime + " - " + endTime + ", Within hours: " + withinHours);
 
         return withinHours;
+    }
+
+    /**
+     * Check if dual evaluation should run for this usage type
+     */
+    private boolean shouldRunDualEvaluation(ChatboxUtilities.EnumUsage enumUsage) {
+        ZestGlobalSettings settings = ZestGlobalSettings.getInstance();
+        if (!settings.dualEvaluationEnabled) {
+            return false;
+        }
+
+        // Only run for inline completion and code generation
+        return enumUsage == ChatboxUtilities.EnumUsage.INLINE_COMPLETION ||
+               enumUsage == ChatboxUtilities.EnumUsage.CHAT_CODE_REVIEW ||
+               enumUsage == ChatboxUtilities.EnumUsage.IMPLEMENT_TODOS;
+    }
+
+    /**
+     * Run dual evaluation asynchronously (test prompt with multiple models)
+     */
+    private void runDualEvaluationAsync(String prompt, long originalStartTime) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                ZestGlobalSettings settings = ZestGlobalSettings.getInstance();
+                String[] modelNames = settings.dualEvaluationModels.split(",");
+                java.util.List<ModelComparisonResult> results = new java.util.ArrayList<>();
+
+                for (String modelName : modelNames) {
+                    String trimmedModel = modelName.trim();
+                    if (trimmedModel.isEmpty()) continue;
+
+                    try {
+                        long modelStartTime = System.currentTimeMillis();
+
+                        // Query with this model
+                        LLMQueryParams testParams = new LLMQueryParams(prompt)
+                                .withModel(trimmedModel)
+                                .withMaxTokens(DEFAULT_MAX_TOKENS)
+                                .withMaxRetries(1)
+                                .withTimeout(30000L);
+
+                        String response = queryWithRetry(testParams, ChatboxUtilities.EnumUsage.LLM_SERVICE);
+                        long elapsed = System.currentTimeMillis() - modelStartTime;
+
+                        if (response != null) {
+                            int tokenCount = estimateTokenCount(response);
+
+                            results.add(new ModelComparisonResult(
+                                    trimmedModel,
+                                    elapsed,
+                                    tokenCount,
+                                    null  // Quality score can be added later
+                            ));
+
+                            LOG.info("Dual eval - " + trimmedModel + ": " + elapsed + "ms, ~" + tokenCount + " tokens");
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("Failed dual eval for model " + trimmedModel + ": " + e.getMessage());
+                    }
+                }
+
+                // Track results
+                if (!results.isEmpty()) {
+                    ZestInlineCompletionMetricsService metricsService =
+                            project.getService(ZestInlineCompletionMetricsService.class);
+
+                    java.util.List<String> modelList = java.util.Arrays.asList(modelNames);
+                    long totalElapsed = System.currentTimeMillis() - originalStartTime;
+
+                    metricsService.trackDualEvaluation(
+                            "dual-eval-" + System.currentTimeMillis(),
+                            prompt,
+                            modelList,
+                            results,
+                            totalElapsed
+                    );
+
+                    LOG.info("Dual evaluation complete: tested " + results.size() + " models");
+                }
+            } catch (Exception e) {
+                LOG.error("Error in dual evaluation", e);
+            }
+        }, executorService);
+    }
+
+    /**
+     * Estimate token count from response text
+     */
+    private int estimateTokenCount(String text) {
+        if (text == null) return 0;
+        // Rough estimate: ~4 characters per token
+        return text.length() / 4;
     }
 }

@@ -4,7 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.zps.zest.langchain4j.naive_service.NaiveLLMService
+import com.zps.zest.settings.ZestGlobalSettings
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
@@ -18,16 +18,21 @@ import java.util.concurrent.ConcurrentHashMap
 class ZestQuickActionMetricsService(private val project: Project) : Disposable {
     private val logger = Logger.getInstance(ZestQuickActionMetricsService::class.java)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    
-    // Event queue for batching
-    private val eventChannel = Channel<MetricEvent>(Channel.UNLIMITED)
-    
+
+    // Settings and HTTP client
+    private val settings by lazy { ZestGlobalSettings.getInstance() }
+    private val metricsHttpClient = MetricsHttpClient(project)
+
+    // Event queue for batching (bounded to prevent OOM)
+    private val eventChannel by lazy {
+        Channel<MetricEvent>(settings.metricsMaxQueueSize)
+    }
+
     // Track active rewrites
     private val activeRewrites = ConcurrentHashMap<String, RewriteSession>()
-    
+
     // Service components
     private var processingJob: Job? = null
-    private val naiveLlmService by lazy { NaiveLLMService(project) }
     
     init {
         logger.info("Initializing ZestQuickActionMetricsService")
@@ -243,17 +248,29 @@ class ZestQuickActionMetricsService(private val project: Project) : Disposable {
      * Process a single metric event
      */
     private suspend fun processEvent(event: MetricEvent) {
-        if (!naiveLlmService.isConfigured()) {
-            logger.debug("LLM service not configured, skipping metric: ${event.eventType}")
+        if (!settings.metricsEnabled) {
+            logger.debug("Metrics disabled, skipping event: ${event.eventType}")
             return
         }
-        
+
         try {
-            // Send metric using QUICK_ACTION_LOGGING enum
-            naiveLlmService.sendMetricEvent(event, "QUICK_ACTION_LOGGING")
-            logger.debug("Sent quick action metric: ${event.eventType} for ${event.completionId}")
+            // Determine endpoint
+            val endpoint = MetricsEndpoint.fromUsage("QUICK_ACTION_LOGGING")
+
+            // Serialize event to JSON
+            val json = MetricsSerializer.serialize(event)
+
+            // Send via HTTP client
+            val success = metricsHttpClient.sendMetric(endpoint, event.eventType, json)
+
+            if (success) {
+                logger.debug("Successfully sent quick action metric: ${event.eventType}")
+            } else {
+                logger.debug("Failed to send quick action metric: ${event.eventType}")
+            }
+
         } catch (e: Exception) {
-            logger.warn("Failed to send quick action metric: ${event.eventType}", e)
+            logger.warn("Error processing quick action metric: ${event.eventType}", e)
         }
     }
     

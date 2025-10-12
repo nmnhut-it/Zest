@@ -54,6 +54,16 @@ public class ZestSettingsConfigurable implements Configurable {
     // Tool Server Settings
     private JBCheckBox toolServerEnabledCheckbox;
 
+    // Metrics Settings
+    private JBCheckBox metricsEnabledCheckbox;
+    private JBTextField metricsServerUrlField;
+    private JSpinner metricsBatchSizeSpinner;
+    private JSpinner metricsBatchIntervalSpinner;
+    private JSpinner metricsMaxQueueSizeSpinner;
+    private JBCheckBox dualEvaluationEnabledCheckbox;
+    private JBTextField dualEvaluationModelsField;
+    private JBCheckBox aiSelfReviewEnabledCheckbox;
+
     // Prompt Section Configuration
     private JBCheckBox fileInfoSectionCheckbox;
     private JBCheckBox frameworkSectionCheckbox;
@@ -233,6 +243,53 @@ public class ZestSettingsConfigurable implements Configurable {
         builder.addComponent(createDescriptionLabel(
             "Automatically start REST API server for MCP/OpenWebUI tool integration (port 63342+)"));
 
+        // Metrics Settings
+        builder.addSeparator();
+        builder.addComponent(new TitledSeparator("Metrics Configuration"));
+
+        metricsEnabledCheckbox = new JBCheckBox("Enable metrics collection", config.isMetricsEnabled());
+        builder.addComponent(metricsEnabledCheckbox);
+
+        metricsServerUrlField = new JBTextField(config.getMetricsServerBaseUrl());
+        metricsServerUrlField.setColumns(40);
+        builder.addLabeledComponent("Metrics Server URL:", metricsServerUrlField);
+
+        metricsBatchSizeSpinner = new JSpinner(new SpinnerNumberModel(config.getMetricsBatchSize(), 1, 100, 5));
+        JPanel batchSizePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        batchSizePanel.add(new JLabel("Batch size:"));
+        batchSizePanel.add(metricsBatchSizeSpinner);
+        batchSizePanel.add(new JLabel("events"));
+        builder.addComponent(batchSizePanel);
+
+        metricsBatchIntervalSpinner = new JSpinner(new SpinnerNumberModel(config.getMetricsBatchIntervalSeconds(), 10, 300, 10));
+        JPanel batchIntervalPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        batchIntervalPanel.add(new JLabel("Batch interval:"));
+        batchIntervalPanel.add(metricsBatchIntervalSpinner);
+        batchIntervalPanel.add(new JLabel("seconds"));
+        builder.addComponent(batchIntervalPanel);
+
+        metricsMaxQueueSizeSpinner = new JSpinner(new SpinnerNumberModel(config.getMetricsMaxQueueSize(), 100, 10000, 100));
+        JPanel queueSizePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        queueSizePanel.add(new JLabel("Max queue size:"));
+        queueSizePanel.add(metricsMaxQueueSizeSpinner);
+        queueSizePanel.add(new JLabel("events"));
+        builder.addComponent(queueSizePanel);
+
+        // Dual Evaluation
+        builder.addSeparator();
+        builder.addComponent(new JLabel("Advanced Metrics:"));
+
+        dualEvaluationEnabledCheckbox = new JBCheckBox("Enable dual evaluation (multi-AI comparison)", config.isDualEvaluationEnabled());
+        builder.addComponent(dualEvaluationEnabledCheckbox);
+
+        dualEvaluationModelsField = new JBTextField(config.getDualEvaluationModels());
+        dualEvaluationModelsField.setColumns(40);
+        builder.addLabeledComponent("Models for comparison:", dualEvaluationModelsField);
+        builder.addComponent(createDescriptionLabel("Comma-separated model names (e.g., gpt-4o-mini,claude-3-5-sonnet)"));
+
+        aiSelfReviewEnabledCheckbox = new JBCheckBox("Enable AI self-review before showing code", config.isAiSelfReviewEnabled());
+        builder.addComponent(aiSelfReviewEnabledCheckbox);
+
         // Prompt Section Configuration
         builder.addSeparator();
         builder.addComponent(new TitledSeparator("Prompt Section Configuration"));
@@ -363,6 +420,15 @@ public class ZestSettingsConfigurable implements Configurable {
                !maxRagContextSizeSpinner.getValue().equals(config.getMaxRagContextSize()) ||
                !embeddingCacheSizeSpinner.getValue().equals(config.getEmbeddingCacheSize()) ||
                toolServerEnabledCheckbox.isSelected() != config.isToolServerEnabled() ||
+               // Metrics settings
+               metricsEnabledCheckbox.isSelected() != config.isMetricsEnabled() ||
+               !metricsServerUrlField.getText().equals(config.getMetricsServerBaseUrl()) ||
+               !metricsBatchSizeSpinner.getValue().equals(config.getMetricsBatchSize()) ||
+               !metricsBatchIntervalSpinner.getValue().equals(config.getMetricsBatchIntervalSeconds()) ||
+               !metricsMaxQueueSizeSpinner.getValue().equals(config.getMetricsMaxQueueSize()) ||
+               dualEvaluationEnabledCheckbox.isSelected() != config.isDualEvaluationEnabled() ||
+               !dualEvaluationModelsField.getText().equals(config.getDualEvaluationModels()) ||
+               aiSelfReviewEnabledCheckbox.isSelected() != config.isAiSelfReviewEnabled() ||
                fileInfoSectionCheckbox.isSelected() != config.isFileInfoSectionIncluded() ||
                frameworkSectionCheckbox.isSelected() != config.isFrameworkSectionIncluded() ||
                contextAnalysisSectionCheckbox.isSelected() != config.isContextAnalysisSectionIncluded() ||
@@ -370,10 +436,8 @@ public class ZestSettingsConfigurable implements Configurable {
                relatedClassesSectionCheckbox.isSelected() != config.isRelatedClassesSectionIncluded() ||
                astPatternsSectionCheckbox.isSelected() != config.isAstPatternsSectionIncluded() ||
                targetLineSectionCheckbox.isSelected() != config.isTargetLineSectionIncluded() ||
-               // Removed unused setting comparisons
                !systemPromptArea.getText().equals(config.getSystemPrompt()) ||
                !codeSystemPromptArea.getText().equals(config.getCodeSystemPrompt()) ||
-               // Removed unused docs settings comparison
                isProjectConfigurationModified();
     }
     
@@ -395,6 +459,17 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setMaxRagContextSize((Integer) maxRagContextSizeSpinner.getValue());
         config.setEmbeddingCacheSize((Integer) embeddingCacheSizeSpinner.getValue());
         config.setToolServerEnabled(toolServerEnabledCheckbox.isSelected());
+
+        // Metrics settings
+        config.setMetricsEnabled(metricsEnabledCheckbox.isSelected());
+        config.setMetricsServerBaseUrl(metricsServerUrlField.getText().trim());
+        config.setMetricsBatchSize((Integer) metricsBatchSizeSpinner.getValue());
+        config.setMetricsBatchIntervalSeconds((Integer) metricsBatchIntervalSpinner.getValue());
+        config.setMetricsMaxQueueSize((Integer) metricsMaxQueueSizeSpinner.getValue());
+        config.setDualEvaluationEnabled(dualEvaluationEnabledCheckbox.isSelected());
+        config.setDualEvaluationModels(dualEvaluationModelsField.getText().trim());
+        config.setAiSelfReviewEnabled(aiSelfReviewEnabledCheckbox.isSelected());
+
         config.setFileInfoSectionIncluded(fileInfoSectionCheckbox.isSelected());
         config.setFrameworkSectionIncluded(frameworkSectionCheckbox.isSelected());
         config.setContextAnalysisSectionIncluded(contextAnalysisSectionCheckbox.isSelected());
@@ -402,17 +477,15 @@ public class ZestSettingsConfigurable implements Configurable {
         config.setRelatedClassesSectionIncluded(relatedClassesSectionCheckbox.isSelected());
         config.setAstPatternsSectionIncluded(astPatternsSectionCheckbox.isSelected());
         config.setTargetLineSectionIncluded(targetLineSectionCheckbox.isSelected());
-        // Removed unused setting assignments
-        
+
         config.setSystemPrompt(systemPromptArea.getText());
         config.setCodeSystemPrompt(codeSystemPromptArea.getText());
-        // Removed unused docs settings
-        
+
         // Save project configuration
         saveProjectConfiguration();
-        
-        Messages.showInfoMessage(project, 
-            "Settings saved successfully", 
+
+        Messages.showInfoMessage(project,
+            "Settings saved successfully",
             "Settings Saved");
     }
     
@@ -423,7 +496,7 @@ public class ZestSettingsConfigurable implements Configurable {
         testModelField.setText(config.getTestModel());
         codeModelField.setText(config.getCodeModel());
         maxIterationsSpinner.setValue(config.getMaxIterations());
-        
+
         inlineCompletionCheckbox.setSelected(config.isInlineCompletionEnabled());
         autoTriggerCheckbox.setSelected(config.isAutoTriggerEnabled());
         autoTriggerCheckbox.setEnabled(config.isInlineCompletionEnabled());
@@ -443,6 +516,16 @@ public class ZestSettingsConfigurable implements Configurable {
 
         toolServerEnabledCheckbox.setSelected(config.isToolServerEnabled());
 
+        // Metrics settings
+        metricsEnabledCheckbox.setSelected(config.isMetricsEnabled());
+        metricsServerUrlField.setText(config.getMetricsServerBaseUrl());
+        metricsBatchSizeSpinner.setValue(config.getMetricsBatchSize());
+        metricsBatchIntervalSpinner.setValue(config.getMetricsBatchIntervalSeconds());
+        metricsMaxQueueSizeSpinner.setValue(config.getMetricsMaxQueueSize());
+        dualEvaluationEnabledCheckbox.setSelected(config.isDualEvaluationEnabled());
+        dualEvaluationModelsField.setText(config.getDualEvaluationModels());
+        aiSelfReviewEnabledCheckbox.setSelected(config.isAiSelfReviewEnabled());
+
         fileInfoSectionCheckbox.setSelected(config.isFileInfoSectionIncluded());
         frameworkSectionCheckbox.setSelected(config.isFrameworkSectionIncluded());
         contextAnalysisSectionCheckbox.setSelected(config.isContextAnalysisSectionIncluded());
@@ -451,13 +534,9 @@ public class ZestSettingsConfigurable implements Configurable {
         astPatternsSectionCheckbox.setSelected(config.isAstPatternsSectionIncluded());
         targetLineSectionCheckbox.setSelected(config.isTargetLineSectionIncluded());
 
-        // Removed unused setting resets
-        
         systemPromptArea.setText(config.getSystemPrompt());
         codeSystemPromptArea.setText(config.getCodeSystemPrompt());
-        
-        // Removed unused docs setting resets
-        
+
         // Reset project configuration
         resetProjectConfiguration();
     }

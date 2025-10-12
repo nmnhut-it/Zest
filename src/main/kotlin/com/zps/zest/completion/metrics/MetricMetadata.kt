@@ -81,6 +81,14 @@ enum class CodeHealthTrigger {
     POST_COMMIT_AUTO
 }
 
+// Dual Evaluation - Model comparison result
+data class ModelComparisonResult(
+    val modelName: String,
+    val responseTimeMs: Long,
+    val tokenCount: Int,
+    val qualityScore: Float?  // Optional AI-judged quality
+)
+
 // Inline Completion Metadata Classes
 data class InlineRequestMetadata(
 //    override val token: String,
@@ -383,6 +391,109 @@ data class QuickActionDismissMetadata(
     }
 }
 
+// Dual Evaluation Metadata
+data class DualEvaluationMetadata(
+    override val model: String,
+    override val projectId: String,
+    override val userId: String,
+    override val user: String,
+    override val ideVersion: String,
+    override val pluginVersion: String,
+    override val timestamp: Long,
+    val originalPrompt: String,
+    val models: List<String>,  // Models being compared
+    val results: List<ModelComparisonResult>
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "dual_evaluation")
+            addCommonFields(this)
+            addProperty("original_prompt", originalPrompt)
+            add("models", Gson().toJsonTree(models))
+            add("results", Gson().toJsonTree(results))
+        }
+    }
+}
+
+// Code Quality Metadata
+data class CodeQualityMetadata(
+    override val model: String,
+    override val projectId: String,
+    override val userId: String,
+    override val user: String,
+    override val ideVersion: String,
+    override val pluginVersion: String,
+    override val timestamp: Long,
+    val completionId: String,
+    val linesOfCode: Int,
+    // AI Self-Review
+    val styleComplianceScore: Int,  // 0-100
+    val selfReviewPassed: Boolean,
+    // Error Metrics
+    val compilationErrors: Int,
+    val compilationErrorsPer1000Lines: Float,
+    val logicBugsDetected: Int,
+    val logicBugsPer1000Lines: Float,
+    // Pre-user improvements
+    val wasReviewed: Boolean,
+    val wasImproved: Boolean
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "code_quality")
+            addCommonFields(this)
+            addProperty("completion_id", completionId)
+            addProperty("lines_of_code", linesOfCode)
+            addProperty("style_compliance_score", styleComplianceScore)
+            addProperty("self_review_passed", selfReviewPassed)
+            addProperty("compilation_errors", compilationErrors)
+            addProperty("compilation_errors_per_1000_lines", compilationErrorsPer1000Lines)
+            addProperty("logic_bugs_detected", logicBugsDetected)
+            addProperty("logic_bugs_per_1000_lines", logicBugsPer1000Lines)
+            addProperty("was_reviewed", wasReviewed)
+            addProperty("was_improved", wasImproved)
+        }
+    }
+}
+
+// Unit Test Metadata
+data class UnitTestMetadata(
+    override val model: String,
+    override val projectId: String,
+    override val userId: String,
+    override val user: String,
+    override val ideVersion: String,
+    override val pluginVersion: String,
+    override val timestamp: Long,
+    val testId: String,
+    val totalTests: Int,
+    val wordCount: Int,
+    val generationTimeMs: Long,
+    // Work out of box metrics
+    val testsCompiled: Int,
+    val testsPassedImmediately: Int,
+    val workOutOfBoxPercentage: Float,
+    // Time saved calculation
+    val avgWordsPerMinute: Float,
+    val timeSavedMinutes: Float
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "unit_test")
+            addCommonFields(this)
+            addProperty("test_id", testId)
+            addProperty("total_tests", totalTests)
+            addProperty("word_count", wordCount)
+            addProperty("generation_time_ms", generationTimeMs)
+            addProperty("tests_compiled", testsCompiled)
+            addProperty("tests_passed_immediately", testsPassedImmediately)
+            addProperty("work_out_of_box_percentage", workOutOfBoxPercentage)
+            addProperty("avg_words_per_minute", avgWordsPerMinute)
+            addProperty("time_saved_minutes", timeSavedMinutes)
+        }
+    }
+}
+
 // Code Health Metadata
 data class CodeHealthMetadata(
 //    override val token: String,
@@ -394,13 +505,29 @@ data class CodeHealthMetadata(
     override val pluginVersion: String,
     override val timestamp: Long,
     val eventType: String,
-    val analysisData: Map<String, Any>  // Keep this flexible for now
+    val trigger: CodeHealthTrigger,
+    val criticalIssues: Int,
+    val highIssues: Int,
+    val totalIssues: Int,
+    val methodsAnalyzed: Int,
+    val averageHealthScore: Int,
+    val issuesByCategory: Map<String, Int>,
+    val userAction: String?,
+    val elapsedMs: Long
 ) : MetricMetadata() {
     override fun toJsonObject(): JsonObject {
         return JsonObject().apply {
             addProperty("event_type", eventType)
             addCommonFields(this)
-            add("analysis_data", Gson().toJsonTree(analysisData))
+            addProperty("trigger", trigger.name)
+            addProperty("critical_issues", criticalIssues)
+            addProperty("high_issues", highIssues)
+            addProperty("total_issues", totalIssues)
+            addProperty("methods_analyzed", methodsAnalyzed)
+            addProperty("average_health_score", averageHealthScore)
+            add("issues_by_category", Gson().toJsonTree(issuesByCategory))
+            addProperty("user_action", userAction ?: "")
+            addProperty("elapsed_ms", elapsedMs)
         }
     }
 }

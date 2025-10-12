@@ -133,8 +133,48 @@ sealed class MetricEvent {
     ) : MetricEvent() {
         override val eventType = metadata.eventType
     }
-    
+
+    // Dual Evaluation Event
+    data class DualEvaluationEvent(
+        override val completionId: String,
+        override val actualModel: String,
+        override val elapsed: Long,
+        val metadata: DualEvaluationMetadata
+    ) : MetricEvent() {
+        override val eventType = "dual_evaluation"
+    }
+
+    // Code Quality Event
+    data class CodeQualityEvent(
+        override val completionId: String,
+        override val actualModel: String,
+        override val elapsed: Long,
+        val metadata: CodeQualityMetadata
+    ) : MetricEvent() {
+        override val eventType = "code_quality"
+    }
+
+    // Unit Test Event
+    data class UnitTestEvent(
+        override val completionId: String,
+        override val actualModel: String,
+        override val elapsed: Long,
+        val metadata: UnitTestMetadata
+    ) : MetricEvent() {
+        override val eventType = "unit_test"
+    }
+
 }
+
+/**
+ * Context information for a completion request
+ */
+data class CompletionContextInfo(
+    val cursorOffset: Int = 0,
+    val lineNumber: Int = 0,
+    val fileName: String = "",
+    val language: String = ""
+)
 
 /**
  * Represents an active completion session for tracking
@@ -145,12 +185,12 @@ data class CompletionSession(
     val strategy: String,
     val fileType: String,
     val actualModel: String,
-    val contextInfo: Map<String, Any> = emptyMap(),
+    val contextInfo: CompletionContextInfo = CompletionContextInfo(),
     var viewedAt: Long? = null,
     var completionLength: Int? = null,
     var confidence: Float? = null,
-    var hasViewed: Boolean,
-    var partialAcceptances: Int? = null,
-    var totalAcceptedLength: Int? = null,
+    var hasViewed: Boolean = false,
+    var partialAcceptances: Int = 0,
+    var totalAcceptedLength: Int = 0,
     var timingInfo: CompletionTimingInfo? = null
 )

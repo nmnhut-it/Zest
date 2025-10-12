@@ -8,6 +8,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.zps.zest.browser.utils.ChatboxUtilities
+import com.zps.zest.codehealth.AICodeReviewer
 import com.zps.zest.completion.context.ZestLeanContextCollectorPSI
 import com.zps.zest.completion.context.FileContextPrePopulationService
 import com.zps.zest.completion.data.CompletionContext
@@ -20,6 +21,7 @@ import com.zps.zest.completion.config.PromptCachingConfig
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService
 import com.zps.zest.completion.metrics.PromptCachingMetrics
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService
+import com.zps.zest.settings.ZestGlobalSettings
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.*
@@ -401,18 +403,61 @@ class ZestCompletionProvider(private val project: Project) {
         completionId: String
     ): ZestInlineCompletionList? {
         val parseStartTime = System.currentTimeMillis()
-        val reasoningResult = leanResponseParser.parseReasoningResponse(
+        var reasoningResult = leanResponseParser.parseReasoningResponse(
             response, documentText, context.offset
         )
         val parseTime = System.currentTimeMillis() - parseStartTime
         metricsService.trackResponseParsingTime(completionId, parseTime)
-        
+
         if (reasoningResult.completionText.isBlank()) {
             logger.debug("No valid completion after lean parsing")
             updateStatusBarText("No completion available")
             return null
         }
-        
+
+        // AI Self-Review for Code Quality
+        var wasReviewed = false
+        var wasImproved = false
+        val settings = ZestGlobalSettings.getInstance()
+
+        if (settings.aiSelfReviewEnabled && reasoningResult.completionText.length > 20) {
+            try {
+                val reviewer = AICodeReviewer.getInstance(project)
+                val review = reviewer.reviewCode(reasoningResult.completionText)
+
+                wasReviewed = true
+                val linesOfCode = reasoningResult.completionText.lines().size
+
+                // If review failed, try to improve
+                if (!review.isPassed()) {
+                    logger.info("Code review failed (score: ${review.getStyleComplianceScore()}), attempting improvement")
+                    val improved = reviewer.improveCode(reasoningResult.completionText, review.getFeedback())
+
+                    if (improved != null && improved.isNotBlank()) {
+                        reasoningResult = reasoningResult.copy(completionText = improved)
+                        wasImproved = true
+                        logger.info("Code improved after review")
+                    }
+                }
+
+                // Track code quality metrics
+                metricsService.trackCodeQuality(
+                    completionId = completionId,
+                    linesOfCode = linesOfCode,
+                    styleComplianceScore = review.getStyleComplianceScore(),
+                    selfReviewPassed = review.isPassed(),
+                    compilationErrors = 0,  // TODO: Add compilation check
+                    logicBugsDetected = 0,  // TODO: Add bug detection
+                    wasReviewed = wasReviewed,
+                    wasImproved = wasImproved
+                )
+
+                logger.debug("Code quality tracked: score=${review.getStyleComplianceScore()}, passed=${review.isPassed()}, improved=$wasImproved")
+            } catch (e: Exception) {
+                logger.warn("Error during AI code review", e)
+            }
+        }
+
         return createLeanCompletionItem(
             reasoningResult, context, actualModel,
             startTime, leanContextTime, promptBuildTime, llmTime, parseTime, requestId

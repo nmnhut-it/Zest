@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.902">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.903">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,6 +9,41 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
+            <h3>Version 1.9.903 - Agent Mode Polish & Chat Improvements ✨</h3>
+            <h4>🤖 Agent Mode Refinements</h4>
+            <ul>
+                <li><b>Consistent Response Format</b> - Agent now always shows tool usage count ("Tool calls: X/5") for better transparency</li>
+                <li><b>Clearer Tool Budget</b> - Better distinction between exploration tools (counted) and modification tools (unlimited)</li>
+                <li><b>More Reliable AI Behavior</b> - Improved prompts ensure more predictable and consistent responses</li>
+            </ul>
+
+            <h4>💬 Chat Memory Enhancements</h4>
+            <ul>
+                <li><b>Better Message Detail Views</b> - Viewing chat history now uses dedicated browser instances for better isolation</li>
+                <li><b>Improved Rendering</b> - Message details display more reliably without interference</li>
+            </ul>
+
+            <h4>🎯 Smart Context Awareness</h4>
+            <ul>
+                <li><b>Dynamic File Context</b> - Agent mode can now access your current file and cursor position automatically</li>
+                <li><b>Better Contextual Responses</b> - AI is more aware of what you're working on</li>
+            </ul>
+
+            <h4>🔧 Code Modification Improvements</h4>
+            <ul>
+                <li><b>Flexible Code Matching</b> - Smarter fuzzy matching when applying code changes</li>
+                <li><b>Better Error Messages</b> - When code changes fail, you see a preview of the target file</li>
+                <li><b>More Robust Replacements</b> - Handles whitespace variations and formatting differences better</li>
+            </ul>
+
+            <h4>🚀 Platform Support</h4>
+            <ul>
+                <li><b>IntelliJ 2024.3.x Compatible</b> - Extended support to IntelliJ IDEA 2024.3.x and beyond</li>
+                <li><b>Tool Improvements</b> - Enhanced code search and file reading with better error handling</li>
+            </ul>
+
+            <p><em>Focused improvements for more reliable and transparent Agent Mode behavior! 🎉</em></p>
+
             <h3>Version 1.9.902 - OpenWebUI Tool Integration & Agent Mode Enhancements 🚀</h3>
             <h4>🏗️ Architecture Simplification</h4>
             <ul>

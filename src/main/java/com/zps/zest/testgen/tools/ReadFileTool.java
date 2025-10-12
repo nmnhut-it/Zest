@@ -100,10 +100,32 @@ public class ReadFileTool {
                 // Check file size
                 long fileSize = virtualFile.getLength();
                 if (fileSize > MAX_FILE_SIZE) {
-                    return String.format("⚠️ File too large: %s\n" +
-                                       "Size: %s (limit: 1MB)\n" +
-                                       "Showing preview only. Consider reading specific sections.\n",
-                                       virtualFile.getName(), formatFileSize(fileSize));
+                    return String.format(
+                        "⚠️ File is very large: %s (%s)\n\n" +
+                        "💡 **Use searchCode with context lines instead:**\n\n" +
+                        "searchCode finds specific sections AND shows surrounding context:\n\n" +
+                        "**Syntax:**\n" +
+                        "searchCode(query, filePattern, excludePattern, beforeLines, afterLines)\n\n" +
+                        "**Examples for this file:**\n" +
+                        "// Find class with 5 lines before/after for context\n" +
+                        "searchCode(\"class.*ClassName\", \"%s\", null, 5, 5)\n\n" +
+                        "// Find method with full context (10 lines each side)\n" +
+                        "searchCode(\"public.*methodName\\\\(\", \"%s\", null, 10, 10)\n\n" +
+                        "// Find all TODO comments with context\n" +
+                        "searchCode(\"TODO|FIXME\", \"%s\", null, 3, 3)\n\n" +
+                        "**Why this is better:**\n" +
+                        "✓ Shows only relevant sections with surrounding context\n" +
+                        "✓ beforeLines/afterLines give you enough code to understand\n" +
+                        "✓ Much faster than reading entire %s file\n" +
+                        "✓ Counts as same 1 tool call\n\n" +
+                        "💡 Use beforeLines=5-10 and afterLines=5-10 to see context around matches.",
+                        virtualFile.getName(),
+                        formatFileSize(fileSize),
+                        virtualFile.getName(),
+                        virtualFile.getName(),
+                        virtualFile.getName(),
+                        formatFileSize(fileSize)
+                    );
                 }
 
                 // Read file content

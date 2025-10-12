@@ -362,8 +362,8 @@ public class MessageDetailDialog(
     }
 
     override fun createCenterPanel(): JComponent {
-        // Use JCEFChatPanel for better markdown rendering
-        val chatPanel = com.zps.zest.chatui.JCEFChatPanel(project)
+        // Use JCEFChatPanel for better markdown rendering with dedicated browser purpose
+        val chatPanel = com.zps.zest.chatui.JCEFChatPanel(project, com.zps.zest.browser.BrowserPurpose.MESSAGE_DETAIL)
         chatPanel.preferredSize = JBUI.size(800, 600)
 
         // Get message type info

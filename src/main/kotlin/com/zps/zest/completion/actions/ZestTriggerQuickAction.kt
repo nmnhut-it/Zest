@@ -18,12 +18,14 @@ import com.intellij.util.ui.JBUI
 import com.zps.zest.completion.MethodContext
 import com.zps.zest.completion.MethodContextFormatter
 import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
+import com.zps.zest.completion.metrics.ZestQuickActionMetricsService
 import com.zps.zest.testgen.actions.GenerateTestAction
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
 import java.awt.*
 import java.awt.event.KeyEvent
 import java.awt.event.KeyListener
+import java.util.UUID
 import javax.swing.*
 
 /**
@@ -89,6 +91,21 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
     private fun openChatForRewrite(project: Project, methodContext: MethodContext, instruction: String) {
         try {
             val chatService = project.getService(com.zps.zest.chatui.ChatUIService::class.java)
+            val metricsService = ZestQuickActionMetricsService.getInstance(project)
+
+            // Generate unique rewrite ID for tracking
+            val rewriteId = "rewrite-${UUID.randomUUID()}"
+
+            // Track quick action request
+            val customInstruction = if (!instruction.startsWith("__")) instruction else null
+            metricsService.trackRewriteRequested(
+                rewriteId = rewriteId,
+                methodName = methodContext.methodName,
+                language = methodContext.language,
+                fileType = methodContext.fileName.substringAfterLast('.'),
+                actualModel = "local-model",  // Default model for quick actions
+                customInstruction = customInstruction
+            )
 
             // Prepare chat for method rewrite
             chatService.clearConversation();
@@ -100,7 +117,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             // Open chat with pre-filled message and auto-send
             chatService.openChatWithMessage(formattedMessage, autoSend = true)
 
-            logger.info("Opened chat for method rewrite: ${methodContext.methodName}")
+            logger.info("Opened chat for method rewrite: ${methodContext.methodName}, rewriteId: $rewriteId")
         } catch (e: Exception) {
             logger.error("Failed to open chat for method rewrite", e)
             Messages.showErrorDialog(

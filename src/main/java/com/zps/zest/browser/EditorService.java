@@ -103,13 +103,48 @@ public class EditorService {
     public String getProjectInfo() {
         try {
             JsonObject projectInfo = getProjectInfoInternal();
-            
+
             JsonObject response = new JsonObject();
             response.addProperty("success", true);
             response.add("result", projectInfo);
             return gson.toJson(response);
         } catch (Exception e) {
             LOG.error("Error getting project info", e);
+            JsonObject response = new JsonObject();
+            response.addProperty("success", false);
+            response.addProperty("error", e.getMessage());
+            return gson.toJson(response);
+        }
+    }
+
+    /**
+     * Gets current file context (path + code around cursor).
+     * Used for dynamic prompt injection in Agent Mode.
+     */
+    public String getCurrentFileContext() {
+        try {
+            Editor editor = getCurrentEditor();
+            JsonObject contextInfo = new JsonObject();
+
+            if (editor != null && editor.getVirtualFile() != null) {
+                String currentFile = editor.getVirtualFile().getPath();
+                String codeContext = getCodeAroundCaret(editor, 25);
+
+                contextInfo.addProperty("hasContext", true);
+                contextInfo.addProperty("filePath", currentFile);
+                contextInfo.addProperty("codeContext", codeContext);
+            } else {
+                contextInfo.addProperty("hasContext", false);
+                contextInfo.addProperty("filePath", "");
+                contextInfo.addProperty("codeContext", "");
+            }
+
+            JsonObject response = new JsonObject();
+            response.addProperty("success", true);
+            response.add("result", contextInfo);
+            return gson.toJson(response);
+        } catch (Exception e) {
+            LOG.error("Error getting current file context", e);
             JsonObject response = new JsonObject();
             response.addProperty("success", false);
             response.addProperty("error", e.getMessage());

@@ -1,5 +1,31 @@
 # Zest Plugin Update Notes
 
+## Update notes tháng 10/2025 (Version 1.9.903)
+
+### 🤖 Agent Mode cải thiện:
+- **Response format nhất quán:** AI giờ luôn hiện số lần dùng tool ("Tool calls: 3/5") trong mỗi response - dễ theo dõi
+- **Tool budget rõ ràng hơn:** Phân biệt rõ exploration tools (đếm vào limit 5) vs modification tools (unlimited)
+- **AI ổn định hơn:** Cải thiện prompts để AI response đúng format, nhất quán hơn, ít "nghịch" hơn
+
+### 💬 Chat Memory nâng cấp:
+- **Message detail view tốt hơn:** Xem chi tiết chat history giờ dùng browser riêng - không bị xung đột
+- **Render đúng hơn:** Message detail hiển thị đúng, không bị lỗi hoặc nhảy lung tung
+
+### 🎯 Dynamic Context Awareness:
+- **AI biết file đang làm:** Agent mode giờ tự động biết file & vị trí cursor hiện tại - không cần nói lại
+- **Context response tốt hơn:** AI hiểu rõ hơn đang làm gì, gợi ý chính xác hơn
+
+### 🔧 Code Modification thông minh hơn:
+- **Flexible matching:** Fuzzy match code khi sửa - không cần format khớp 100%
+- **Error message rõ ràng:** Khi code change fail, hiện preview file để dễ debug
+- **Robust hơn:** Xử lý whitespace, formatting khác nhau tốt hơn
+
+### 🚀 Tương thích IntelliJ 2024.3.x:
+- Support IntelliJ IDEA 2024.3.x và các version sau
+- Tool improvements: code search & file reading với error handling tốt hơn
+
+---
+
 ## Update notes tháng 10/2025 (Version 1.9.902)
 
 ### 🧪 Test Generation nâng cấp toàn diện:

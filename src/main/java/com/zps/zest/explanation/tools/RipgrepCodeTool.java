@@ -426,14 +426,29 @@ public class RipgrepCodeTool {
 
         if (exitCode == 1) {
             // No matches found - this is not an error
-            return String.format("No results found for: '%s'", query);
+            return String.format(
+                "No results found for: '%s'\n\n" +
+                "💡 Common issues to check:\n" +
+                "- Pattern escaping: For regex \\s (whitespace), use \"\\\\s\" in JSON, not \"\\\\\\\\s\"\n" +
+                "- Case sensitivity: Search is case-insensitive by default\n" +
+                "- File pattern: Ensure filePattern glob is correct (e.g., \"*.java\" not \"\\*.java\")\n" +
+                "- Pattern may be correct - no matches exist in the codebase",
+                query
+            );
         }
 
         if (exitCode == 2) {
             // Parse error output for better error message
             String output = jsonOutput.toString().trim();
             if (output.contains("regex parse error")) {
-                return String.format("Error: Invalid regex pattern: '%s'\nDetails: %s", query, output);
+                return String.format(
+                    "Error: Invalid regex pattern: '%s'\n\n" +
+                    "💡 Regex escaping reminder:\n" +
+                    "- In JSON tool calls, use double backslashes: \"\\\\s\" for whitespace, \"\\\\(\" for literal paren\n" +
+                    "- Over-escaping creates literal backslashes: \"\\\\\\\\s\" searches for \"\\\\s\" text, not whitespace\n\n" +
+                    "Details: %s",
+                    query, output
+                );
             }
             return String.format("Error: Ripgrep failed with pattern '%s'\nDetails: %s", query, output);
         }
@@ -620,7 +635,14 @@ public class RipgrepCodeTool {
             }
             
             if (process.exitValue() != 0) {
-                return String.format("No files found matching patterns: '%s'", patterns);
+                return String.format(
+                    "No files found matching patterns: '%s'\n\n" +
+                    "💡 File pattern tips:\n" +
+                    "- Use glob syntax: \"*.java\" (asterisk is literal, not escaped)\n" +
+                    "- Multiple patterns: \"*.java,*.kt\" (comma-separated)\n" +
+                    "- Don't escape in JSON: Use \"*.java\" not \"\\\\*.java\"",
+                    patterns
+                );
             }
 
             return formatFileListResults(output.toString(), patterns);
@@ -637,7 +659,11 @@ public class RipgrepCodeTool {
         String[] filePaths = output.trim().split("\n");
         
         if (filePaths.length == 0 || (filePaths.length == 1 && filePaths[0].trim().isEmpty())) {
-            return String.format("No files found matching pattern: '%s'", pattern);
+            return String.format(
+                "No files found matching pattern: '%s'\n\n" +
+                "💡 Double-check: Glob patterns use literal asterisks in JSON (\"*.java\" not \"\\\\*.java\")",
+                pattern
+            );
         }
         
         StringBuilder result = new StringBuilder();

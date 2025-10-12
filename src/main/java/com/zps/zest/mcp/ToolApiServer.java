@@ -41,6 +41,7 @@ public class ToolApiServer {
     private final LookupMethodTool lookupMethodTool;
     private final LookupClassTool lookupClassTool;
     private final CodeModificationTools codeModificationTools;
+    private final com.zps.zest.context.ExploreContextTool exploreContextTool;
 
     public ToolApiServer(Project project, int port) throws IOException {
         this.project = project;
@@ -59,6 +60,11 @@ public class ToolApiServer {
         this.lookupMethodTool = new LookupMethodTool(project);
         this.lookupClassTool = new LookupClassTool(project);
         this.codeModificationTools = new CodeModificationTools(project, null);
+
+        // Initialize services for ExploreContextTool
+        com.zps.zest.langchain4j.ZestLangChain4jService langChainService = project.getService(com.zps.zest.langchain4j.ZestLangChain4jService.class);
+        com.zps.zest.langchain4j.naive_service.NaiveLLMService naiveLlmService = project.getService(com.zps.zest.langchain4j.naive_service.NaiveLLMService.class);
+        this.exploreContextTool = new com.zps.zest.context.ExploreContextTool(project, langChainService, naiveLlmService);
 
         setupEndpoints();
     }
@@ -87,6 +93,7 @@ public class ToolApiServer {
         server.createContext("/lookup_class", new LookupClassHandler());
         server.createContext("/replace_code_in_file", new ReplaceCodeHandler());
         server.createContext("/create_new_file", new CreateFileHandler());
+        server.createContext("/explore_context", new ExploreContextHandler());
 
         // OpenAPI schema endpoint
         server.createContext("/openapi.json", new OpenAPISchemaHandler());
@@ -129,6 +136,7 @@ public class ToolApiServer {
                 toolSpecs.addAll(ToolSpecifications.toolSpecificationsFrom(lookupMethodTool));
                 toolSpecs.addAll(ToolSpecifications.toolSpecificationsFrom(lookupClassTool));
                 toolSpecs.addAll(ToolSpecifications.toolSpecificationsFrom(codeModificationTools));
+                toolSpecs.addAll(ToolSpecifications.toolSpecificationsFrom(exploreContextTool));
 
                 // Generate OpenAPI schema with project path
                 String projectPath = project.getBasePath();
@@ -271,6 +279,22 @@ public class ToolApiServer {
                 String content = getStringParam(request, "content", "arg1");
 
                 String result = codeModificationTools.createNewFile(filePath, content);
+                return createSuccessResponse(result);
+            });
+        }
+    }
+
+    private class ExploreContextHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            handlePost(exchange, body -> {
+                JsonObject request = GSON.fromJson(body, JsonObject.class);
+                String target = getStringParam(request, "target", "arg0");
+                String scope = getStringParam(request, "scope", "arg1");
+                String focus = getStringParam(request, "focus", "arg2");
+                Integer maxToolCalls = getIntParam(request, "maxToolCalls", "arg3", 20);
+
+                String result = exploreContextTool.exploreContext(target, scope, focus, maxToolCalls);
                 return createSuccessResponse(result);
             });
         }

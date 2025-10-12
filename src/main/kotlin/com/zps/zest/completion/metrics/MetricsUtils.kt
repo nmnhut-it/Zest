@@ -1,6 +1,8 @@
 package com.zps.zest.completion.metrics
 
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.ApplicationInfo
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.zps.zest.ConfigurationManager
 import java.security.MessageDigest
@@ -44,8 +46,12 @@ object MetricsUtils {
     
     fun getPluginVersion(): String {
         if (cachedPluginVersion == null) {
-            // TODO: Read from plugin.xml or build configuration
-            cachedPluginVersion = "1.9.891"  // Fallback version
+            cachedPluginVersion = try {
+                val descriptor = PluginManagerCore.getPlugin(PluginId.getId("com.zps.zest"))
+                descriptor?.version ?: "unknown"
+            } catch (e: Exception) {
+                "unknown"
+            }
         }
         return cachedPluginVersion!!
     }
@@ -225,10 +231,22 @@ object MetricsUtils {
         }
         
         // Code Health builder
-        fun buildCodeHealth(eventType: String, analysisData: Map<String, Any>): CodeHealthMetadata {
+        fun buildCodeHealth(
+            eventType: String,
+            trigger: CodeHealthTrigger,
+            criticalIssues: Int,
+            highIssues: Int,
+            totalIssues: Int,
+            methodsAnalyzed: Int,
+            averageHealthScore: Int,
+            issuesByCategory: Map<String, Int>,
+            userAction: String?,
+            elapsedMs: Long
+        ): CodeHealthMetadata {
             return CodeHealthMetadata(
-                 model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
-                eventType, analysisData
+                model, projectId, userId, user, ideVersion, pluginVersion, timestamp,
+                eventType, trigger, criticalIssues, highIssues, totalIssues,
+                methodsAnalyzed, averageHealthScore, issuesByCategory, userAction, elapsedMs
             )
         }
         

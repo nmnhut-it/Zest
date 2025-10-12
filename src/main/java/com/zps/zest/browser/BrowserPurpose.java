@@ -28,7 +28,12 @@ public enum BrowserPurpose {
     /**
      * Browser for IDE tool windows
      */
-    TOOL_WINDOW("Tool Window", "IDE Tool Window");
+    TOOL_WINDOW("Tool Window", "IDE Tool Window"),
+
+    /**
+     * Browser for chat memory message detail views
+     */
+    MESSAGE_DETAIL("Message Detail", "Chat Memory Message Detail View");
 
     private final String displayName;
     private final String description;

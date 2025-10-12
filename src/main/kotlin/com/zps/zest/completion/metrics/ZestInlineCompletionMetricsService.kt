@@ -501,7 +501,41 @@ class ZestInlineCompletionMetricsService(private val project: Project) : Disposa
             is MetricEvent.DualEvaluationEvent -> "DUAL_EVALUATION_LOGGING"
             is MetricEvent.CodeQualityEvent -> "CODE_QUALITY_LOGGING"
             is MetricEvent.UnitTestEvent -> "UNIT_TEST_LOGGING"
+            is MetricEvent.FeatureUsageEvent -> "FEATURE_USAGE_LOGGING"
         }
+    }
+
+    /**
+     * Track feature usage (action invocations)
+     */
+    fun trackFeatureUsage(
+        featureType: FeatureType,
+        actionId: String,
+        triggeredBy: TriggerMethod,
+        contextInfo: Map<String, String> = emptyMap()
+    ) {
+        if (!isEnabled.get()) return
+
+        val metadata = FeatureUsageMetadata(
+            model = "feature-tracking",
+            projectId = MetricsUtils.getProjectHash(project),
+            userId = MetricsUtils.getUserHash(project),
+            user = MetricsUtils.getActualUsername(project),
+            ideVersion = MetricsUtils.getIdeVersion(),
+            pluginVersion = MetricsUtils.getPluginVersion(),
+            timestamp = System.currentTimeMillis(),
+            featureType = featureType,
+            actionId = actionId,
+            triggeredBy = triggeredBy,
+            contextInfo = contextInfo
+        )
+
+        sendEvent(MetricEvent.FeatureUsageEvent(
+            completionId = "feature-${System.currentTimeMillis()}",
+            actualModel = "feature-tracking",
+            elapsed = 0,
+            metadata = metadata
+        ))
     }
 
     /**

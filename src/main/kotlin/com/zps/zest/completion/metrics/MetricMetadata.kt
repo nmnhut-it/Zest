@@ -81,6 +81,37 @@ enum class CodeHealthTrigger {
     POST_COMMIT_AUTO
 }
 
+// Feature usage tracking
+enum class FeatureType {
+    TEST_GENERATION,
+    TEST_GENERATION_HELP,
+    GIT_COMMIT_AND_PUSH,
+    CODE_REVIEW_CHAT,
+    REVIEW_CURRENT_FILE,
+    DAILY_HEALTH_REPORT,
+    OPEN_CHAT,
+    OPEN_CHAT_EDITOR,
+    TOOL_ENABLED_CHAT,
+    CODE_HEALTH_OVERVIEW,
+    REVIEW_QUEUE_STATUS,
+    CREATE_RULES_FILE,
+    CHECK_UPDATES,
+    COMPLETION_TIMING_DEBUG,
+    TEST_RIPGREP_TOOL,
+    TEST_METRICS_SYSTEM,
+    VIEW_METRICS_SESSION,
+    TOGGLE_DEV_TOOLS,
+    TEST_CODE_CONTEXT
+}
+
+enum class TriggerMethod {
+    KEYBOARD_SHORTCUT,
+    MENU_CLICK,
+    TOOLBAR_CLICK,
+    EDITOR_POPUP,
+    PROGRAMMATIC
+}
+
 // Dual Evaluation - Model comparison result
 data class ModelComparisonResult(
     val modelName: String,
@@ -490,6 +521,32 @@ data class UnitTestMetadata(
             addProperty("work_out_of_box_percentage", workOutOfBoxPercentage)
             addProperty("avg_words_per_minute", avgWordsPerMinute)
             addProperty("time_saved_minutes", timeSavedMinutes)
+        }
+    }
+}
+
+// Feature Usage Metadata
+data class FeatureUsageMetadata(
+    override val model: String,
+    override val projectId: String,
+    override val userId: String,
+    override val user: String,
+    override val ideVersion: String,
+    override val pluginVersion: String,
+    override val timestamp: Long,
+    val featureType: FeatureType,
+    val actionId: String,
+    val triggeredBy: TriggerMethod,
+    val contextInfo: Map<String, String> = emptyMap()
+) : MetricMetadata() {
+    override fun toJsonObject(): JsonObject {
+        return JsonObject().apply {
+            addProperty("event_type", "feature_usage")
+            addCommonFields(this)
+            addProperty("feature_type", featureType.name)
+            addProperty("action_id", actionId)
+            addProperty("triggered_by", triggeredBy.name)
+            add("context", Gson().toJsonTree(contextInfo))
         }
     }
 }

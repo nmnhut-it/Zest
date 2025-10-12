@@ -12,6 +12,8 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.zps.zest.completion.metrics.ActionMetricsHelper;
+import com.zps.zest.completion.metrics.FeatureType;
 import com.zps.zest.testgen.model.TestGenerationRequest;
 import com.zps.zest.testgen.ui.MethodSelectionDialog;
 import com.zps.zest.testgen.ui.TestGenerationVirtualFile;
@@ -20,7 +22,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Action to trigger test generation using the improved LangChain4j agents.
@@ -37,13 +41,24 @@ public class GenerateTestAction extends AnAction {
     public void actionPerformed(@NotNull AnActionEvent e) {
         Project project = e.getProject();
         if (project == null) return;
-        
+
         PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
         if (psiFile == null) {
             Messages.showErrorDialog(project, "No file selected", "Error");
             return;
         }
-        
+
+        // Track feature usage
+        Map<String, String> context = new HashMap<>();
+        context.put("file", psiFile.getName());
+        ActionMetricsHelper.INSTANCE.trackAction(
+                project,
+                FeatureType.TEST_GENERATION,
+                "Zest.GenerateTests",
+                e,
+                context
+        );
+
         // Check if it's a Java or Kotlin file
         if (!isTestableFile(psiFile)) {
             Messages.showErrorDialog(

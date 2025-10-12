@@ -164,6 +164,16 @@ sealed class MetricEvent {
         override val eventType = "unit_test"
     }
 
+    // Feature Usage Event
+    data class FeatureUsageEvent(
+        override val completionId: String,
+        override val actualModel: String,
+        override val elapsed: Long,
+        val metadata: FeatureUsageMetadata
+    ) : MetricEvent() {
+        override val eventType = "feature_usage"
+    }
+
 }
 
 /**

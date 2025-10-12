@@ -12,12 +12,15 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.DialogWrapper.IdeModalityType;
 import com.zps.zest.browser.WebBrowserPanel;
 import com.zps.zest.browser.BrowserPurpose;
+import com.zps.zest.completion.metrics.ActionMetricsHelper;
+import com.zps.zest.completion.metrics.FeatureType;
 import com.zps.zest.git.GitStatusCollector;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
+import java.util.Collections;
 
 /**
  * Action that opens Git UI with auto-selected changes and auto-generated commit message.
@@ -51,6 +54,15 @@ public class GitCommitMessageGeneratorAction extends AnAction {
             Messages.showWarningDialog((Project)null, "No project available", "Git Commit & Push");
             return;
         }
+
+        // Track feature usage
+        ActionMetricsHelper.INSTANCE.trackAction(
+                project,
+                FeatureType.GIT_COMMIT_AND_PUSH,
+                "Zest.GitCommitMessageGeneratorAction",
+                e,
+                Collections.emptyMap()
+        );
 
         // Check if there are any git changes
         try {

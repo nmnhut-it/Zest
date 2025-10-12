@@ -10,7 +10,8 @@ enum class MetricsEndpoint(val path: String) {
     QUICK_ACTION("quick_action"),
     DUAL_EVALUATION("dual_evaluation"),
     CODE_QUALITY("code_quality"),
-    UNIT_TEST("unit_test");
+    UNIT_TEST("unit_test"),
+    FEATURE_USAGE("feature_usage");
 
     /**
      * Build full URL for this endpoint
@@ -31,6 +32,7 @@ enum class MetricsEndpoint(val path: String) {
                 "DUAL_EVALUATION_LOGGING" -> DUAL_EVALUATION
                 "CODE_QUALITY_LOGGING" -> CODE_QUALITY
                 "UNIT_TEST_LOGGING" -> UNIT_TEST
+                "FEATURE_USAGE_LOGGING" -> FEATURE_USAGE
                 else -> AUTOCOMPLETE  // Default to autocomplete
             }
         }

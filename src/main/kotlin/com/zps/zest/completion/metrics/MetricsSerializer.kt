@@ -64,6 +64,7 @@ object MetricsSerializer {
             is MetricEvent.DualEvaluationEvent -> event.metadata
             is MetricEvent.CodeQualityEvent -> event.metadata
             is MetricEvent.UnitTestEvent -> event.metadata
+            is MetricEvent.FeatureUsageEvent -> event.metadata
         }
     }
 }

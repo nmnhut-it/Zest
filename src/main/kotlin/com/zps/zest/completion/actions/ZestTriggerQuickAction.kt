@@ -29,14 +29,19 @@ import java.util.UUID
 import javax.swing.*
 
 /**
- * Action to trigger method rewrite via ChatUIService.
- * Shows a simple selection dialog, then routes to:
- * - Test generation system for "__WRITE_TEST__"
- * - ChatUIService for all other rewrite tasks (with tool visibility)
+ * Context-aware quick action menu.
+ * Shows options based on cursor position - some require method context, others are global.
  */
 class ZestTriggerQuickAction : AnAction(), HasPriority {
     companion object {
         private val logger = Logger.getInstance(ZestTriggerQuickAction::class.java)
+    }
+
+    private object Instructions {
+        const val WRITE_TEST = "__WRITE_TEST__"
+        const val COMMIT_ALL = "__COMMIT_ALL__"
+        const val FILL_CODE = "__FILL_CODE__"
+        const val OPEN_GIT_UI = "__OPEN_GIT_UI__"
     }
 
     override fun actionPerformed(e: AnActionEvent) {
@@ -44,45 +49,85 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
 
         val offset = editor.caretModel.primaryCaret.offset
-
-        // Find method at cursor position using simple method finder
         val methodContext = findMethodAtOffset(editor, offset, project)
 
-        if (methodContext == null) {
-            Messages.showWarningDialog(
-                project,
-                "Could not identify a method at the current cursor position. Place cursor inside a method to rewrite it.",
-                "No Method Found"
-            )
-            return
-        }
-
-        // Show dialog for prompt selection
         showPromptSelectionDialog(project, editor, methodContext)
     }
 
-    /**
-     * Show simplified dialog for prompt selection, then route to appropriate system
-     */
     private fun showPromptSelectionDialog(
         project: Project,
         editor: com.intellij.openapi.editor.Editor,
-        methodContext: MethodContext
+        methodContext: MethodContext?
     ) {
         val dialog = SimplePromptDialog(project, methodContext) { instruction ->
-            logger.info("User selected instruction for method ${methodContext.methodName}: '$instruction'")
+            logger.info("User selected instruction: '$instruction'")
+            routeInstruction(project, editor, methodContext, instruction)
+        }
+        dialog.show()
+    }
 
-            // Route based on instruction type
-            if (instruction == "__WRITE_TEST__") {
-                logger.info("Routing to test generation system")
+    private fun routeInstruction(
+        project: Project,
+        editor: com.intellij.openapi.editor.Editor,
+        methodContext: MethodContext?,
+        instruction: String
+    ) {
+        when (instruction) {
+            Instructions.WRITE_TEST -> {
+                if (methodContext == null) {
+                    Messages.showWarningDialog(project, "Place cursor inside a method to generate tests", "No Method Found")
+                    return
+                }
                 triggerTestGenerationForMethod(project, editor, methodContext)
-            } else {
-                logger.info("Routing to ChatUIService for method rewrite")
+            }
+            Instructions.COMMIT_ALL -> openGitUI(project)
+            Instructions.FILL_CODE -> fillCodeAtCursor(project, editor)
+            Instructions.OPEN_GIT_UI -> openGitUI(project)
+            else -> {
+                if (methodContext == null) {
+                    Messages.showWarningDialog(project, "Place cursor inside a method for this action", "No Method Found")
+                    return
+                }
                 openChatForRewrite(project, methodContext, instruction)
             }
         }
+    }
 
-        dialog.show()
+    private fun openGitUI(project: Project) {
+        try {
+            val browserService = com.zps.zest.browser.WebBrowserService.getInstance(project)
+            val browserPanel = browserService.browserPanel
+            if (browserPanel != null) {
+                browserPanel.openGitUI()
+            } else {
+                Messages.showWarningDialog(project, "Git UI not available. Please open the Zest browser first.", "Browser Not Ready")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to open Git UI", e)
+            Messages.showErrorDialog(project, "Failed to open Git UI: ${e.message}", "Error")
+        }
+    }
+
+    private fun fillCodeAtCursor(project: Project, editor: com.intellij.openapi.editor.Editor) {
+        try {
+            val chatService = project.getService(com.zps.zest.chatui.ChatUIService::class.java)
+            val offset = editor.caretModel.offset
+            val document = editor.document
+            val lineNumber = document.getLineNumber(offset)
+            val lineText = document.getText(
+                com.intellij.openapi.util.TextRange(
+                    document.getLineStartOffset(lineNumber),
+                    document.getLineEndOffset(lineNumber)
+                )
+            ).trim()
+
+            val message = "Continue writing code at my cursor position. Current line: `$lineText`"
+            chatService.clearConversation()
+            chatService.openChatWithMessage(message, autoSend = true)
+        } catch (e: Exception) {
+            logger.error("Failed to trigger code fill", e)
+            Messages.showErrorDialog(project, "Failed to start code completion: ${e.message}", "Error")
+        }
     }
 
     /**
@@ -134,7 +179,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
      */
     class SimplePromptDialog(
         private val project: Project,
-        private val methodContext: MethodContext,
+        private val methodContext: MethodContext?,
         private val onInstructionSelected: ((String) -> Unit)? = null
     ) : DialogWrapper(project) {
 
@@ -143,6 +188,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         private var isCustomMode = false
         private var currentSelection = 0
         private var isShiftPressed = false
+        private val hasMethod = methodContext != null
 
         private val builtInOptions = generateContextOptions()
         private var customPrompts = loadCustomPrompts()
@@ -194,10 +240,12 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                                 } else if (!e.isShiftDown && numberPressed >= 1) {
                                     val optionIndex = numberPressed - 1
                                     if (optionIndex < builtInOptions.size) {
-                                        val instruction = builtInOptions[optionIndex].instruction
-                                        close(OK_EXIT_CODE)
-                                        onInstructionSelected?.invoke(instruction)
-                                        e.consume()
+                                        val option = builtInOptions[optionIndex]
+                                        if (!option.isDisabled(hasMethod)) {
+                                            close(OK_EXIT_CODE)
+                                            onInstructionSelected?.invoke(option.instruction)
+                                            e.consume()
+                                        }
                                     }
                                 }
                             }
@@ -224,9 +272,11 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
 
                             KeyEvent.VK_ENTER -> {
                                 if (!e.isShiftDown && currentSelection < builtInOptions.size) {
-                                    val instruction = builtInOptions[currentSelection].instruction
-                                    close(OK_EXIT_CODE)
-                                    onInstructionSelected?.invoke(instruction)
+                                    val option = builtInOptions[currentSelection]
+                                    if (!option.isDisabled(hasMethod)) {
+                                        close(OK_EXIT_CODE)
+                                        onInstructionSelected?.invoke(option.instruction)
+                                    }
                                 } else if (e.isShiftDown && currentSelection < customPrompts.size) {
                                     close(OK_EXIT_CODE)
                                     onInstructionSelected?.invoke(customPrompts[currentSelection].prompt)
@@ -293,41 +343,57 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         }
 
         private fun generateContextOptions(): List<RewriteOption> {
-            val methodContent = methodContext.methodContent
+            val globalActions = listOf(
+                RewriteOption("📝", "Fill code at cursor", Instructions.FILL_CODE, requiresMethod = false),
+                RewriteOption("🚀", "Commit and push all", Instructions.COMMIT_ALL, requiresMethod = false)
+            )
 
-            return when {
+            if (methodContext == null) {
+                return globalActions + listOf(
+                    RewriteOption("🧪", "Write unit test", Instructions.WRITE_TEST, requiresMethod = true, disabledReason = "requires cursor in method"),
+                    RewriteOption("🔧", "Refactor method", "Refactor this method", requiresMethod = true, disabledReason = "requires cursor in method"),
+                    RewriteOption("📋", "Add logging", "Add logging statements", requiresMethod = true, disabledReason = "requires cursor in method"),
+                    RewriteOption("🛡️", "Add error handling", "Add try-catch blocks", requiresMethod = true, disabledReason = "requires cursor in method")
+                )
+            }
+
+            val methodContent = methodContext.methodContent
+            val methodName = methodContext.methodName
+            val methodActions = when {
                 isEmptyOrMinimalMethod(methodContent) -> listOf(
-                    RewriteOption("", "Complete implementation", "Implement this ${methodContext.methodName} method with proper functionality"),
-                    RewriteOption("", "Add logging only", "Add logging statements to track method execution"),
-                    RewriteOption("", "Add error handling only", "Add try-catch blocks and input validation"),
-                    RewriteOption("", "Write unit test", "__WRITE_TEST__")
+                    RewriteOption("✨", "Complete implementation", "Implement this $methodName method with proper functionality"),
+                    RewriteOption("📋", "Add logging only", "Add logging statements to track method execution"),
+                    RewriteOption("🛡️", "Add error handling", "Add try-catch blocks and input validation"),
+                    RewriteOption("🧪", "Write unit test", Instructions.WRITE_TEST)
                 )
 
                 hasTodoComment(methodContent) -> {
                     val todoText = extractTodoText(methodContent)
                     val todoInstruction = if (todoText.isNotEmpty()) "Complete TODO: $todoText" else "Complete TODO functionality"
                     listOf(
-                        RewriteOption("", "Complete TODO", todoInstruction),
-                        RewriteOption("", "Add logging only", "Add logging statements to track execution"),
-                        RewriteOption("", "Add error handling only", "Add try-catch blocks and input validation"),
-                        RewriteOption("", "Write unit test", "__WRITE_TEST__")
+                        RewriteOption("✅", "Complete TODO", todoInstruction),
+                        RewriteOption("📋", "Add logging", "Add logging statements"),
+                        RewriteOption("🛡️", "Add error handling", "Add try-catch blocks"),
+                        RewriteOption("🧪", "Write unit test", Instructions.WRITE_TEST)
                     )
                 }
 
                 isComplexMethod(methodContent) -> listOf(
-                    RewriteOption("", "Split into smaller methods", "Break this method into smaller, focused methods"),
-                    RewriteOption("", "Add debug logging", "Add detailed logging statements for debugging"),
-                    RewriteOption("", "Optimize performance only", "Apply performance optimizations without changing logic"),
-                    RewriteOption("", "Write unit test", "__WRITE_TEST__")
+                    RewriteOption("✂️", "Split into smaller methods", "Break this method into smaller, focused methods"),
+                    RewriteOption("🐛", "Add debug logging", "Add detailed logging for debugging"),
+                    RewriteOption("⚡", "Optimize performance", "Apply performance optimizations"),
+                    RewriteOption("🧪", "Write unit test", Instructions.WRITE_TEST)
                 )
 
                 else -> listOf(
-                    RewriteOption("", "Fix specific issue", "Fix bugs or issues in this method"),
-                    RewriteOption("", "Add logging statements", "Add logging to track method execution"),
-                    RewriteOption("", "Add try-catch blocks", "Add error handling with try-catch statements"),
-                    RewriteOption("", "Write unit test", "__WRITE_TEST__")
+                    RewriteOption("🔧", "Fix specific issue", "Fix bugs or issues in this method"),
+                    RewriteOption("📋", "Add logging", "Add logging statements"),
+                    RewriteOption("🛡️", "Add error handling", "Add try-catch blocks"),
+                    RewriteOption("🧪", "Write unit test", Instructions.WRITE_TEST)
                 )
             }
+
+            return globalActions + methodActions
         }
 
         private fun loadCustomPrompts(): List<ZestCustomPromptsLoader.CustomPrompt> {
@@ -391,11 +457,29 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
 
             builtInLabels.clear()
             builtInOptions.forEachIndexed { index, option ->
-                val label = JLabel("${index + 1}. ${option.title}")
-                label.font = label.font.deriveFont(Font.PLAIN, 13f)
-                label.alignmentX = Component.LEFT_ALIGNMENT
-                builtInLabels.add(label)
-                leftPanel.add(label)
+                val isDisabled = option.isDisabled(hasMethod)
+                val labelPanel = JPanel()
+                labelPanel.layout = BoxLayout(labelPanel, BoxLayout.Y_AXIS)
+                labelPanel.alignmentX = Component.LEFT_ALIGNMENT
+
+                val mainLabel = JLabel("${index + 1}. ${option.icon} ${option.title}")
+                mainLabel.font = mainLabel.font.deriveFont(Font.PLAIN, 13f)
+                mainLabel.alignmentX = Component.LEFT_ALIGNMENT
+
+                if (isDisabled) {
+                    mainLabel.foreground = JBColor.GRAY
+                    val reasonLabel = JLabel("   (${option.getDisabledReason(hasMethod)})")
+                    reasonLabel.font = reasonLabel.font.deriveFont(Font.ITALIC, 11f)
+                    reasonLabel.foreground = JBColor.GRAY
+                    reasonLabel.alignmentX = Component.LEFT_ALIGNMENT
+                    labelPanel.add(mainLabel)
+                    labelPanel.add(reasonLabel)
+                } else {
+                    labelPanel.add(mainLabel)
+                }
+
+                builtInLabels.add(mainLabel)
+                leftPanel.add(labelPanel)
                 leftPanel.add(Box.createVerticalStrut(5))
             }
 
@@ -528,9 +612,11 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                 }
             } else {
                 if (currentSelection < builtInOptions.size) {
-                    val instruction = builtInOptions[currentSelection].instruction
-                    close(OK_EXIT_CODE)
-                    onInstructionSelected?.invoke(instruction)
+                    val option = builtInOptions[currentSelection]
+                    if (!option.isDisabled(hasMethod)) {
+                        close(OK_EXIT_CODE)
+                        onInstructionSelected?.invoke(option.instruction)
+                    }
                 } else {
                     super.doOKAction()
                 }
@@ -565,8 +651,14 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         private data class RewriteOption(
             val icon: String,
             val title: String,
-            val instruction: String
-        )
+            val instruction: String,
+            val requiresMethod: Boolean = true,
+            val disabledReason: String? = null
+        ) {
+            fun isDisabled(hasMethod: Boolean): Boolean = requiresMethod && !hasMethod
+            fun getDisabledReason(hasMethod: Boolean): String? =
+                if (isDisabled(hasMethod)) disabledReason else null
+        }
 
         override fun createSouthPanel(): JComponent? = null
     }

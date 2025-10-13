@@ -112,11 +112,13 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
     private fun fillCodeAtCursor(project: Project, editor: com.intellij.openapi.editor.Editor) {
         try {
             val offset = editor.caretModel.offset
+            val prompt = com.intellij.openapi.application.ApplicationManager.getApplication()
+                .runReadAction<String> { buildFillCodePrompt(project, editor) }
+
             com.zps.zest.ZestNotifications.showInfo(project, "Code Completion", "Generating options...")
 
             com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
                 try {
-                    val prompt = buildFillCodePrompt(project, editor)
                     val llmService = project.getService(com.zps.zest.langchain4j.naive_service.NaiveStreamingLLMService::class.java)
                     val response = StringBuilder()
 
@@ -261,7 +263,8 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         val openFilesContext = buildOpenFilesContext(project, currentFile)
 
         return buildString {
-            appendLine("Provide exactly 2 different ways to complete the code at <CURSOR>.")
+            appendLine("Provide exactly 2 DIFFERENT ways to complete the code at <CURSOR>.")
+            appendLine("The two options must be distinct alternatives - do NOT provide the same completion twice.")
             appendLine("Follow existing patterns and conventions.")
             appendLine()
             appendLine("Current file: $filePath ($language)")
@@ -280,11 +283,17 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             }
 
             appendLine()
-            appendLine("Response format - provide EXACTLY 2 options as a numbered list:")
-            appendLine("1. [first completion]")
-            appendLine("2. [second completion]")
+            appendLine("Requirements:")
+            appendLine("- Provide EXACTLY 2 distinct completion options")
+            appendLine("- Each option must be different from the other")
+            appendLine("- Option 1: Most likely/common completion")
+            appendLine("- Option 2: Alternative approach or variation")
             appendLine()
-            appendLine("Provide ONLY the 2 code completions as a numbered list. No explanations or markdown.")
+            appendLine("Response format - numbered list:")
+            appendLine("1. [first completion - most common]")
+            appendLine("2. [second completion - alternative approach]")
+            appendLine()
+            appendLine("Provide ONLY the 2 completions as a numbered list. No explanations, no markdown.")
         }
     }
 

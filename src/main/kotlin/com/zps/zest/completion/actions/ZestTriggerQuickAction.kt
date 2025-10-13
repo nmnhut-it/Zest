@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.project.Project
@@ -110,23 +111,209 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
 
     private fun fillCodeAtCursor(project: Project, editor: com.intellij.openapi.editor.Editor) {
         try {
-            val chatService = project.getService(com.zps.zest.chatui.ChatUIService::class.java)
             val offset = editor.caretModel.offset
-            val document = editor.document
-            val lineNumber = document.getLineNumber(offset)
-            val lineText = document.getText(
-                com.intellij.openapi.util.TextRange(
-                    document.getLineStartOffset(lineNumber),
-                    document.getLineEndOffset(lineNumber)
-                )
-            ).trim()
+            com.zps.zest.ZestNotifications.showInfo(project, "Code Completion", "Generating options...")
 
-            val message = "Continue writing code at my cursor position. Current line: `$lineText`"
-            chatService.clearConversation()
-            chatService.openChatWithMessage(message, autoSend = true)
+            com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+                try {
+                    val prompt = buildFillCodePrompt(project, editor)
+                    val llmService = project.getService(com.zps.zest.langchain4j.naive_service.NaiveStreamingLLMService::class.java)
+                    val response = StringBuilder()
+
+                    llmService.streamQuery(prompt) { chunk -> response.append(chunk) }
+                        .thenAccept {
+                            val options = parseCompletionOptions(response.toString())
+                            com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                                if (options.isNotEmpty()) {
+                                    showCompletionOptionsDialog(project, editor, offset, options)
+                                } else {
+                                    com.zps.zest.ZestNotifications.showError(project, "Code Completion", "No options generated")
+                                }
+                            }
+                        }
+                        .exceptionally { ex ->
+                            com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                                com.zps.zest.ZestNotifications.showError(project, "Code Completion", "Failed: ${ex.message}")
+                            }
+                            null
+                        }
+                } catch (e: Exception) {
+                    com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                        com.zps.zest.ZestNotifications.showError(project, "Code Completion", "Error: ${e.message}")
+                    }
+                }
+            }
         } catch (e: Exception) {
             logger.error("Failed to trigger code fill", e)
-            Messages.showErrorDialog(project, "Failed to start code completion: ${e.message}", "Error")
+            com.zps.zest.ZestNotifications.showError(project, "Code Completion", "Failed to start: ${e.message}")
+        }
+    }
+
+    private fun showCompletionOptionsDialog(
+        project: Project,
+        editor: com.intellij.openapi.editor.Editor,
+        offset: Int,
+        options: List<String>
+    ) {
+        val document = editor.document
+        val lineNumber = document.getLineNumber(offset)
+        val contextLines = 5
+
+        val beforeCursor = document.getText(
+            com.intellij.openapi.util.TextRange(
+                document.getLineStartOffset(maxOf(0, lineNumber - contextLines)),
+                offset
+            )
+        )
+
+        val afterCursor = document.getText(
+            com.intellij.openapi.util.TextRange(
+                offset,
+                document.getLineEndOffset(minOf(document.lineCount - 1, lineNumber + contextLines))
+            )
+        )
+
+        val currentFile = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getFile(document)
+        val fileName = currentFile?.name ?: "code"
+        val fileType = com.intellij.openapi.fileTypes.FileTypeManager.getInstance().getFileTypeByFileName(fileName)
+
+        val dialog = CodeCompletionOptionsDialog(
+            project,
+            options,
+            beforeCursor,
+            afterCursor,
+            fileType
+        ) { selectedOption ->
+            insertCodeAtOffset(editor, offset, selectedOption)
+        }
+        dialog.show()
+    }
+
+    private fun insertCodeAtOffset(editor: com.intellij.openapi.editor.Editor, offset: Int, code: String) {
+        val project = editor.project ?: return
+        com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) {
+            editor.document.insertString(offset, code)
+            editor.caretModel.moveToOffset(offset + code.length)
+        }
+        com.zps.zest.ZestNotifications.showInfo(project, "Code Completion", "Code inserted (Ctrl+Z to undo)")
+    }
+
+    private fun parseCompletionOptions(response: String): List<String> {
+        val lines = response.trim().lines()
+        val options = mutableListOf<String>()
+
+        val numberPattern = Regex("^\\s*\\d+\\.\\s*(.+)$")
+        lines.forEach { line ->
+            val match = numberPattern.find(line)
+            if (match != null) {
+                options.add(match.groupValues[1].trim())
+            }
+        }
+
+        if (options.isEmpty() && response.isNotBlank()) {
+            options.add(response.trim())
+        }
+
+        return options.take(2)
+    }
+
+    private fun buildFillCodePrompt(project: Project, editor: com.intellij.openapi.editor.Editor): String {
+        val document = editor.document
+        val offset = editor.caretModel.offset
+        val lineNumber = document.getLineNumber(offset)
+        val columnNumber = offset - document.getLineStartOffset(lineNumber)
+
+        val currentFile = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getFile(document)
+        val fileName = currentFile?.name ?: "unknown"
+        val filePath = currentFile?.path?.let { path ->
+            project.basePath?.let { basePath ->
+                if (path.startsWith(basePath)) path.substring(basePath.length + 1) else path
+            } ?: path
+        } ?: fileName
+
+        val language = when {
+            fileName.endsWith(".java") -> "java"
+            fileName.endsWith(".kt") -> "kotlin"
+            fileName.endsWith(".js") || fileName.endsWith(".jsx") -> "javascript"
+            fileName.endsWith(".ts") || fileName.endsWith(".tsx") -> "typescript"
+            fileName.endsWith(".py") -> "python"
+            else -> "code"
+        }
+
+        val contextLines = 10
+        val startLine = maxOf(0, lineNumber - contextLines)
+        val endLine = minOf(document.lineCount - 1, lineNumber + contextLines)
+
+        val beforeCursor = document.getText(
+            com.intellij.openapi.util.TextRange(
+                document.getLineStartOffset(startLine),
+                offset
+            )
+        )
+
+        val afterCursor = document.getText(
+            com.intellij.openapi.util.TextRange(
+                offset,
+                document.getLineEndOffset(endLine)
+            )
+        )
+
+        val openFilesContext = buildOpenFilesContext(project, currentFile)
+
+        return buildString {
+            appendLine("Provide exactly 2 different ways to complete the code at <CURSOR>.")
+            appendLine("Follow existing patterns and conventions.")
+            appendLine()
+            appendLine("Current file: $filePath ($language)")
+            appendLine()
+            appendLine("Code context:")
+            appendLine("```$language")
+            append(beforeCursor)
+            append("<CURSOR>")
+            appendLine(afterCursor)
+            appendLine("```")
+
+            if (openFilesContext.isNotEmpty()) {
+                appendLine()
+                appendLine("Open files context:")
+                appendLine(openFilesContext)
+            }
+
+            appendLine()
+            appendLine("Response format - provide EXACTLY 2 options as a numbered list:")
+            appendLine("1. [first completion]")
+            appendLine("2. [second completion]")
+            appendLine()
+            appendLine("Provide ONLY the 2 code completions as a numbered list. No explanations or markdown.")
+        }
+    }
+
+    private fun buildOpenFilesContext(project: Project, currentFile: com.intellij.openapi.vfs.VirtualFile?): String {
+        val maxFiles = 3
+        val maxLinesPerFile = 15
+
+        val fileEditorManager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project)
+        val openFiles = fileEditorManager.openFiles.filter { it != currentFile }.take(maxFiles)
+
+        if (openFiles.isEmpty()) return ""
+
+        return buildString {
+            openFiles.forEach { file ->
+                val fileName = file.name
+                val document = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getDocument(file)
+                if (document != null) {
+                    val totalLines = document.lineCount
+                    val linesToShow = minOf(maxLinesPerFile, totalLines)
+                    val snippet = document.getText(
+                        com.intellij.openapi.util.TextRange(0, document.getLineEndOffset(linesToShow - 1))
+                    )
+                    appendLine("- $fileName (${totalLines} lines):")
+                    appendLine("```")
+                    appendLine(snippet)
+                    if (totalLines > linesToShow) appendLine("... (${totalLines - linesToShow} more lines)")
+                    appendLine("```")
+                }
+            }
         }
     }
 
@@ -750,6 +937,111 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
 }
 
 /**
+ * Keyboard-first dialog showing 2 completion options side-by-side with syntax highlighting
+ */
+private class CodeCompletionOptionsDialog(
+    private val project: Project,
+    private val options: List<String>,
+    private val beforeCursor: String,
+    private val afterCursor: String,
+    private val fileType: com.intellij.openapi.fileTypes.FileType,
+    private val onOptionSelected: (String) -> Unit
+) : DialogWrapper(project) {
+
+    private var selectedIndex = 0
+    private val previewPanels = mutableListOf<JPanel>()
+
+    init {
+        title = "Code Completion Options"
+        init()
+    }
+
+    override fun createCenterPanel(): JComponent {
+        val mainPanel = JPanel(BorderLayout())
+        mainPanel.preferredSize = JBUI.size(900, 400)
+
+        val headerLabel = JLabel("Select completion: Press 1 or 2 (or ←/→ + Enter)")
+        headerLabel.font = headerLabel.font.deriveFont(Font.BOLD, 14f)
+        headerLabel.border = JBUI.Borders.empty(10)
+        mainPanel.add(headerLabel, BorderLayout.NORTH)
+
+        val optionsPanel = JPanel(GridLayout(1, 2, 10, 0))
+        optionsPanel.border = JBUI.Borders.empty(0, 10, 10, 10)
+
+        previewPanels.clear()
+        options.forEachIndexed { index, option ->
+            val optionPanel = createOptionPanel(index + 1, option)
+            previewPanels.add(optionPanel)
+            optionsPanel.add(optionPanel)
+        }
+
+        mainPanel.add(optionsPanel, BorderLayout.CENTER)
+        updateSelection()
+
+        mainPanel.isFocusable = true
+        mainPanel.addKeyListener(object : java.awt.event.KeyAdapter() {
+            override fun keyPressed(e: KeyEvent) {
+                when (e.keyCode) {
+                    KeyEvent.VK_1 -> { selectOption(0); e.consume() }
+                    KeyEvent.VK_2 -> { selectOption(1); e.consume() }
+                    KeyEvent.VK_LEFT -> { selectedIndex = 0; updateSelection(); e.consume() }
+                    KeyEvent.VK_RIGHT -> { selectedIndex = 1; updateSelection(); e.consume() }
+                    KeyEvent.VK_ENTER -> { selectOption(selectedIndex); e.consume() }
+                    KeyEvent.VK_ESCAPE -> { close(CANCEL_EXIT_CODE); e.consume() }
+                }
+            }
+        })
+
+        SwingUtilities.invokeLater { mainPanel.requestFocusInWindow() }
+        return mainPanel
+    }
+
+    private fun createOptionPanel(number: Int, completion: String): JPanel {
+        val panel = JPanel(BorderLayout())
+        panel.border = JBUI.Borders.empty(5)
+
+        val header = JLabel("Option $number (press $number)")
+        header.font = header.font.deriveFont(Font.BOLD, 13f)
+        header.border = JBUI.Borders.emptyBottom(5)
+        panel.add(header, BorderLayout.NORTH)
+
+        val previewText = beforeCursor + completion + afterCursor
+        val editorField = com.intellij.ui.EditorTextField(previewText, project, fileType)
+        editorField.setOneLineMode(false)
+        editorField.isViewer = true
+        editorField.preferredSize = JBUI.size(400, 300)
+
+        val scrollPane = JBScrollPane(editorField)
+        panel.add(scrollPane, BorderLayout.CENTER)
+
+        return panel
+    }
+
+    private fun selectOption(index: Int) {
+        if (index in options.indices) {
+            close(OK_EXIT_CODE)
+            onOptionSelected(options[index])
+        }
+    }
+
+    private fun updateSelection() {
+        previewPanels.forEachIndexed { index, panel ->
+            val borderColor = if (index == selectedIndex) {
+                com.intellij.ui.JBColor.namedColor("Component.focusedBorderColor", JBColor(0x87AFDA, 0x466D94))
+            } else {
+                JBColor.border()
+            }
+            panel.border = JBUI.Borders.compound(
+                JBUI.Borders.customLine(borderColor, 2),
+                JBUI.Borders.empty(3)
+            )
+        }
+    }
+
+    override fun createActions() = emptyArray<Action>()
+}
+
+/**
  * Simple method finder to replace deleted ZestMethodContextCollector
  */
 private fun findMethodAtOffset(editor: Editor, offset: Int, project: Project): MethodContext? {
@@ -757,12 +1049,11 @@ private fun findMethodAtOffset(editor: Editor, offset: Int, project: Project): M
         val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: return@runReadAction null
         val element = psiFile.findElementAt(offset) ?: return@runReadAction null
         val method = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java) ?: return@runReadAction null
-        
+
         val methodText = method.text ?: ""
         val virtualFile = psiFile.virtualFile
         val fileName = virtualFile?.name ?: "unknown"
 
-        // Get relative path from project root
         val filePath = if (virtualFile != null && project.basePath != null) {
             val projectPath = project.basePath!!.replace('\\', '/')
             val fullPath = virtualFile.path.replace('\\', '/')

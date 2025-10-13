@@ -16,7 +16,8 @@ import javax.swing.JPanel
  */
 class JCEFChatPanel(
     private val project: Project,
-    private val purpose: BrowserPurpose = BrowserPurpose.CHAT
+    private val purpose: BrowserPurpose = BrowserPurpose.CHAT,
+    private var chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory = dev.langchain4j.memory.chat.MessageWindowChatMemory.withMaxMessages(100)
 ) : JPanel(BorderLayout()) {
 
     companion object {
@@ -25,12 +26,10 @@ class JCEFChatPanel(
 
     private val browserManager: JCEFBrowserManager = JCEFBrowserService.getInstance(project).getBrowserManager(purpose)
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
-    private var chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
     private var messageCounter = 0
-    
-    init {
 
-        // Initialize browser with empty chat
+    init {
+        // Initialize browser with chat memory
         initializeBrowser()
 
         // Add browser component directly
@@ -70,9 +69,9 @@ class JCEFChatPanel(
     fun addMessage(header: String, content: String, messageType: String = "user") {
         // Add to LangChain4j chat memory
         when (messageType) {
-            "user" -> chatMemory?.add(dev.langchain4j.data.message.UserMessage.from(content))
-            "ai" -> chatMemory?.add(dev.langchain4j.data.message.AiMessage.from(content))
-            "system" -> chatMemory?.add(dev.langchain4j.data.message.SystemMessage.from(content))
+            "user" -> chatMemory.add(dev.langchain4j.data.message.UserMessage.from(content))
+            "ai" -> chatMemory.add(dev.langchain4j.data.message.AiMessage.from(content))
+            "system" -> chatMemory.add(dev.langchain4j.data.message.SystemMessage.from(content))
         }
 
         // Trigger full re-render from chat memory
@@ -171,7 +170,7 @@ class JCEFChatPanel(
      * Clear all messages
      */
     fun clearMessages() {
-        chatMemory?.clear()
+        chatMemory.clear()
         messageCounter = 0
         updateChatDisplay()
     }
@@ -202,7 +201,7 @@ class JCEFChatPanel(
      * Generate complete HTML for the chat by transforming ChatMessages into VisualChunks
      */
     private fun generateChatHtml(): String {
-        val messages = chatMemory?.messages() ?: emptyList()
+        val messages = chatMemory.messages()
 
         // Build map of tool results: toolId → result text
         val toolResultsMap = mutableMapOf<String, String>()

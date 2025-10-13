@@ -362,122 +362,94 @@ public class MessageDetailDialog(
     }
 
     override fun createCenterPanel(): JComponent {
-        // Use JCEFChatPanel for better markdown rendering with dedicated browser purpose
-        val chatPanel = com.zps.zest.chatui.JCEFChatPanel(project, com.zps.zest.browser.BrowserPurpose.MESSAGE_DETAIL)
-        chatPanel.preferredSize = JBUI.size(800, 600)
+        // Create temporary chat memory for rendering this single message
+        val tempMemory = dev.langchain4j.memory.chat.MessageWindowChatMemory.withMaxMessages(100)
 
-        // Get message type info
-        val icon = when (message) {
-            is SystemMessage -> "⚙️"
-            is UserMessage -> "👤"
-            is AiMessage -> "🤖"
-            is ToolExecutionResultMessage -> "🔧"
-            else -> "💬"
-        }
-
-        val type = when (message) {
-            is SystemMessage -> "System Prompt"
-            is UserMessage -> "User Message"
-            is AiMessage -> "AI Response"
-            is ToolExecutionResultMessage -> "Tool Result: ${message.toolName()}"
-            else -> "Message"
-        }
-
-        // Format and add content based on message type
+        // Add the message to temporary memory based on type
         when (message) {
             is SystemMessage -> {
-                chatPanel.addMessage("$icon $type", message.text())
+                tempMemory.add(message)
             }
             is UserMessage -> {
-                chatPanel.addMessage("$icon $type", message.singleText())
+                tempMemory.add(message)
             }
             is AiMessage -> {
-                // Add main response if present
-                message.text()?.let { text ->
-                    if (text.isNotBlank()) {
-                        chatPanel.addMessage("$icon $type", text)
-                    }
-                }
+                tempMemory.add(message)
 
-                // Add tool calls as formatted markdown
-                if (message.toolExecutionRequests().isNotEmpty()) {
-                    message.toolExecutionRequests().forEachIndexed { index, tool ->
-                        val toolContent = buildString {
-                            appendLine("### Tool: ${tool.name()}")
-                            appendLine()
-                            appendLine("**Arguments:**")
-                            appendLine("```json")
-                            appendLine(tool.arguments())
-                            appendLine("```")
+                // If this AI message has tool calls, look for their results in the original chat memory
+                if (message.toolExecutionRequests().isNotEmpty() && chatMemory != null) {
+                    try {
+                        val allMessages = chatMemory.messages()
+                        val messageIndex = allMessages.indexOf(message)
+
+                        if (messageIndex >= 0) {
+                            // Add any tool results that follow this AI message
+                            message.toolExecutionRequests().forEach { toolReq ->
+                                val toolId = toolReq.id()
+
+                                // Find the corresponding tool result
+                                for (i in messageIndex + 1 until allMessages.size) {
+                                    val nextMsg = allMessages[i]
+                                    if (nextMsg is ToolExecutionResultMessage && nextMsg.id() == toolId) {
+                                        tempMemory.add(nextMsg)
+                                        break
+                                    }
+                                }
+                            }
                         }
-                        chatPanel.addMessage("🔧 Tool Call #${index + 1}", toolContent)
+                    } catch (e: Exception) {
+                        // Ignore errors during lookup
                     }
                 }
             }
             is ToolExecutionResultMessage -> {
-                val content = buildString {
-                    appendLine("**Tool:** ${message.toolName()}")
+                // For tool result messages, try to find the corresponding AI message with the tool call
+                var foundToolCall = false
 
-                    // Try to find the corresponding tool request to show arguments
-                    val toolId = message.id()
-                    if (toolId != null) {
-                        appendLine("**Tool ID:** $toolId")
-                    }
+                if (chatMemory != null) {
+                    try {
+                        val allMessages = chatMemory.messages()
+                        val messageIndex = allMessages.indexOf(message)
+                        val toolId = message.id()
 
-                    // Look for the corresponding tool call in previous AI messages
-                    var foundArgs: String? = null
-                    if (chatMemory != null && toolId != null) {
-                        try {
-                            val messages = chatMemory.messages()
-                            // Search backwards from current message
-                            for (i in messages.size - 1 downTo 0) {
-                                val msg = messages[i]
-                                if (msg is AiMessage) {
-                                    // Check each tool execution request in this AI message
-                                    for (toolRequest in msg.toolExecutionRequests()) {
-                                        if (toolRequest.id() == toolId) {
-                                            foundArgs = toolRequest.arguments()
-                                            break
-                                        }
+                        if (messageIndex >= 0 && toolId != null) {
+                            // Search backwards for the AI message with this tool call
+                            for (i in messageIndex - 1 downTo 0) {
+                                val prevMsg = allMessages[i]
+                                if (prevMsg is AiMessage) {
+                                    val matchingTool = prevMsg.toolExecutionRequests().find { it.id() == toolId }
+                                    if (matchingTool != null) {
+                                        tempMemory.add(prevMsg)
+                                        foundToolCall = true
+                                        break
                                     }
-                                    if (foundArgs != null) break
                                 }
                             }
-                        } catch (e: Exception) {
-                            // Ignore errors during lookup
                         }
-                    }
-
-                    // Display the arguments if found
-                    if (foundArgs != null) {
-                        appendLine()
-                        appendLine("**Original Arguments:**")
-                        appendLine("```json")
-                        appendLine(foundArgs)
-                        appendLine("```")
-                    }
-
-                    appendLine()
-                    appendLine("**Result:**")
-
-                    // Check if result looks like JSON and format accordingly
-                    val resultText = message.text()
-                    if (resultText.trimStart().startsWith("{") || resultText.trimStart().startsWith("[")) {
-                        appendLine("```json")
-                        appendLine(resultText)
-                        appendLine("```")
-                    } else {
-                        appendLine(resultText)
+                    } catch (e: Exception) {
+                        // Ignore errors during lookup
                     }
                 }
-                chatPanel.addMessage("$icon $type", content)
+
+                // Add the tool result message
+                tempMemory.add(message)
             }
             else -> {
-                chatPanel.addMessage("$icon $type", message.toString())
+                // For unknown message types, try to add as-is
+                if (message is dev.langchain4j.data.message.ChatMessage) {
+                    tempMemory.add(message)
+                }
             }
         }
 
-        // No need to finalize - messages are already complete (not streaming)
+        // Create JCEFChatPanel with the populated temporary memory
+        val chatPanel = com.zps.zest.chatui.JCEFChatPanel(
+            project,
+            com.zps.zest.browser.BrowserPurpose.MESSAGE_DETAIL,
+            tempMemory
+        )
+        chatPanel.preferredSize = JBUI.size(800, 600)
+
         return chatPanel
     }
 

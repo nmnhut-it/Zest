@@ -23,10 +23,11 @@ class JCEFChatDialog(
 
 
     private val chatService = project.getService(ChatUIService::class.java)
-    private val chatPanel = JCEFChatPanel(project).apply {
-        // Connect to chat memory for rendering
-        setChatMemory(chatService.getChatMemory())
-    }
+    private val chatPanel = JCEFChatPanel(
+        project,
+        com.zps.zest.browser.BrowserPurpose.CHAT,
+        chatService.getChatMemory()
+    )
     private val inputArea = JBTextArea()
     private val sendButton = JButton("Send")
     private var isProcessing = false

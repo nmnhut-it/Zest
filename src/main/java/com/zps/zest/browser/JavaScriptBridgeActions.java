@@ -262,9 +262,12 @@ public class JavaScriptBridgeActions {
 
                 case "generateCommitMessage":
                     return gitService.generateCommitMessage(data);
-                    
+
                 case "streamCommitMessage":
                     return gitService.streamCommitMessage(data);
+
+                case "estimateChangesSize":
+                    return gitService.estimateChangesSize(data);
 
                 // Content update handling (marks page as loaded)
                 case "contentUpdated":

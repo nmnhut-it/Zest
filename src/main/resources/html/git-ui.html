@@ -468,7 +468,11 @@
                     </div>
                 </div>
                 
-                <div style="display: flex; gap: 10px;">
+                <div id="size-warning" style="display: none; padding: 8px 12px; background: #fef3c7; color: #92400e; border-radius: 6px; margin-bottom: 10px; font-size: 13px;">
+                    <span id="size-warning-text"></span>
+                </div>
+
+                <div style="display: flex; gap: 10px; align-items: center;">
                     <button class="btn btn-secondary" onclick="GitUI.generateMessage()" id="generate-btn">
                         <span>✨</span> Generate
                     </button>
@@ -478,6 +482,7 @@
                     <button class="btn btn-primary" onclick="GitUI.commit(true)" id="push-btn" disabled>
                         <span>🚀</span> Push
                     </button>
+                    <span id="size-estimate" style="font-size: 12px; color: #6b7280;"></span>
                 </div>
             </div>
         </div>
@@ -753,10 +758,10 @@
                 const checkboxes = document.querySelectorAll('.file-checkbox[data-index]:checked');
                 const selectedCount = checkboxes.length;
                 const totalCount = this.files.length;
-                
-                document.getElementById('selected-count').textContent = 
+
+                document.getElementById('selected-count').textContent =
                     selectedCount + ' file' + (selectedCount !== 1 ? 's' : '') + ' selected';
-                
+
                 const selectAll = document.getElementById('select-all');
                 if (selectedCount === 0) {
                     selectAll.checked = false;
@@ -768,13 +773,64 @@
                     selectAll.checked = false;
                     selectAll.indeterminate = true;
                 }
-                
+
                 // Enable/disable buttons
                 const hasSelection = selectedCount > 0;
                 document.getElementById('generate-btn').disabled = !hasSelection || this.isGenerating;
                 document.getElementById('commit-btn').disabled = !hasSelection;
                 document.getElementById('push-btn').disabled = !hasSelection;
                 document.getElementById('review-btn').disabled = !hasSelection;
+
+                // Estimate size of changes
+                if (hasSelection) {
+                    this.estimateSize();
+                } else {
+                    document.getElementById('size-estimate').textContent = '';
+                    document.getElementById('size-warning').style.display = 'none';
+                }
+            },
+
+            estimateSize: function() {
+                const selectedFiles = this.getSelectedFiles();
+                if (selectedFiles.length === 0) return;
+
+                // Call backend to estimate size
+                if (window.intellijBridge && window.intellijBridge.callIDE) {
+                    window.intellijBridge.callIDE('estimateChangesSize', {
+                        files: selectedFiles
+                    }).then(response => {
+                        if (response && response.success) {
+                            const sizeKB = response.sizeKB;
+                            const isLarge = response.isLarge;
+                            const tooLarge = response.tooLarge;
+
+                            // Update size estimate
+                            document.getElementById('size-estimate').textContent =
+                                `~${sizeKB}KB`;
+
+                            // Show warning if needed
+                            const warningDiv = document.getElementById('size-warning');
+                            const warningText = document.getElementById('size-warning-text');
+
+                            if (tooLarge) {
+                                warningText.innerHTML = `⚠️ Changes are too large (${sizeKB}KB). Maximum is ${response.maxThreshold / 1000}KB. Please select fewer files.`;
+                                warningDiv.style.display = 'block';
+                                warningDiv.style.background = '#fee2e2';
+                                warningDiv.style.color = '#991b1b';
+                                document.getElementById('generate-btn').disabled = true;
+                            } else if (isLarge) {
+                                warningText.innerHTML = `⚠️ Changes are large (${sizeKB}KB). Generation may take longer.`;
+                                warningDiv.style.display = 'block';
+                                warningDiv.style.background = '#fef3c7';
+                                warningDiv.style.color = '#92400e';
+                            } else {
+                                warningDiv.style.display = 'none';
+                            }
+                        }
+                    }).catch(error => {
+                        console.error('Error estimating size:', error);
+                    });
+                }
             },
             
             getSelectedFiles: function() {
@@ -835,29 +891,40 @@
             streamCommitMessage: function(sessionId) {
                 const summaryInput = document.getElementById('commit-summary');
                 const descriptionTextarea = document.getElementById('commit-description');
+                const generateBtn = document.getElementById('generate-btn');
                 let streamingText = '';
-                
+                const startTime = Date.now();
+                const maxPollTime = 120000; // 2 minutes client-side timeout
+
                 // Add streaming visual effect to both fields
                 summaryInput.classList.add('streaming');
                 descriptionTextarea.classList.add('streaming');
-                
+
+                // Update button with progress
+                const updateProgress = () => {
+                    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                    generateBtn.innerHTML = `<span class="spinner"></span> Generating... ${elapsed}s`;
+                };
+
+                // Start progress timer
+                const progressTimer = setInterval(updateProgress, 1000);
+                updateProgress(); // Initial update
+
                 // Helper function to clean markdown code blocks
                 const cleanMarkdownCodeBlocks = (text) => {
-                    // Remove code block markers (```language or just ```)
                     return text.replace(/^```[\w]*\n?/gm, '').replace(/\n?```$/gm, '');
                 };
-                
+
                 // Helper function to split message into summary and description
                 const splitCommitMessage = (fullMessage) => {
                     const lines = fullMessage.split('\n');
                     const summary = lines[0] || '';
-                    // Find first non-empty line after the summary as start of description
                     let description = '';
                     let foundDescription = false;
                     for (let i = 1; i < lines.length; i++) {
                         const line = lines[i];
                         if (!foundDescription && line.trim() === '') {
-                            continue; // Skip empty lines before description
+                            continue;
                         }
                         if (!foundDescription) {
                             foundDescription = true;
@@ -868,59 +935,69 @@
                     }
                     return { summary: summary.slice(0, 72), description: description.trim() };
                 };
-                
+
+                const cleanup = (success = true) => {
+                    clearInterval(progressTimer);
+                    summaryInput.classList.remove('streaming');
+                    descriptionTextarea.classList.remove('streaming');
+                    this.isGenerating = false;
+                    generateBtn.innerHTML = '<span>✨</span> Generate';
+                    generateBtn.disabled = false;
+                    this.updateSelection(); // Re-evaluate button states
+                };
+
                 const pollForChunks = () => {
+                    // Check client-side timeout
+                    const elapsed = Date.now() - startTime;
+                    if (elapsed > maxPollTime) {
+                        cleanup(false);
+                        this.showMessage('⏱️ Generation timed out after ' + Math.floor(elapsed / 1000) + 's. Changes may be too large.', 'error');
+                        return;
+                    }
+
                     if (window.intellijBridge && window.intellijBridge.callIDE) {
                         window.intellijBridge.callIDE('streamCommitMessage', {
                             sessionId: sessionId
                         }).then(response => {
-                            if (response && response.success) {
-                                if (response.done) {
-                                    // Streaming complete - clean and split the final message
-                                    const finalMessage = cleanMarkdownCodeBlocks(response.fullMessage || streamingText);
-                                    const { summary, description } = splitCommitMessage(finalMessage);
-                                    
-                                    summaryInput.value = summary;
-                                    descriptionTextarea.value = description;
-                                    
-                                    summaryInput.classList.remove('streaming');
-                                    descriptionTextarea.classList.remove('streaming');
-                                    
-                                    this.showMessage('Commit message generated successfully!', 'success');
-                                    this.isGenerating = false;
-                                    document.getElementById('generate-btn').disabled = false;
-                                } else {
-                                    // Append chunk if available
-                                    if (response.chunk) {
-                                        streamingText += response.chunk;
-                                        // Show raw text in summary while streaming (will be split at the end)
-                                        const currentSplit = splitCommitMessage(streamingText);
-                                        summaryInput.value = currentSplit.summary;
-                                        descriptionTextarea.value = currentSplit.description;
-                                        // Auto-resize description textarea
-                                        descriptionTextarea.style.height = 'auto';
-                                        descriptionTextarea.style.height = Math.min(descriptionTextarea.scrollHeight, 200) + 'px';
-                                    }
-                                    // Continue polling
-                                    setTimeout(pollForChunks, 100);
-                                }
+                            // Check for error response from backend
+                            if (!response || !response.success) {
+                                cleanup(false);
+                                const errorMsg = response?.error || 'Unknown error from server';
+                                this.showMessage('❌ Generation failed: ' + errorMsg, 'error');
+                                return;
+                            }
+
+                            if (response.done) {
+                                // Streaming complete
+                                const finalMessage = cleanMarkdownCodeBlocks(response.fullMessage || streamingText);
+                                const { summary, description } = splitCommitMessage(finalMessage);
+
+                                summaryInput.value = summary;
+                                descriptionTextarea.value = description;
+
+                                cleanup(true);
+                                const duration = Math.floor(elapsed / 1000);
+                                this.showMessage(`✅ Generated in ${duration}s!`, 'success');
                             } else {
-                                summaryInput.classList.remove('streaming');
-                                descriptionTextarea.classList.remove('streaming');
-                                this.showMessage('Streaming error: ' + (response.error || 'Unknown error'), 'error');
-                                this.isGenerating = false;
-                                document.getElementById('generate-btn').disabled = false;
+                                // Append chunk if available
+                                if (response.chunk) {
+                                    streamingText += response.chunk;
+                                    const currentSplit = splitCommitMessage(streamingText);
+                                    summaryInput.value = currentSplit.summary;
+                                    descriptionTextarea.value = currentSplit.description;
+                                    descriptionTextarea.style.height = 'auto';
+                                    descriptionTextarea.style.height = Math.min(descriptionTextarea.scrollHeight, 200) + 'px';
+                                }
+                                // Continue polling
+                                setTimeout(pollForChunks, 100);
                             }
                         }).catch(error => {
-                            summaryInput.classList.remove('streaming');
-                            descriptionTextarea.classList.remove('streaming');
-                            this.showMessage('Polling error: ' + error.message, 'error');
-                            this.isGenerating = false;
-                            document.getElementById('generate-btn').disabled = false;
+                            cleanup(false);
+                            this.showMessage('❌ Connection error: ' + error.message, 'error');
                         });
                     }
                 };
-                
+
                 // Start polling
                 pollForChunks();
             },
@@ -928,26 +1005,33 @@
             commit: function(shouldPush) {
                 const summary = document.getElementById('commit-summary').value.trim();
                 const description = document.getElementById('commit-description').value.trim();
-                
+
                 if (!summary) {
                     this.showMessage('Please enter a commit summary', 'error');
                     return;
                 }
-                
+
                 // Combine summary and description into a single commit message
                 const message = description ? `${summary}\n\n${description}` : summary;
-                
+
                 const selectedFiles = this.getSelectedFiles();
                 if (selectedFiles.length === 0) {
                     this.showMessage('Please select files to commit', 'error');
                     return;
                 }
-                
-                this.showMessage(shouldPush ? 'Committing and pushing...' : 'Committing...', 'info');
-                
-                // Disable buttons during operation
-                document.getElementById('commit-btn').disabled = true;
-                document.getElementById('push-btn').disabled = true;
+
+                const commitBtn = document.getElementById('commit-btn');
+                const pushBtn = document.getElementById('push-btn');
+                const originalCommitText = commitBtn.innerHTML;
+                const originalPushText = pushBtn.innerHTML;
+
+                // Update button states
+                commitBtn.innerHTML = '<span class="spinner"></span> Committing...';
+                pushBtn.innerHTML = '<span class="spinner"></span> Committing...';
+                commitBtn.disabled = true;
+                pushBtn.disabled = true;
+
+                this.showMessage(shouldPush ? '📝 Committing and pushing...' : '📝 Committing...', 'info');
                 
                 if (window.intellijBridge && window.intellijBridge.callIDE) {
                     window.intellijBridge.callIDE('commitWithMessage', {
@@ -964,40 +1048,50 @@
                         throw new Error(response?.error || 'Commit failed');
                     }).then(response => {
                         if (response && response.success) {
-                            this.showMessage(shouldPush ? 'Committed and pushed successfully!' : 'Committed successfully!', 'success');
+                            // Update button for push phase if needed
+                            if (shouldPush) {
+                                commitBtn.innerHTML = '<span class="spinner"></span> Pushing...';
+                                pushBtn.innerHTML = '<span class="spinner"></span> Pushing...';
+                                this.showMessage('🚀 Pushing to remote...', 'info');
+                            }
+
+                            this.showMessage(shouldPush ? '✅ Committed and pushed successfully!' : '✅ Committed successfully!', 'success');
                             document.getElementById('commit-summary').value = '';
                             document.getElementById('commit-description').value = '';
-                            
+
                             // Filter for code files only
                             const codeFiles = selectedFiles.filter(file => {
                                 const ext = file.path.toLowerCase().split('.').pop();
                                 const codeExtensions = ['java', 'kt', 'js', 'ts', 'jsx', 'tsx', 'py', 'cpp', 'c', 'h', 'cs', 'go', 'rb', 'php', 'swift', 'rs', 'scala'];
                                 return codeExtensions.includes(ext);
                             });
-                            
+
                             // Trigger Code Health Review on committed code files if 5 or fewer
                             if (codeFiles.length > 0 && codeFiles.length <= 5) {
                                 console.log('Triggering Code Health Review for', codeFiles.length, 'code files');
+                                this.showMessage('🔍 Starting Code Health Review...', 'info');
                                 window.intellijBridge.callIDE('triggerCodeGuardianAnalysis', {
                                     files: codeFiles
                                 }).then(reviewResponse => {
                                     if (reviewResponse && reviewResponse.success) {
-                                        this.showMessage('Code Health Review started', 'info');
+                                        this.showMessage('✅ Code Health Review started', 'success');
                                     }
                                 }).catch(err => {
                                     console.warn('Failed to trigger Code Health Review:', err);
                                 });
                             }
-                            
+
                             this.refreshFiles();
                         } else {
                             throw new Error(response?.error || 'Operation failed');
                         }
                     }).catch(error => {
-                        this.showMessage('Error: ' + error.message, 'error');
+                        this.showMessage('❌ Commit failed: ' + error.message, 'error');
                     }).finally(() => {
-                        document.getElementById('commit-btn').disabled = false;
-                        document.getElementById('push-btn').disabled = false;
+                        commitBtn.innerHTML = originalCommitText;
+                        pushBtn.innerHTML = originalPushText;
+                        commitBtn.disabled = false;
+                        pushBtn.disabled = false;
                         this.updateSelection();
                     });
                 }
@@ -1022,36 +1116,43 @@
                     this.showMessage('Please select files to review', 'error');
                     return;
                 }
-                
+
                 // Filter for code files only
                 const codeFiles = selectedFiles.filter(file => {
                     const ext = file.path.toLowerCase().split('.').pop();
                     const codeExtensions = ['java', 'kt', 'js', 'ts', 'jsx', 'tsx', 'py', 'cpp', 'c', 'h', 'cs', 'go', 'rb', 'php', 'swift', 'rs', 'scala'];
                     return codeExtensions.includes(ext);
                 });
-                
+
                 if (codeFiles.length === 0) {
                     this.showMessage('No code files selected for review', 'error');
                     return;
                 }
-                
-                this.showMessage('Starting Code Health Review for ' + codeFiles.length + ' code file(s)...', 'info');
-                document.getElementById('review-btn').disabled = true;
-                
+
+                const reviewBtn = document.getElementById('review-btn');
+                const originalText = reviewBtn.innerHTML;
+
+                // Update button state
+                reviewBtn.innerHTML = '<span class="spinner"></span> Analyzing...';
+                reviewBtn.disabled = true;
+
+                this.showMessage('🔍 Starting Code Health Review for ' + codeFiles.length + ' file(s)...', 'info');
+
                 if (window.intellijBridge && window.intellijBridge.callIDE) {
                     window.intellijBridge.callIDE('triggerCodeGuardianAnalysis', {
                         files: codeFiles,
-                        immediate: true  // Flag to indicate immediate review request
+                        immediate: true
                     }).then(response => {
                         if (response && response.success) {
-                            this.showMessage('Code Health Review started for ' + codeFiles.length + ' file(s)', 'success');
+                            this.showMessage('✅ Code Health Review started for ' + codeFiles.length + ' file(s)', 'success');
                         } else {
-                            this.showMessage('Failed to start review: ' + (response.error || 'Unknown error'), 'error');
+                            this.showMessage('❌ Review failed: ' + (response.error || 'Unknown error'), 'error');
                         }
                     }).catch(error => {
-                        this.showMessage('Error: ' + error.message, 'error');
+                        this.showMessage('❌ Review error: ' + error.message, 'error');
                     }).finally(() => {
-                        document.getElementById('review-btn').disabled = false;
+                        reviewBtn.innerHTML = originalText;
+                        reviewBtn.disabled = false;
                         this.updateSelection();
                     });
                 }

@@ -950,12 +950,19 @@ public String handleGitPush() {
     public String generateCommitMessage(JsonObject data) {
         return commitMessageService.generateCommitMessage(data);
     }
-    
+
     /**
      * Streams the commit message generation response.
      */
     public String streamCommitMessage(JsonObject data) {
         return commitMessageService.streamCommitMessage(data);
+    }
+
+    /**
+     * Estimates the size of changes for selected files.
+     */
+    public String estimateChangesSize(JsonObject data) {
+        return commitMessageService.estimateChangesSize(data);
     }
 
     /**

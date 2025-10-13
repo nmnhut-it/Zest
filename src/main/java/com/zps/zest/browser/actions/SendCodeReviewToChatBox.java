@@ -9,6 +9,8 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.zps.zest.completion.metrics.ActionMetricsHelper;
+import com.zps.zest.completion.metrics.FeatureType;
 import com.zps.zest.explanation.tools.RipgrepCodeTool;
 import com.zps.zest.testgen.tools.AnalyzeClassTool;
 import org.jetbrains.annotations.NotNull;
@@ -65,6 +67,17 @@ public class SendCodeReviewToChatBox extends BaseChatAction {
         if (editor == null || psiFile == null || project == null) {
             throw new Exception("No file or editor available");
         }
+
+        // Track feature usage
+        Map<String, String> metricsContext = new HashMap<>();
+        metricsContext.put("file", psiFile.getName());
+        ActionMetricsHelper.INSTANCE.trackAction(
+                project,
+                FeatureType.CODE_REVIEW_CHAT,
+                "Zest.SendCodeReviewToChatBox",
+                e,
+                metricsContext
+        );
 
         // Get the code to review
         String codeContent = ReadAction.compute(() -> {

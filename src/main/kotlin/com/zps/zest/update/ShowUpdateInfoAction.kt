@@ -7,6 +7,8 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
+import com.zps.zest.completion.metrics.ActionMetricsHelper
+import com.zps.zest.completion.metrics.FeatureType
 import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.*
@@ -15,8 +17,19 @@ class ShowUpdateInfoAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project
+
+        if (project != null) {
+            ActionMetricsHelper.trackAction(
+                project,
+                FeatureType.CHECK_UPDATES,
+                "Zest.ShowUpdateInfo",
+                e,
+                emptyMap()
+            )
+        }
+
         val updateChecker = ZestUpdateChecker.getInstance()
-        
+
         // Show dialog
         UpdateInfoDialog(project, updateChecker).show()
     }

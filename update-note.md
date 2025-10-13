@@ -1,5 +1,52 @@
 # Zest Plugin Update Notes
 
+## Update notes tháng 10/2025 (Version 1.9.904)
+
+### 📊 Metrics System toàn diện:
+- **Refactor hoàn toàn:** Code cũ rối (Map<String, Any>, reflection hack) → Code mới type-safe, clean architecture
+- **8 loại metrics tracking:**
+  + Inline completion: track đầy đủ lifecycle (request → view → accept/reject)
+  + Code quality: AI tự review code trước khi show (style score 0-100, tự improve nếu cần)
+  + Dual evaluation: So sánh nhiều AI models (speed + quality) - biết model nào tốt hơn
+  + Unit test quality: % test chạy ngay không cần sửa + tính thời gian tiết kiệm
+  + Code health: Kết quả phân tích + user actions
+  + Quick actions: Track method/block rewrite
+  + Feature usage: Biết user dùng feature nào, dùng keyboard hay menu
+  + Custom tool: Feature usage qua LLM requests
+
+### 🔍 Session Logging cho developer:
+- **Tự động log mọi event:** Full JSON payload, HTTP response, timing - thấy chính xác gì được gửi đi
+- **Test dialog:** 4 tabs (Summary, JSON Payload, CURL Command, Session Log) để test thủ công
+- **Session viewer:** Timeline với filters, statistics, export ra file
+- **CURL commands:** Copy paste để test server manually
+- **Menu mới:** Tools → Test Metrics System, Tools → View Metrics Session Log
+
+### 🎨 AI Self-Review (Quality Gate):
+- **AI tự kiểm tra code của mình** trước khi show cho user
+- **Style compliance score 0-100** - nếu dưới 80 thì AI tự improve
+- **Track errors:** Compilation errors + logic bugs per 1000 lines
+- **Transparent:** Biết code đã được review và improve chưa
+
+### ⚙️ Configuration đầy đủ:
+- **Settings UI hoàn chỉnh:** Settings → Tools → Zest Plugin → Features → Metrics Configuration
+- **Enable/disable metrics** - Master toggle
+- **Dual evaluation config** - Chọn models để compare (default: tắt)
+- **AI self-review toggle** - Bật/tắt quality gate (default: bật)
+- **Batch parameters** - Config batch size, interval, queue size
+
+### 📈 Feature Usage Tracking:
+- **Track mọi action:** Test gen, git commit, code review, chat, etc.
+- **Biết trigger method:** Keyboard shortcut vs menu vs toolbar clicks
+- **Analytics ready:** Data để biết feature nào popular, adoption rate ra sao
+
+### 🛠️ Developer Tools:
+- Thấy exact JSON payload được gửi
+- Export session log ra file để analyze
+- Test manually mọi metric type
+- Monitor real-time trong session viewer
+
+---
+
 ## Update notes tháng 10/2025 (Version 1.9.903)
 
 ### 🤖 Agent Mode cải thiện:

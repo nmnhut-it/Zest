@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.903">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.904">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,6 +9,44 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
+            <h3>Version 1.9.904 - Comprehensive Metrics System & Session Logging 📊</h3>
+            <h4>🎯 Complete Metrics System Refactoring</h4>
+            <ul>
+                <li><b>Type-Safe Architecture</b> - Eliminated all Map&lt;String, Any&gt; for compile-time safety</li>
+                <li><b>Clean 3-Layer Design</b> - Separated business logic, serialization, and HTTP transport</li>
+                <li><b>No More Reflection Hacks</b> - Dedicated MetricsHttpClient with proper DI</li>
+                <li><b>Bounded Queues</b> - Configurable queue size (default 1000) prevents OOM</li>
+            </ul>
+
+            <h4>📊 Eight Comprehensive Metric Types</h4>
+            <ul>
+                <li><b>Inline Completion</b> - Full lifecycle (request → view → accept/reject)</li>
+                <li><b>Code Quality</b> - AI self-reviews code before showing (style score 0-100, auto-improvement)</li>
+                <li><b>Dual Evaluation</b> - Compare multiple AI models (speed + quality)</li>
+                <li><b>Unit Test Quality</b> - Work out of box %, time saved calculations</li>
+                <li><b>Code Health</b> - Analysis results and user actions</li>
+                <li><b>Quick Actions</b> - Method/block rewrite tracking</li>
+                <li><b>Feature Usage</b> - Track which features users actually use</li>
+            </ul>
+
+            <h4>🔍 Developer Session Logging</h4>
+            <ul>
+                <li><b>Every Event Logged</b> - Full JSON payloads, HTTP responses, timing data</li>
+                <li><b>Test Dialog</b> - 4 tabs: Summary, JSON Payload, CURL Command, Session Log</li>
+                <li><b>Session Viewer</b> - Timeline with filters, statistics, export to file</li>
+                <li><b>CURL Commands</b> - Copy-paste ready for debugging</li>
+            </ul>
+
+            <h4>⚙️ Configuration & Tools</h4>
+            <ul>
+                <li><b>Settings UI</b> - Complete metrics config in Settings → Features → Metrics</li>
+                <li><b>Dual Evaluation Config</b> - Choose models for comparison (default: off)</li>
+                <li><b>AI Self-Review Toggle</b> - Quality gate before showing code (default: on)</li>
+                <li><b>Two New Menu Items</b> - Tools → Test Metrics System, View Metrics Session Log</li>
+            </ul>
+
+            <p><em>Major metrics infrastructure overhaul - now you can see exactly what's being sent! 🎉</em></p>
+
             <h3>Version 1.9.903 - Agent Mode Polish & Chat Improvements ✨</h3>
             <h4>🤖 Agent Mode Refinements</h4>
             <ul>

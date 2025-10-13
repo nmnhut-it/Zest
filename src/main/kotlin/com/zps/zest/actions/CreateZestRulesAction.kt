@@ -7,6 +7,8 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.zps.zest.ZestNotifications
+import com.zps.zest.completion.metrics.ActionMetricsHelper
+import com.zps.zest.completion.metrics.FeatureType
 import com.zps.zest.rules.ZestRulesLoader
 import java.nio.file.Paths
 
@@ -22,7 +24,15 @@ class CreateZestRulesAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        
+
+        ActionMetricsHelper.trackAction(
+            project,
+            FeatureType.CREATE_RULES_FILE,
+            "Zest.CreateRulesFile",
+            e,
+            emptyMap()
+        )
+
         val rulesLoader = ZestRulesLoader(project)
         
         if (rulesLoader.rulesFileExists()) {

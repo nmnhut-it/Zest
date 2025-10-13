@@ -8,6 +8,8 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.project.Project
 import com.zps.zest.browser.editor.ZestChatVirtualFileSystem
+import com.zps.zest.completion.metrics.ActionMetricsHelper
+import com.zps.zest.completion.metrics.FeatureType
 
 /**
  * Action to open Zest Chat in a split editor view alongside the current code
@@ -16,7 +18,15 @@ class OpenChatInEditorAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        
+
+        ActionMetricsHelper.trackAction(
+            project,
+            FeatureType.OPEN_CHAT_EDITOR,
+            "Zest.OpenChatInEditor",
+            e,
+            emptyMap()
+        )
+
         ApplicationManager.getApplication().invokeLater {
             openChatInSplitEditor(project)
         }

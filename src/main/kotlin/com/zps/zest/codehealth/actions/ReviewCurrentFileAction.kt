@@ -24,6 +24,8 @@ import com.zps.zest.codehealth.CodeHealthAnalyzer
 import com.zps.zest.codehealth.CodeHealthReportStorage
 import com.zps.zest.codehealth.ProjectChangesTracker
 import com.zps.zest.codehealth.ui.editor.CodeHealthOverviewVirtualFile
+import com.zps.zest.completion.metrics.ActionMetricsHelper
+import com.zps.zest.completion.metrics.FeatureType
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtNamedFunction
 import java.util.concurrent.TimeUnit
@@ -40,7 +42,15 @@ class ReviewCurrentFileAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
-        
+
+        ActionMetricsHelper.trackAction(
+            project,
+            FeatureType.REVIEW_CURRENT_FILE,
+            "Zest.ReviewCurrentFile",
+            e,
+            emptyMap()
+        )
+
         // Check if it's a code file
         if (!isCodeFile(file)) {
             Messages.showWarningDialog(

@@ -5,6 +5,8 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.zps.zest.browser.editor.ZestChatVirtualFileSystem
+import com.zps.zest.completion.metrics.ActionMetricsHelper
+import com.zps.zest.completion.metrics.FeatureType
 
 /**
  * Toolbar action to open ZPS Chat in editor tab
@@ -19,7 +21,15 @@ class OpenZestChatAction : AnAction() {
     
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        
+
+        ActionMetricsHelper.trackAction(
+            project,
+            FeatureType.OPEN_CHAT,
+            "Zest.OpenChat",
+            e,
+            emptyMap()
+        )
+
         // Use the same split logic from OpenChatInEditorAction
         OpenChatInEditorAction.openChatInSplitEditor(project)
     }

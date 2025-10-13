@@ -5,7 +5,11 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.chatui.ChatUIService;
+import com.zps.zest.completion.metrics.ActionMetricsHelper;
+import com.zps.zest.completion.metrics.FeatureType;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.Collections;
 
 /**
  * Opens chat dialog with powerful code exploration tools enabled.
@@ -21,6 +25,15 @@ public class OpenToolEnabledChatAction extends AnAction {
     public void actionPerformed(@NotNull AnActionEvent e) {
         Project project = e.getProject();
         if (project == null) return;
+
+        // Track feature usage
+        ActionMetricsHelper.INSTANCE.trackAction(
+                project,
+                FeatureType.TOOL_ENABLED_CHAT,
+                "Zest.OpenToolEnabledChat",
+                e,
+                Collections.emptyMap()
+        );
 
         ChatUIService chatService = project.getService(ChatUIService.class);
 

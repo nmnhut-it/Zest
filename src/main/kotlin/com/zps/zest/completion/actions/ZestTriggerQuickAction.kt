@@ -1024,6 +1024,26 @@ private class CodeCompletionOptionsDialog(
             editor.settings.isLineNumbersShown = true
             editor.settings.isUseSoftWraps = true
             editor.settings.additionalLinesCount = 0
+
+            SwingUtilities.invokeLater {
+                val startOffset = beforeCursor.length
+                val endOffset = startOffset + completion.length
+
+                if (startOffset < endOffset && endOffset <= editor.document.textLength) {
+                    val textAttrs = com.intellij.openapi.editor.markup.TextAttributes()
+                    textAttrs.backgroundColor = JBColor(0xFFEB3B, 0x665500)
+                    textAttrs.effectType = com.intellij.openapi.editor.markup.EffectType.ROUNDED_BOX
+                    textAttrs.effectColor = JBColor(0xFF9800, 0xFFAA00)
+
+                    editor.markupModel.addRangeHighlighter(
+                        startOffset,
+                        endOffset,
+                        com.intellij.openapi.editor.markup.HighlighterLayer.ADDITIONAL_SYNTAX,
+                        textAttrs,
+                        com.intellij.openapi.editor.markup.HighlighterTargetArea.EXACT_RANGE
+                    )
+                }
+            }
         }
 
         val scrollPane = JBScrollPane(editorField)

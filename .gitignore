@@ -69,3 +69,5 @@ zest-plugin.properties
 openai-key.txt
 api-keys.txt
 config/secrets.properties
+.idea/zest-health-reports.xml
+.idea/zest-project-changes.xml

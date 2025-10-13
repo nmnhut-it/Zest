@@ -10,18 +10,24 @@ import com.google.gson.JsonObject
 object MetricsSerializer {
 
     /**
-     * Serialize a MetricEvent to JSON
+     * Serialize a MetricEvent to JSON with proper nesting.
+     * Server expects: top-level fields (completion_id, event_type, elapsed_ms)
+     * + nested "metadata" object with all metric data.
      */
     fun serialize(event: MetricEvent): JsonObject {
         val metadata = extractMetadata(event)
-        val json = metadata.toJsonObject()
+        val metadataJson = metadata.toJsonObject()
 
-        // Add common event fields
+        // Create wrapper JSON with proper structure
+        val json = JsonObject()
+
+        // Top-level envelope fields
         json.addProperty("completion_id", event.completionId)
+        json.addProperty("event_type", event.eventType)
         json.addProperty("elapsed_ms", event.elapsed)
         json.addProperty("timestamp", System.currentTimeMillis())
 
-        // Add completion content if available
+        // Add completion content at top level if available (server may need it there)
         when (event) {
             is MetricEvent.InlineSelect -> {
                 json.addProperty("completion_text", event.completionContent)
@@ -39,6 +45,9 @@ object MetricsSerializer {
                 // No completion content for other event types
             }
         }
+
+        // Nest all metric data under "metadata" field
+        json.add("metadata", metadataJson)
 
         return json
     }

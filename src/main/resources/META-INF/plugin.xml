@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.904</version>
+    <version>1.9.905</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -412,6 +412,16 @@
 
     <!-- Change notes for version updates -->
     <change-notes><![CDATA[
+        <h3>Version 1.9.905</h3>
+        <ul>
+            <li><b>💬 Chat UI Fixes:</b> Fixed MessageDetailDialog rendering issue - messages now display correctly with proper chat memory initialization</li>
+            <li><b>🚀 Git UI Enhancements:</b> Added smart context limit detection (100KB max), diff size warnings, session timeout tracking, and progress indicators with elapsed time</li>
+            <li><b>⌨️ Quick Action Redesign:</b> Context-aware menu with global actions ("Fill code", "Commit all"), disabled states with explanations, pure keyboard-first UX</li>
+            <li><b>✨ Inline Code Completion:</b> AI-powered completion with 2 options side-by-side, syntax-highlighted preview panels, yellow-highlighted new code, includes open files context</li>
+            <li><b>📊 Enhanced Error Visibility:</b> Better error handling in Git operations - users always know when operations fail and why (timeouts, context limits, etc.)</li>
+            <li><b>🎯 State Management:</b> Improved button states in Git UI with spinners and text changes during operations ("Generating... 5s", "Committing...", "Pushing...")</li>
+        </ul>
+
         <h3>Version 1.9.902</h3>
         <ul>
             <li><b>🏗️ Architecture Simplification:</b> Replaced complex Javalin proxy with lightweight ToolApiServer - cleaner, faster, easier to maintain</li>

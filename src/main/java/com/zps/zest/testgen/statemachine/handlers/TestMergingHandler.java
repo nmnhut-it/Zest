@@ -2,6 +2,7 @@ package com.zps.zest.testgen.statemachine.handlers;
 
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService;
 import com.zps.zest.testgen.agents.AITestMergerAgent;
+import com.zps.zest.testgen.evaluation.TestCodeValidator;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.statemachine.AbstractStateHandler;
 import com.zps.zest.testgen.statemachine.TestGenerationState;
@@ -220,21 +221,34 @@ public class TestMergingHandler extends AbstractStateHandler {
             String testCode = mergedTestClass.getFullContent();
             int wordCount = testCode.split("\\s+").length;
 
-            // For now, assume tests compile and pass (TODO: add actual test execution)
-            int testsCompiled = totalTests;
-            int testsPassedImmediately = totalTests;  // Optimistic assumption
+            // ✅ REAL COMPILATION CHECK using IntelliJ's CodeSmellDetector
+            TestCodeValidator.ValidationResult validation = TestCodeValidator.validate(
+                    getProject(stateMachine),
+                    testCode,
+                    mergedTestClass.getClassName()
+            );
+
+            int testsCompiled = validation.compiles() ? totalTests : 0;
+            int testsPassedImmediately = 0;  // Don't run tests, just check compilation
+
+            // Log compilation result
+            if (validation.compiles()) {
+                LOG.info("Test compilation: SUCCESS - " + testsCompiled + "/" + totalTests + " tests compiled");
+            } else {
+                LOG.info("Test compilation: FAILED - " + validation.getErrorCount() + " errors found, 0/" + totalTests + " compiled");
+            }
 
             metricsService.trackUnitTest(
                     "test-" + System.currentTimeMillis(),
                     totalTests,
                     wordCount,
                     generationTimeMs,
-                    testsCompiled,
-                    testsPassedImmediately
+                    testsCompiled,           // ✅ Real compilation result
+                    testsPassedImmediately   // 0 - not running tests
             );
 
             LOG.info("Unit test metrics tracked: " + totalTests + " tests, " +
-                    wordCount + " words");
+                    wordCount + " words, compilation: " + (validation.compiles() ? "SUCCESS" : "FAILED"));
 
         } catch (Exception e) {
             LOG.warn("Failed to track unit test metrics", e);

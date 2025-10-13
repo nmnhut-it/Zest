@@ -1011,6 +1011,12 @@ private class CodeCompletionOptionsDialog(
         editorField.isViewer = true
         editorField.preferredSize = JBUI.size(400, 300)
 
+        editorField.addSettingsProvider { editor ->
+            editor.settings.isLineNumbersShown = true
+            editor.settings.isUseSoftWraps = true
+            editor.settings.additionalLinesCount = 0
+        }
+
         val scrollPane = JBScrollPane(editorField)
         panel.add(scrollPane, BorderLayout.CENTER)
 

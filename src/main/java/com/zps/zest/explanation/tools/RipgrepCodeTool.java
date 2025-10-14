@@ -53,20 +53,26 @@ public class RipgrepCodeTool {
 
         KEY DIFFERENCE:
         - query: Uses REGEX syntax (| works for OR, e.g., "TODO|FIXME")
-        - filePattern: Uses GLOB syntax (use comma for multiple, e.g., "*.java,*.kt")
+        - filePattern: Uses GLOB syntax OR specific file path (auto-detected)
 
         Parameters:
         - query: The search pattern (REGEX) to find in file contents
-        - filePattern: Optional comma-separated glob patterns to filter files
-        - excludePattern: Optional comma-separated patterns to exclude files
+        - filePattern: GLOB pattern (*.java) OR specific file path (src/main/java/Service.java)
+        - excludePattern: Optional comma-separated patterns to exclude files (only for glob patterns)
         - beforeLines: Number of lines to show before each match (0-10)
         - afterLines: Number of lines to show after each match (0-10)
 
+        filePattern Formats (auto-detected):
+        1. GLOB pattern: "*.java" - Searches all Java files
+        2. File name: "Service.java" - Searches any file named Service.java
+        3. SPECIFIC PATH: "src/main/java/Service.java" - Searches ONLY that exact file
+
         Examples:
-        - searchCode("TODO|FIXME", "*.java,*.kt", null, 0, 0) - Find TODO or FIXME in Java/Kotlin
+        - searchCode("TODO|FIXME", "*.java,*.kt", null, 0, 0) - Find in all Java/Kotlin files
         - searchCode("getUserById", "*.java", "test,generated", 0, 0) - Find in Java, exclude test/generated
-        - searchCode("import.*React", "*.tsx,*.jsx", null, 2, 2) - Find React imports with context
-        
+        - searchCode("import.*ArrayList", "src/main/java/Service.java", null, 0, 0) - Search ONLY that exact file
+        - searchCode("void", "com/example/UserService.java", null, 10, 10) - Search exact file with context
+
         Those examples illustrate only notable usages of this tool, not how to call it.
         """)
     public String searchCode(String query, @Nullable String filePattern, @Nullable String excludePattern,
@@ -87,6 +93,15 @@ public class RipgrepCodeTool {
         beforeLines = Math.max(0, Math.min(10, beforeLines));
         afterLines = Math.max(0, Math.min(10, afterLines));
 
+        // Try as exact file path first (fallback to glob if not found)
+        if (filePattern != null && !filePattern.isEmpty()) {
+            String absolutePath = tryConvertToAbsolutePath(filePattern);
+            if (absolutePath != null) {
+                return searchInExactFile(query, absolutePath, beforeLines, afterLines);
+            }
+        }
+
+        // Fallback: treat as glob pattern
         return searchWithRipgrep(query, filePattern, excludePattern, beforeLines, afterLines, false);
     }
 
@@ -461,32 +476,51 @@ public class RipgrepCodeTool {
     }
     
     /**
-     * Parse ripgrep JSON output
+     * Parse ripgrep JSON output with context lines support
      */
     private String parseRipgrepOutput(String jsonOutput, String query) {
         List<RipgrepMatch> matches = new ArrayList<>();
         Gson gson = new Gson();
-        
+
+        RipgrepMatch currentMatch = null;
+        List<ContextLine> pendingBeforeContext = new ArrayList<>();
+
         String[] lines = jsonOutput.split("\n");
         for (String line : lines) {
             line = line.trim();
             if (line.isEmpty()) continue;
-            
+
             try {
                 JsonObject json = gson.fromJson(line, JsonObject.class);
-                if (json.has("type") && "match".equals(json.get("type").getAsString())) {
+                String type = json.has("type") ? json.get("type").getAsString() : null;
+
+                if ("context".equals(type)) {
+                    ContextLine contextLine = parseContextLine(json);
+                    if (contextLine != null) {
+                        if (currentMatch == null) {
+                            pendingBeforeContext.add(contextLine);
+                        } else {
+                            currentMatch.afterContext.add(contextLine);
+                        }
+                    }
+                } else if ("match".equals(type)) {
                     RipgrepMatch match = parseMatch(json);
                     if (match != null) {
+                        match.beforeContext.addAll(pendingBeforeContext);
+                        pendingBeforeContext.clear();
+
                         matches.add(match);
                         relatedFiles.add(match.filePath);
                         recordUsagePattern(match.lineText, query);
+
+                        currentMatch = match;
                     }
                 }
             } catch (Exception e) {
-                continue; // Skip malformed JSON
+                continue;
             }
         }
-        
+
         return formatResults(query, matches);
     }
     
@@ -498,9 +532,7 @@ public class RipgrepCodeTool {
             JsonObject data = json.getAsJsonObject("data");
             String filePath = data.getAsJsonObject("path").get("text").getAsString();
 
-            // Fix: lines is an object, not an array
             JsonObject lines = data.getAsJsonObject("lines");
-            // Fix: line_number is at data level, not in lines
             int lineNumber = data.get("line_number").getAsInt();
             String lineText = lines.get("text").getAsString();
 
@@ -511,30 +543,58 @@ public class RipgrepCodeTool {
             return null;
         }
     }
+
+    /**
+     * Parse context line from JSON
+     */
+    private ContextLine parseContextLine(JsonObject json) {
+        try {
+            JsonObject data = json.getAsJsonObject("data");
+            JsonObject lines = data.getAsJsonObject("lines");
+            int lineNumber = data.get("line_number").getAsInt();
+            String lineText = lines.get("text").getAsString();
+
+            return new ContextLine(lineNumber, lineText);
+
+        } catch (Exception e) {
+            System.err.println("[RipgrepCodeTool] Error parsing context: " + e.getMessage());
+            return null;
+        }
+    }
     
     /**
-     * Format results for display
+     * Format results for display with context lines
      */
     private String formatResults(String query, List<RipgrepMatch> matches) {
         if (matches.isEmpty()) {
             return String.format("No results found for: '%s'", query);
         }
-        
+
         StringBuilder output = new StringBuilder();
         output.append(String.format("🔍 Found %d result(s) for: '%s' (ripgrep)\n", matches.size(), query));
         output.append("═".repeat(60)).append("\n\n");
-        
+
         int count = 0;
         for (RipgrepMatch match : matches) {
             if (count >= MAX_RESULTS) break;
-            
+
             String relativePath = getRelativePath(match.filePath);
             output.append(String.format("%d. 📄 %s:%d\n", count + 1, relativePath, match.lineNumber));
-            output.append("   ").append(highlightMatch(match.lineText, query)).append("\n\n");
-            
+
+            for (ContextLine before : match.beforeContext) {
+                output.append(String.format("   [Line %d] %s\n", before.lineNumber, before.text));
+            }
+
+            output.append(String.format("   [Line %d] %s\n", match.lineNumber, highlightMatch(match.lineText, query)));
+
+            for (ContextLine after : match.afterContext) {
+                output.append(String.format("   [Line %d] %s\n", after.lineNumber, after.text));
+            }
+
+            output.append("\n");
             count++;
         }
-        
+
         return output.toString();
     }
     
@@ -579,6 +639,74 @@ public class RipgrepCodeTool {
         }
     }
     
+    /**
+     * Search in a specific file using exact path.
+     * Converts relative path to absolute and uses ripgrep on that exact file.
+     */
+    private String searchInExactFile(String query, String filePath, Integer beforeLines, Integer afterLines) {
+        try {
+            // filePath is already an absolute path when this method is called
+            String absolutePath = filePath;
+
+            String rgPath = findRipgrepBinary();
+            if (rgPath == null) {
+                return "❌ Ripgrep not available.\n\nInstall ripgrep to use searchCode.";
+            }
+
+            List<String> command = new ArrayList<>();
+            command.add(rgPath);
+            command.add("--json");
+            command.add("--line-number");
+            command.add("--no-heading");
+            command.add("--ignore-case");
+
+            if (beforeLines != null && beforeLines > 0) {
+                command.add("--before-context");
+                command.add(String.valueOf(beforeLines));
+            }
+            if (afterLines != null && afterLines > 0) {
+                command.add("--after-context");
+                command.add(String.valueOf(afterLines));
+            }
+
+            command.add("--max-count");
+            command.add(String.valueOf(MAX_RESULTS));
+            command.add(query);
+            command.add(absolutePath);
+
+            return executeRipgrepCommand(command, query);
+
+        } catch (Exception e) {
+            return String.format("Error searching in file '%s': %s", filePath, e.getMessage());
+        }
+    }
+
+    /**
+     * Try to convert file pattern to absolute path. Returns null if not a valid file path.
+     */
+    private String tryConvertToAbsolutePath(String filePattern) {
+        try {
+            String projectPath = project.getBasePath();
+            if (projectPath == null) {
+                return null;
+            }
+
+            String normalized = filePattern.replace('\\', '/');
+            Path path = Paths.get(normalized);
+
+            if (path.isAbsolute()) {
+                return Files.exists(path) ? path.toString() : null;
+            }
+
+            Path projectPathObj = Paths.get(projectPath);
+            Path absolutePath = projectPathObj.resolve(normalized);
+
+            return Files.exists(absolutePath) ? absolutePath.toString() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /**
      * Find files using ripgrep's --files flag with glob patterns.
      * Supports multiple patterns separated by comma.
@@ -683,17 +811,34 @@ public class RipgrepCodeTool {
     }
     
     /**
-     * Ripgrep match result
+     * Ripgrep match result with context lines
      */
     private static class RipgrepMatch {
         final String filePath;
         final int lineNumber;
         final String lineText;
-        
+        final List<ContextLine> beforeContext;
+        final List<ContextLine> afterContext;
+
         RipgrepMatch(String filePath, int lineNumber, String lineText) {
             this.filePath = filePath;
             this.lineNumber = lineNumber;
             this.lineText = lineText;
+            this.beforeContext = new ArrayList<>();
+            this.afterContext = new ArrayList<>();
+        }
+    }
+
+    /**
+     * Context line with line number
+     */
+    private static class ContextLine {
+        final int lineNumber;
+        final String text;
+
+        ContextLine(int lineNumber, String text) {
+            this.lineNumber = lineNumber;
+            this.text = text;
         }
     }
 }

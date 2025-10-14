@@ -94,13 +94,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
 
     private fun openGitUI(project: Project) {
         try {
-            val browserService = com.zps.zest.browser.WebBrowserService.getInstance(project)
-            val browserPanel = browserService.browserPanel
-            if (browserPanel != null) {
-                browserPanel.openGitUI()
-            } else {
-                Messages.showWarningDialog(project, "Git UI not available. Please open the Zest browser first.", "Browser Not Ready")
-            }
+            com.zps.zest.git.GitUIDialogService.getInstance().openGitUI(project, false)
         } catch (e: Exception) {
             logger.error("Failed to open Git UI", e)
             Messages.showErrorDialog(project, "Failed to open Git UI: ${e.message}", "Error")

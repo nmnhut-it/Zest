@@ -57,7 +57,12 @@ object MethodContextFormatter {
 
             // Instructions for AI
             appendLine("---")
-            appendLine("*The method content is shown above. For full file context, use `readFile()` first. Then make focused single edits with `replaceCodeInFile()`.*")
+            appendLine("**⚠️ Use ONE tool at a time:**")
+            appendLine("1. Call `readFile()` to see full file context → wait for result")
+            appendLine("2. Review the complete file content")
+            appendLine("3. Call `replaceCodeInFile()` to make your focused edit → wait for user review")
+            appendLine()
+            appendLine("*Never call multiple tools in one response. Make one tool call, wait, then respond.*")
         }
     }
 

@@ -32,6 +32,9 @@ public class GitService {
     private final GitCommitMessageService commitMessageService;
 
     private static final ConcurrentHashMap<String, GitCommitContext> GLOBAL_CONTEXTS = new ConcurrentHashMap<>();
+    private volatile String cachedGitStatus = null;
+    private volatile long gitStatusCacheTime = 0;
+    private static final long GIT_STATUS_CACHE_TTL_MS = 3000;
     
     
     public GitService(@NotNull Project project) {
@@ -188,7 +191,8 @@ public class GitService {
                             .map(file -> GitServiceHelper.cleanFilePath(file.getPath(), project.getName()))
                             .collect(java.util.stream.Collectors.toList());
                         invalidateCacheForFiles(committedPaths);
-                        
+                        invalidateGitStatusCache();
+
                         // Show success message and notify UI
                         GitUINotificationHelper.showCommitSuccess(project);
                         
@@ -549,27 +553,44 @@ public String handleGitPush() {
      */
     public String getGitStatus() {
         LOG.info("Getting git status for quick commit");
-        
+
+        long now = System.currentTimeMillis();
+        if (cachedGitStatus != null && (now - gitStatusCacheTime) < GIT_STATUS_CACHE_TTL_MS) {
+            LOG.info("Returning cached git status (age: " + (now - gitStatusCacheTime) + "ms)");
+            return cachedGitStatus;
+        }
+
         try {
             String projectPath = GitServiceHelper.getProjectPath(project);
-            
-            // Use GitStatusCollector to get all changed files
+
             GitStatusCollector collector = new GitStatusCollector(projectPath);
             GitStatusCollector.StatusSummary summary = collector.getStatusSummary();
-            
-            LOG.info("Git status collected: " + 
+
+            LOG.info("Git status collected: " +
                 (summary.hasChanges() ? summary.fileCount + " files" : "No changes"));
-            
+
             JsonObject response = GitServiceHelper.createSuccessResponse();
             response.addProperty("changedFiles", summary.changedFiles);
-            return GitServiceHelper.toJson(response);
-            
+            String result = GitServiceHelper.toJson(response);
+
+            cachedGitStatus = result;
+            gitStatusCacheTime = now;
+            LOG.info("Cached git status (TTL: " + GIT_STATUS_CACHE_TTL_MS + "ms)");
+
+            return result;
+
         } catch (Exception e) {
             LOG.error("Error getting git status", e);
             return GitServiceHelper.toJson(
                 GitServiceHelper.createErrorResponse("Failed to get git status: " + e.getMessage())
             );
         }
+    }
+
+    public void invalidateGitStatusCache() {
+        cachedGitStatus = null;
+        gitStatusCacheTime = 0;
+        LOG.info("Git status cache invalidated");
     }
     
     /**

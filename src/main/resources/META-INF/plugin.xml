@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.906</version>
+    <version>1.9.907</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -412,6 +412,16 @@
 
     <!-- Change notes for version updates -->
     <change-notes><![CDATA[
+        <h3>Version 1.9.907</h3>
+        <ul>
+            <li><b>🚫 Binary File Exclusion:</b> Images, JARs, executables, and other binary files automatically excluded from AI commit message generation - clearer what AI analyzes</li>
+            <li><b>📊 Full Transparency:</b> Git UI shows file breakdown (code vs binary), size estimates with exclusions, and exactly what files AI analyzed in status messages</li>
+            <li><b>⚡ Performance Boost:</b> Git status cached for 3s (instant on rapid refreshes), debounced size estimation (300ms), auto-refresh after commit with proper timing</li>
+            <li><b>🎯 Large Changeset Handling:</b> AI receives special instruction for >50KB changes to prioritize and summarize effectively - users see "Large changeset" warning</li>
+            <li><b>💬 Chat UI Fixes:</b> Fixed non-streaming mode tool visibility with smart refresh (only when memory changes), preserved scroll position during updates</li>
+            <li><b>🔧 Quick Action Polish:</b> Renamed misleading "Commit and push all" to honest "Open Git UI"</li>
+        </ul>
+
         <h3>Version 1.9.906</h3>
         <ul>
             <li><b>🧠 Smart Code Completion:</b> Enhanced "Fill code at cursor" with PSI-based context analysis - AI now knows available methods, variables, types, and imports for much better suggestions</li>

@@ -22,9 +22,24 @@ public class GitCommitMessageService {
     private static final int MAX_PROMPT_SIZE = 100000; // ~25K tokens for most models
     private static final int WARNING_PROMPT_SIZE = 50000; // Warn at 50K chars
 
+    private static final java.util.Set<String> BINARY_EXTENSIONS = java.util.Set.of(
+        "png", "jpg", "jpeg", "gif", "svg", "ico", "webp", "bmp",
+        "zip", "jar", "war", "tar", "gz", "rar", "7z",
+        "exe", "dll", "so", "dylib", "class", "o", "pyc",
+        "mp4", "mp3", "wav", "avi", "mov", "pdf",
+        "db", "sqlite", "dat", "bin"
+    );
+
     private final Project project;
     private final GitService gitService;
     private final Map<String, CommitMessageSession> sessions = new ConcurrentHashMap<>();
+
+    private boolean isBinaryFile(String filePath) {
+        int lastDot = filePath.lastIndexOf('.');
+        if (lastDot == -1) return false;
+        String ext = filePath.substring(lastDot + 1).toLowerCase();
+        return BINARY_EXTENSIONS.contains(ext);
+    }
 
     public GitCommitMessageService(Project project, GitService gitService) {
         this.project = project;
@@ -50,23 +65,37 @@ public class GitCommitMessageService {
             StringBuilder prompt = new StringBuilder(template);
             prompt.append("\n\nChanges to commit:\n\n");
 
+            int binaryFilesSkipped = 0;
+            int filesAnalyzed = 0;
+            java.util.List<String> skippedBinaryNames = new java.util.ArrayList<>();
+
             // Collect diffs for each file
             for (JsonElement fileElement : filesArray) {
                 JsonObject fileObj = fileElement.getAsJsonObject();
                 String filePath = fileObj.get("path").getAsString();
                 String status = fileObj.get("status").getAsString();
 
-                // Get the diff for this file
+                if (isBinaryFile(filePath)) {
+                    LOG.info("Skipping binary file: " + filePath);
+                    binaryFilesSkipped++;
+                    skippedBinaryNames.add(filePath);
+                    continue;
+                }
+
                 String diff = gitService.getFileDiffContent(filePath, status);
                 if (diff != null && !diff.isEmpty()) {
                     prompt.append("File: ").append(filePath).append("\n");
                     prompt.append("Status: ").append(status).append("\n");
                     prompt.append("Changes:\n").append(diff).append("\n\n");
+                    filesAnalyzed++;
                 }
             }
 
             String promptText = prompt.toString();
             int promptSize = promptText.length();
+
+            LOG.info("Commit message generation: " + filesAnalyzed + " files analyzed, " +
+                     binaryFilesSkipped + " binary files skipped, prompt size: " + promptSize + " chars");
 
             // Check if prompt exceeds reasonable size
             if (promptSize > MAX_PROMPT_SIZE) {
@@ -86,13 +115,24 @@ public class GitCommitMessageService {
                 LOG.warn("Prompt size (" + promptSize + ") is large and may take longer to process");
             }
 
+            // Add context note for large changesets
+            if (promptSize > WARNING_PROMPT_SIZE) {
+                String contextNote = "\n\nIMPORTANT: This is a large changeset (" + (promptSize / 1000) + "KB). " +
+                                    "Prioritize main changes and provide a high-level summary covering key themes.\n\n";
+                promptText = contextNote + promptText;
+            }
+
             // Store the session for streaming
             CommitMessageSession session = new CommitMessageSession(sessionId, promptText, project);
             sessions.put(sessionId, session);
-            
+
             JsonObject response = GitServiceHelper.createSuccessResponse();
             response.addProperty("sessionId", sessionId);
             response.addProperty("message", "Streaming session created");
+            response.addProperty("filesAnalyzed", filesAnalyzed);
+            response.addProperty("binaryFilesSkipped", binaryFilesSkipped);
+            response.addProperty("isLargeChangeset", promptSize > WARNING_PROMPT_SIZE);
+            response.addProperty("promptSizeKB", promptSize / 1000);
             return GitServiceHelper.toJson(response);
             
         } catch (Exception e) {
@@ -149,16 +189,24 @@ public class GitCommitMessageService {
         try {
             JsonArray filesArray = data.getAsJsonArray("files");
 
-            // Estimate size by summing diff sizes
             int totalSize = 0;
+            int binaryFilesSkipped = 0;
+            int filesAnalyzed = 0;
+
             for (JsonElement fileElement : filesArray) {
                 JsonObject fileObj = fileElement.getAsJsonObject();
                 String filePath = fileObj.get("path").getAsString();
                 String status = fileObj.get("status").getAsString();
 
+                if (isBinaryFile(filePath)) {
+                    binaryFilesSkipped++;
+                    continue;
+                }
+
                 String diff = gitService.getFileDiffContent(filePath, status);
                 if (diff != null) {
                     totalSize += diff.length();
+                    filesAnalyzed++;
                 }
             }
 
@@ -169,6 +217,8 @@ public class GitCommitMessageService {
             response.addProperty("tooLarge", totalSize > MAX_PROMPT_SIZE);
             response.addProperty("warningThreshold", WARNING_PROMPT_SIZE);
             response.addProperty("maxThreshold", MAX_PROMPT_SIZE);
+            response.addProperty("filesAnalyzed", filesAnalyzed);
+            response.addProperty("binaryFilesSkipped", binaryFilesSkipped);
             return GitServiceHelper.toJson(response);
 
         } catch (Exception e) {

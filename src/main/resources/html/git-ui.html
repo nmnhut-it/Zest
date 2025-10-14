@@ -368,7 +368,55 @@
             font-size: 13px;
             color: #6b7280;
         }
-        
+
+        .binary-file {
+            opacity: 0.5;
+        }
+
+        .binary-badge {
+            font-size: 9px;
+            background: #6b7280;
+            color: white;
+            padding: 2px 4px;
+            border-radius: 3px;
+            margin-left: 4px;
+        }
+
+        .binary-label {
+            font-size: 11px;
+            color: #9ca3af;
+            font-style: italic;
+            margin-left: 6px;
+        }
+
+        .files-stats {
+            display: flex;
+            gap: 15px;
+            padding: 10px 15px;
+            background: #f9fafb;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+
+        .dark .files-stats {
+            background: #1f2937;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .stat-value {
+            font-weight: 600;
+        }
+
+        .stat-excluded {
+            color: #9ca3af;
+        }
+
         /* Responsive design */
         @media (max-width: 768px) {
             .git-content {
@@ -432,10 +480,25 @@
             <div class="files-panel">
                 <div id="status-message"></div>
                 
+                <div class="files-stats" id="files-stats" style="display: none;">
+                    <div class="stat-item">
+                        <span>📝</span>
+                        <span><span class="stat-value" id="code-files-count">0</span> code files</span>
+                    </div>
+                    <div class="stat-item stat-excluded">
+                        <span>🚫</span>
+                        <span><span class="stat-value" id="binary-files-count">0</span> binary (excluded)</span>
+                    </div>
+                    <div class="stat-item">
+                        <span>💾</span>
+                        <span id="selected-size-display">~0KB</span>
+                    </div>
+                </div>
+
                 <div class="select-all-container">
                     <label style="display: flex; align-items: center; cursor: pointer;">
                         <input type="checkbox" id="select-all" class="file-checkbox" onchange="GitUI.toggleSelectAll()">
-                        <span style="margin-left: 8px; font-weight: 500;">Select All</span>
+                        <span style="margin-left: 8px; font-weight: 500;">Select All Code Files</span>
                     </label>
                     <span class="file-count" id="file-count">0 files</span>
                 </div>
@@ -496,6 +559,21 @@
         
         // GitUtils - Git file parsing and utilities
         window.GitUtils = {
+            BINARY_EXTENSIONS: new Set([
+                'png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'webp', 'bmp',
+                'zip', 'jar', 'war', 'tar', 'gz', 'rar', '7z',
+                'exe', 'dll', 'so', 'dylib', 'class', 'o', 'pyc',
+                'mp4', 'mp3', 'wav', 'avi', 'mov', 'pdf',
+                'db', 'sqlite', 'dat', 'bin'
+            ]),
+
+            isBinaryFile: function(filePath) {
+                const lastDot = filePath.lastIndexOf('.');
+                if (lastDot === -1) return false;
+                const ext = filePath.substring(lastDot + 1).toLowerCase();
+                return this.BINARY_EXTENSIONS.has(ext);
+            },
+
             /**
              * Parse changed files from git status output
              */
@@ -596,8 +674,9 @@
             // Git UI object
             window.GitUI = {
             files: [],
-            isGenerating: false, // Add flag to prevent duplicate generation requests
-            
+            isGenerating: false,
+            estimateSizeTimeout: null,
+
             init: function() {
                 // Notify IntelliJ that Git UI is ready
                 if (window.intellijBridge && window.intellijBridge.callIDE) {
@@ -686,9 +765,21 @@
             renderFileList: function() {
                 const container = document.getElementById('file-list-container');
                 const fileCount = document.getElementById('file-count');
-                
+
+                const codeFiles = this.files.filter(f => !GitUtils.isBinaryFile(f.filePath)).length;
+                const binaryFiles = this.files.length - codeFiles;
+
                 fileCount.textContent = this.files.length + ' file' + (this.files.length !== 1 ? 's' : '');
-                
+
+                const statsDiv = document.getElementById('files-stats');
+                if (this.files.length > 0) {
+                    document.getElementById('code-files-count').textContent = codeFiles;
+                    document.getElementById('binary-files-count').textContent = binaryFiles;
+                    statsDiv.style.display = binaryFiles > 0 ? 'flex' : 'none';
+                } else {
+                    statsDiv.style.display = 'none';
+                }
+
                 if (this.files.length === 0) {
                     container.innerHTML = `
                         <div class="empty-state">
@@ -704,19 +795,24 @@
                     const parts = file.filePath.split('/');
                     const fileName = parts.pop();
                     const dirPath = parts.join('/');
-                    
+
                     const statusInfo = GitUtils.getStatusColor(file.status);
                     const statusDesc = GitUtils.getStatusDescription(file.status);
-                    
+                    const isBinary = GitUtils.isBinaryFile(file.filePath);
+
                     return `
-                        <div class="file-item" onclick="GitUI.toggleFile(${index})">
-                            <input type="checkbox" class="file-checkbox" data-index="${index}" 
-                                   onclick="event.stopPropagation()" onchange="GitUI.updateSelection()" checked>
+                        <div class="file-item ${isBinary ? 'binary-file' : ''}" onclick="GitUI.toggleFile(${index})">
+                            <input type="checkbox" class="file-checkbox" data-index="${index}"
+                                   onclick="event.stopPropagation()" onchange="GitUI.updateSelection()"
+                                   ${isBinary ? 'disabled title="Binary files excluded from AI analysis"' : 'checked'}>
                             <div class="file-status status-${file.status}" title="${statusDesc}">
-                                ${file.status}
+                                ${file.status}${isBinary ? '<span class="binary-badge">BIN</span>' : ''}
                             </div>
                             <div class="file-info">
-                                <div class="file-name">${this.escapeHtml(fileName)}</div>
+                                <div class="file-name">
+                                    ${this.escapeHtml(fileName)}
+                                    ${isBinary ? '<span class="binary-label">(binary - excluded from AI)</span>' : ''}
+                                </div>
                                 ${dirPath ? `<div class="file-dir">${this.escapeHtml(dirPath)}</div>` : ''}
                             </div>
                         </div>
@@ -794,32 +890,41 @@
                 const selectedFiles = this.getSelectedFiles();
                 if (selectedFiles.length === 0) return;
 
-                // Call backend to estimate size
-                if (window.intellijBridge && window.intellijBridge.callIDE) {
-                    window.intellijBridge.callIDE('estimateChangesSize', {
-                        files: selectedFiles
-                    }).then(response => {
+                if (this.estimateSizeTimeout) {
+                    clearTimeout(this.estimateSizeTimeout);
+                }
+
+                this.estimateSizeTimeout = setTimeout(() => {
+                    if (window.intellijBridge && window.intellijBridge.callIDE) {
+                        window.intellijBridge.callIDE('estimateChangesSize', {
+                            files: selectedFiles
+                        }).then(response => {
                         if (response && response.success) {
                             const sizeKB = response.sizeKB;
                             const isLarge = response.isLarge;
                             const tooLarge = response.tooLarge;
+                            const filesAnalyzed = response.filesAnalyzed || 0;
+                            const binarySkipped = response.binaryFilesSkipped || 0;
 
-                            // Update size estimate
-                            document.getElementById('size-estimate').textContent =
-                                `~${sizeKB}KB`;
+                            document.getElementById('selected-size-display').textContent = `~${sizeKB}KB`;
 
-                            // Show warning if needed
+                            let sizeText = `~${sizeKB}KB`;
+                            if (binarySkipped > 0) {
+                                sizeText += ` (${filesAnalyzed} files, ${binarySkipped} binary excluded)`;
+                            }
+                            document.getElementById('size-estimate').textContent = sizeText;
+
                             const warningDiv = document.getElementById('size-warning');
                             const warningText = document.getElementById('size-warning-text');
 
                             if (tooLarge) {
-                                warningText.innerHTML = `⚠️ Changes are too large (${sizeKB}KB). Maximum is ${response.maxThreshold / 1000}KB. Please select fewer files.`;
+                                warningText.innerHTML = `⚠️ Changes too large (${sizeKB}KB, max ${response.maxThreshold / 1000}KB). Please select fewer files.`;
                                 warningDiv.style.display = 'block';
                                 warningDiv.style.background = '#fee2e2';
                                 warningDiv.style.color = '#991b1b';
                                 document.getElementById('generate-btn').disabled = true;
                             } else if (isLarge) {
-                                warningText.innerHTML = `⚠️ Changes are large (${sizeKB}KB). Generation may take longer.`;
+                                warningText.innerHTML = `⚠️ Large changes (${sizeKB}KB). AI will prioritize main code changes. Generation may take longer.`;
                                 warningDiv.style.display = 'block';
                                 warningDiv.style.background = '#fef3c7';
                                 warningDiv.style.color = '#92400e';
@@ -827,10 +932,11 @@
                                 warningDiv.style.display = 'none';
                             }
                         }
-                    }).catch(error => {
-                        console.error('Error estimating size:', error);
-                    });
-                }
+                        }).catch(error => {
+                            console.error('Error estimating size:', error);
+                        });
+                    }
+                }, 300);
             },
             
             getSelectedFiles: function() {
@@ -873,8 +979,21 @@
                         files: selectedFiles
                     }).then(response => {
                         if (response && response.success) {
-                            // Start polling for streaming chunks
-                            this.streamCommitMessage(response.sessionId);
+                            const analyzed = response.filesAnalyzed || selectedFiles.length;
+                            const binarySkipped = response.binaryFilesSkipped || 0;
+                            const isLarge = response.isLargeChangeset || false;
+                            const sizeKB = response.promptSizeKB || 0;
+
+                            let statusMsg = `🤖 Analyzing ${analyzed} file${analyzed !== 1 ? 's' : ''}`;
+                            if (binarySkipped > 0) {
+                                statusMsg += ` (${binarySkipped} binary excluded)`;
+                            }
+                            if (isLarge) {
+                                statusMsg += ` - Large changeset (${sizeKB}KB)`;
+                            }
+                            this.showMessage(statusMsg, 'info');
+
+                            this.streamCommitMessage(response.sessionId, analyzed, binarySkipped);
                         } else {
                             this.showMessage('Failed to start generation: ' + (response.error || 'Unknown error'), 'error');
                             this.isGenerating = false;
@@ -888,13 +1007,15 @@
                 }
             },
             
-            streamCommitMessage: function(sessionId) {
+            streamCommitMessage: function(sessionId, filesAnalyzed, binarySkipped) {
                 const summaryInput = document.getElementById('commit-summary');
                 const descriptionTextarea = document.getElementById('commit-description');
                 const generateBtn = document.getElementById('generate-btn');
                 let streamingText = '';
                 const startTime = Date.now();
-                const maxPollTime = 120000; // 2 minutes client-side timeout
+                const maxPollTime = 120000;
+                filesAnalyzed = filesAnalyzed || 0;
+                binarySkipped = binarySkipped || 0;
 
                 // Add streaming visual effect to both fields
                 summaryInput.classList.add('streaming');
@@ -977,7 +1098,11 @@
 
                                 cleanup(true);
                                 const duration = Math.floor(elapsed / 1000);
-                                this.showMessage(`✅ Generated in ${duration}s!`, 'success');
+                                let successMsg = `✅ Generated in ${duration}s from ${filesAnalyzed} file${filesAnalyzed !== 1 ? 's' : ''}`;
+                                if (binarySkipped > 0) {
+                                    successMsg += ` (${binarySkipped} binary excluded)`;
+                                }
+                                this.showMessage(successMsg, 'success');
                             } else {
                                 // Append chunk if available
                                 if (response.chunk) {
@@ -1081,7 +1206,7 @@
                                 });
                             }
 
-                            this.refreshFiles();
+                            setTimeout(() => this.refreshFiles(), 500);
                         } else {
                             throw new Error(response?.error || 'Operation failed');
                         }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.906">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.907">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,6 +9,48 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
+            <h3>Version 1.9.907 - Binary File Handling & Git UI Performance 🚀</h3>
+            <h4>🚫 Intelligent Binary File Handling</h4>
+            <ul>
+                <li><b>Automatic Exclusion</b> - Images (png, jpg, svg), archives (jar, zip), executables (exe, dll), media (mp4, pdf), and build artifacts (class) automatically excluded from AI analysis</li>
+                <li><b>Visual Indicators</b> - Binary files shown grayed out with "BIN" badge and "(binary - excluded from AI)" label in Git UI</li>
+                <li><b>Disabled by Default</b> - Binary file checkboxes disabled with tooltip explaining why excluded</li>
+                <li><b>Stats Panel</b> - Shows "📝 15 code files" and "🚫 3 binary (excluded)" breakdown at top of file list</li>
+            </ul>
+
+            <h4>📊 Complete Transparency</h4>
+            <ul>
+                <li><b>Size Estimates with Context</b> - "~45KB (15 files, 3 binary excluded)" shown during selection</li>
+                <li><b>Generation Status</b> - "🤖 Analyzing 15 files (3 binary excluded) - Large changeset (75KB)" during generation</li>
+                <li><b>Success Messages</b> - "✅ Generated in 5s from 15 files (3 binary excluded)" on completion</li>
+                <li><b>Large Changeset Warnings</b> - Clear message: "⚠️ Large changes (75KB). AI will prioritize main code changes."</li>
+                <li><b>AI Instructions</b> - For >50KB changes, AI receives explicit instruction to prioritize and summarize</li>
+            </ul>
+
+            <h4>⚡ Git UI Performance Improvements</h4>
+            <ul>
+                <li><b>Status Caching</b> - Git status cached for 3 seconds - instant response on rapid refreshes, invalidated after commits</li>
+                <li><b>Debounced Size Estimation</b> - 300ms debounce on checkbox changes - only calls backend after user stops clicking (10x fewer requests)</li>
+                <li><b>Auto-Refresh Timing</b> - 500ms delay after commit ensures git command completes before refresh</li>
+                <li><b>Batch Operations</b> - Multiple git operations combined where possible for better performance</li>
+            </ul>
+
+            <h4>💬 Chat UI Enhancements</h4>
+            <ul>
+                <li><b>Non-Streaming Tool Visibility</b> - Periodic refresh (500ms) shows tool execution in non-streaming mode without flashing</li>
+                <li><b>Smart Refresh Logic</b> - Only reloads when memory actually changes (checks message count)</li>
+                <li><b>Preserved Scroll Position</b> - Scroll position maintained during updates, auto-scrolls only if user was at bottom</li>
+                <li><b>Explicit Memory Updates</b> - setChatMemory() called after message completion ensures UI always reflects latest state</li>
+            </ul>
+
+            <h4>🔧 Quick Action Fixes</h4>
+            <ul>
+                <li><b>Honest Labeling</b> - Renamed "Commit and push all" to "Open Git UI" to accurately reflect functionality</li>
+                <li><b>Removed Dead Code</b> - Cleaned up unused COMMIT_ALL constant</li>
+            </ul>
+
+            <p><em>Major focus on user transparency and performance - you always know what's happening! 🎯</em></p>
+
             <h3>Version 1.9.906 - Smart Code Completion & UX Optimizations 🧠</h3>
             <h4>🧠 Intelligent Code Completion</h4>
             <ul>

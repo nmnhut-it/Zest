@@ -40,7 +40,6 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
 
     private object Instructions {
         const val WRITE_TEST = "__WRITE_TEST__"
-        const val COMMIT_ALL = "__COMMIT_ALL__"
         const val FILL_CODE = "__FILL_CODE__"
         const val OPEN_GIT_UI = "__OPEN_GIT_UI__"
     }
@@ -81,7 +80,6 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                 }
                 triggerTestGenerationForMethod(project, editor, methodContext)
             }
-            Instructions.COMMIT_ALL -> openGitUI(project)
             Instructions.FILL_CODE -> fillCodeAtCursor(project, editor)
             Instructions.OPEN_GIT_UI -> openGitUI(project)
             else -> {
@@ -125,11 +123,12 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                     llmService.streamQuery(prompt) { chunk -> response.append(chunk) }
                         .thenAccept {
                             val options = parseCompletionOptions(response.toString())
+                            val validOptions = validateAndFilterOptions(options)
                             com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
-                                if (options.isNotEmpty()) {
-                                    showCompletionOptionsDialog(project, editor, offset, options)
+                                if (validOptions.isNotEmpty()) {
+                                    showCompletionOptionsDialog(project, editor, offset, validOptions)
                                 } else {
-                                    com.zps.zest.ZestNotifications.showError(project, "Code Completion", "No options generated")
+                                    com.zps.zest.ZestNotifications.showError(project, "Code Completion", "No valid options generated")
                                 }
                             }
                         }
@@ -184,10 +183,21 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             options,
             beforeCursor,
             afterCursor,
-            fileType
-        ) { selectedOption ->
-            insertCodeAtOffset(editor, offset, selectedOption)
-        }
+            fileType,
+            onOptionSelected = { selectedOption ->
+                insertCodeAtOffset(editor, offset, selectedOption)
+            },
+            onRegenerate = {
+                val prompt = com.intellij.openapi.application.ApplicationManager.getApplication()
+                    .runReadAction<String> { buildFillCodePrompt(project, editor) }
+
+                val llmService = project.getService(com.zps.zest.langchain4j.naive_service.NaiveStreamingLLMService::class.java)
+                val response = StringBuilder()
+
+                llmService.streamQuery(prompt) { chunk -> response.append(chunk) }.get()
+                parseCompletionOptions(response.toString())
+            }
+        )
         dialog.show()
     }
 
@@ -200,20 +210,77 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         com.zps.zest.ZestNotifications.showInfo(project, "Code Completion", "Code inserted (Ctrl+Z to undo)")
     }
 
-    private fun parseCompletionOptions(response: String): List<String> {
-        val lines = response.trim().lines()
-        val options = mutableListOf<String>()
+    private fun validateAndFilterOptions(options: List<String>): List<String> {
+        if (options.size < 2) return options
 
-        val numberPattern = Regex("^\\s*\\d+\\.\\s*(.+)$")
-        lines.forEach { line ->
-            val match = numberPattern.find(line)
-            if (match != null) {
-                options.add(match.groupValues[1].trim())
-            }
+        val similarity = calculateSimilarity(options[0], options[1])
+        if (similarity > 0.8) {
+            logger.warn("Options too similar (${(similarity * 100).toInt()}% match), keeping only first option")
+            return listOf(options[0])
         }
 
-        if (options.isEmpty() && response.isNotBlank()) {
-            options.add(response.trim())
+        return options
+    }
+
+    private fun calculateSimilarity(s1: String, s2: String): Double {
+        if (s1 == s2) return 1.0
+        if (s1.isEmpty() || s2.isEmpty()) return 0.0
+
+        val longer = if (s1.length > s2.length) s1 else s2
+        val shorter = if (s1.length > s2.length) s2 else s1
+
+        val longerLength = longer.length
+        if (longerLength == 0) return 1.0
+
+        val editDistance = levenshteinDistance(s1, s2)
+        return (longerLength - editDistance).toDouble() / longerLength.toDouble()
+    }
+
+    private fun levenshteinDistance(s1: String, s2: String): Int {
+        val costs = IntArray(s2.length + 1) { it }
+
+        for (i in 1..s1.length) {
+            var lastValue = i
+            for (j in 1..s2.length) {
+                val newValue = if (s1[i - 1] == s2[j - 1]) {
+                    costs[j - 1]
+                } else {
+                    minOf(costs[j - 1], minOf(lastValue, costs[j])) + 1
+                }
+                costs[j - 1] = lastValue
+                lastValue = newValue
+            }
+            costs[s2.length] = lastValue
+        }
+
+        return costs[s2.length]
+    }
+
+    private fun parseCompletionOptions(response: String): List<String> {
+        var cleaned = response.trim()
+
+        cleaned = cleaned.replace(Regex("```\\w*\\n?"), "").replace(Regex("```"), "")
+
+        val lines = cleaned.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val options = mutableListOf<String>()
+
+        val numberPattern = Regex("^\\d+[\\.\\):]\\s*(.+)$")
+        val bulletPattern = Regex("^[-*]\\s*(.+)$")
+
+        for (line in lines) {
+            val numberMatch = numberPattern.find(line)
+            val bulletMatch = bulletPattern.find(line)
+
+            when {
+                numberMatch != null -> options.add(numberMatch.groupValues[1].trim())
+                bulletMatch != null && options.isEmpty() -> options.add(bulletMatch.groupValues[1].trim())
+            }
+
+            if (options.size >= 2) break
+        }
+
+        if (options.isEmpty() && cleaned.isNotBlank()) {
+            options.add(cleaned)
         }
 
         return options.take(2)
@@ -223,7 +290,6 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         val document = editor.document
         val offset = editor.caretModel.offset
         val lineNumber = document.getLineNumber(offset)
-        val columnNumber = offset - document.getLineStartOffset(lineNumber)
 
         val currentFile = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getFile(document)
         val fileName = currentFile?.name ?: "unknown"
@@ -242,7 +308,9 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             else -> "code"
         }
 
-        val contextLines = 10
+        val psiContext = extractPSIContext(project, editor, offset)
+        val cursorIntent = detectCursorIntent(editor, offset)
+        val contextLines = 100
         val startLine = maxOf(0, lineNumber - contextLines)
         val endLine = minOf(document.lineCount - 1, lineNumber + contextLines)
 
@@ -268,6 +336,17 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             appendLine("Follow existing patterns and conventions.")
             appendLine()
             appendLine("Current file: $filePath ($language)")
+
+            if (cursorIntent.isNotEmpty()) {
+                appendLine("- Cursor intent: $cursorIntent")
+            }
+
+            if (psiContext.isNotEmpty()) {
+                appendLine()
+                appendLine("Code structure context:")
+                appendLine(psiContext)
+            }
+
             appendLine()
             appendLine("Code context:")
             appendLine("```$language")
@@ -288,12 +367,94 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             appendLine("- Each option must be different from the other")
             appendLine("- Option 1: Most likely/common completion")
             appendLine("- Option 2: Alternative approach or variation")
+            appendLine("- DO NOT add imports, classes, or methods")
+            appendLine("- DO NOT add explanations or comments")
+            appendLine("- Only provide the exact code to insert at <CURSOR>")
             appendLine()
             appendLine("Response format - numbered list:")
-            appendLine("1. [first completion - most common]")
-            appendLine("2. [second completion - alternative approach]")
-            appendLine()
-            appendLine("Provide ONLY the 2 completions as a numbered list. No explanations, no markdown.")
+            appendLine("1. [first completion]")
+            appendLine("2. [second completion]")
+        }
+    }
+
+    private fun detectCursorIntent(editor: com.intellij.openapi.editor.Editor, offset: Int): String {
+        val document = editor.document
+        val lineNumber = document.getLineNumber(offset)
+        val lineStartOffset = document.getLineStartOffset(lineNumber)
+        val lineText = document.getText(
+            com.intellij.openapi.util.TextRange(lineStartOffset, document.getLineEndOffset(lineNumber))
+        ).trim()
+
+        val textBeforeCursor = document.getText(
+            com.intellij.openapi.util.TextRange(lineStartOffset, offset)
+        ).trim()
+
+        return when {
+            textBeforeCursor.endsWith("(") -> "completing method call arguments"
+            textBeforeCursor.endsWith(",") -> "adding next parameter or argument"
+            textBeforeCursor.contains("logger.") -> "completing logging statement"
+            textBeforeCursor.matches(Regex(".*\\s+(\\w+)\\s*=\\s*$")) -> "completing variable assignment"
+            textBeforeCursor.endsWith(".") -> "completing member access or method chain"
+            textBeforeCursor.matches(Regex(".*\\s+(if|while|for)\\s*\\($")) -> "completing control flow condition"
+            lineText.contains("//") || lineText.contains("/*") -> "completing comment"
+            textBeforeCursor.endsWith("{") -> "completing block body"
+            textBeforeCursor.matches(Regex(".*return\\s*$")) -> "completing return statement"
+            else -> "completing code statement"
+        }
+    }
+
+    private fun extractPSIContext(project: Project, editor: com.intellij.openapi.editor.Editor, offset: Int): String {
+        return buildString {
+            try {
+                val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document) ?: return@buildString
+                val element = psiFile.findElementAt(offset) ?: return@buildString
+
+                val containingClass = PsiTreeUtil.getParentOfType(element, PsiClass::class.java)
+                if (containingClass != null) {
+                    appendLine("- Current class: ${containingClass.qualifiedName ?: containingClass.name}")
+
+                    val methods = containingClass.methods.take(10)
+                    if (methods.isNotEmpty()) {
+                        appendLine("- Available methods: ${methods.joinToString(", ") { it.name }}")
+                    }
+
+                    val fields = containingClass.fields.take(10)
+                    if (fields.isNotEmpty()) {
+                        appendLine("- Available fields: ${fields.joinToString(", ") { "${it.name}: ${it.type.presentableText}" }}")
+                    }
+                }
+
+                val containingMethod = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)
+                if (containingMethod != null) {
+                    appendLine("- Current method: ${containingMethod.name}")
+                    val params = containingMethod.parameterList.parameters
+                    if (params.isNotEmpty()) {
+                        appendLine("- Method parameters: ${params.joinToString(", ") { "${it.name}: ${it.type.presentableText}" }}")
+                    }
+
+                    val localVars = mutableListOf<String>()
+                    containingMethod.accept(object : PsiRecursiveElementVisitor() {
+                        override fun visitElement(el: PsiElement) {
+                            if (el is PsiLocalVariable && el.textRange.endOffset < offset) {
+                                localVars.add("${el.name}: ${el.type.presentableText}")
+                            }
+                            super.visitElement(el)
+                        }
+                    })
+                    if (localVars.isNotEmpty()) {
+                        appendLine("- Variables in scope: ${localVars.take(10).joinToString(", ")}")
+                    }
+                }
+
+                if (psiFile is PsiJavaFile) {
+                    val imports = psiFile.importList?.importStatements?.take(5)
+                    if (!imports.isNullOrEmpty()) {
+                        appendLine("- Key imports: ${imports.joinToString(", ") { it.qualifiedName ?: "" }}")
+                    }
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to extract PSI context", e)
+            }
         }
     }
 
@@ -541,7 +702,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         private fun generateContextOptions(): List<RewriteOption> {
             val globalActions = listOf(
                 RewriteOption("📝", "Fill code at cursor", Instructions.FILL_CODE, requiresMethod = false),
-                RewriteOption("🚀", "Commit and push all", Instructions.COMMIT_ALL, requiresMethod = false)
+                RewriteOption("🚀", "Open Git UI", Instructions.OPEN_GIT_UI, requiresMethod = false)
             )
 
             if (methodContext == null) {
@@ -950,11 +1111,12 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
  */
 private class CodeCompletionOptionsDialog(
     private val project: Project,
-    private val options: List<String>,
+    private var options: List<String>,
     private val beforeCursor: String,
     private val afterCursor: String,
     private val fileType: com.intellij.openapi.fileTypes.FileType,
-    private val onOptionSelected: (String) -> Unit
+    private val onOptionSelected: (String) -> Unit,
+    private val onRegenerate: (() -> List<String>)? = null
 ) : DialogWrapper(project) {
 
     private var selectedIndex = 0
@@ -965,14 +1127,74 @@ private class CodeCompletionOptionsDialog(
         init()
     }
 
+    private fun regenerateOptions() {
+        if (onRegenerate != null) {
+            val loadingPanel = JPanel(BorderLayout())
+            loadingPanel.add(JLabel("🔄 Regenerating options..."), BorderLayout.CENTER)
+            contentPanel?.removeAll()
+            contentPanel?.add(loadingPanel)
+            contentPanel?.revalidate()
+            contentPanel?.repaint()
+
+            com.intellij.openapi.application.ApplicationManager.getApplication().executeOnPooledThread {
+                try {
+                    val newOptions = onRegenerate.invoke()
+                    com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                        if (newOptions.isNotEmpty()) {
+                            options = newOptions
+                            refreshDialog()
+                        } else {
+                            com.zps.zest.ZestNotifications.showError(project, "Code Completion", "Failed to regenerate options")
+                        }
+                    }
+                } catch (e: Exception) {
+                    com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                        com.zps.zest.ZestNotifications.showError(project, "Code Completion", "Regenerate failed: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun refreshDialog() {
+        contentPanel?.removeAll()
+        contentPanel?.add(createCenterPanel())
+        contentPanel?.revalidate()
+        contentPanel?.repaint()
+        pack()
+    }
+
+    private fun calculateResponsiveSize(): Dimension {
+        val frame = com.intellij.openapi.wm.WindowManager.getInstance().getFrame(project)
+        val bounds = frame?.bounds ?: run {
+            val screenSize = Toolkit.getDefaultToolkit().screenSize
+            Rectangle(0, 0, screenSize.width, screenSize.height)
+        }
+
+        val width = (bounds.width * 0.75).toInt().coerceIn(900, 1600)
+        val height = (bounds.height * 0.65).toInt().coerceIn(500, 900)
+
+        return JBUI.size(width, height)
+    }
+
     override fun createCenterPanel(): JComponent {
+        val dialogSize = calculateResponsiveSize()
         val mainPanel = JPanel(BorderLayout())
-        mainPanel.preferredSize = JBUI.size(900, 400)
+        mainPanel.preferredSize = dialogSize
+
+        val headerPanel = JPanel(BorderLayout())
+        headerPanel.border = JBUI.Borders.empty(10)
 
         val headerLabel = JLabel("Select completion: Press 1 or 2 (or ←/→ + Enter)")
         headerLabel.font = headerLabel.font.deriveFont(Font.BOLD, 14f)
-        headerLabel.border = JBUI.Borders.empty(10)
-        mainPanel.add(headerLabel, BorderLayout.NORTH)
+        headerPanel.add(headerLabel, BorderLayout.WEST)
+
+        val regenerateLabel = JLabel("Press R to regenerate")
+        regenerateLabel.font = regenerateLabel.font.deriveFont(Font.PLAIN, 12f)
+        regenerateLabel.foreground = JBColor.GRAY
+        headerPanel.add(regenerateLabel, BorderLayout.EAST)
+
+        mainPanel.add(headerPanel, BorderLayout.NORTH)
 
         val optionsPanel = JPanel(GridLayout(1, 2, 10, 0))
         optionsPanel.border = JBUI.Borders.empty(0, 10, 10, 10)
@@ -996,6 +1218,7 @@ private class CodeCompletionOptionsDialog(
                     KeyEvent.VK_LEFT -> { selectedIndex = 0; updateSelection(); e.consume() }
                     KeyEvent.VK_RIGHT -> { selectedIndex = 1; updateSelection(); e.consume() }
                     KeyEvent.VK_ENTER -> { selectOption(selectedIndex); e.consume() }
+                    KeyEvent.VK_R -> { regenerateOptions(); e.consume() }
                     KeyEvent.VK_ESCAPE -> { close(CANCEL_EXIT_CODE); e.consume() }
                 }
             }
@@ -1018,7 +1241,11 @@ private class CodeCompletionOptionsDialog(
         val editorField = com.intellij.ui.EditorTextField(previewText, project, fileType)
         editorField.setOneLineMode(false)
         editorField.isViewer = true
-        editorField.preferredSize = JBUI.size(400, 300)
+
+        val dialogSize = calculateResponsiveSize()
+        val panelWidth = (dialogSize.width * 0.45).toInt()
+        val panelHeight = (dialogSize.height * 0.75).toInt()
+        editorField.preferredSize = JBUI.size(panelWidth, panelHeight)
 
         editorField.addSettingsProvider { editor ->
             editor.settings.isLineNumbersShown = true

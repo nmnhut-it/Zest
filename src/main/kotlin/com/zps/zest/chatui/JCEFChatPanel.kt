@@ -175,15 +175,32 @@ class JCEFChatPanel(
         updateChatDisplay()
     }
     
-    /**
-     * Update the entire chat display
-     */
     private fun updateChatDisplay() {
         val html = generateChatHtml()
-        // Use base64 encoding to avoid URL encoding issues
         val encodedHtml = java.util.Base64.getEncoder().encodeToString(html.toByteArray())
         val dataUrl = "data:text/html;base64,$encodedHtml"
+
+        browserManager.executeJavaScript("""
+            (function() {
+                const scrollY = window.scrollY;
+                const maxScroll = document.body.scrollHeight - window.innerHeight;
+                const wasAtBottom = scrollY >= maxScroll - 50;
+                window.__preservedScrollY = wasAtBottom ? -1 : scrollY;
+            })();
+        """)
+
         browserManager.loadURL(dataUrl)
+
+        browserManager.executeJavaScript("""
+            setTimeout(function() {
+                const scrollY = window.__preservedScrollY;
+                if (scrollY === -1) {
+                    window.scrollTo(0, document.body.scrollHeight);
+                } else if (scrollY !== undefined) {
+                    window.scrollTo(0, scrollY);
+                }
+            }, 100);
+        """)
     }
     
     /**

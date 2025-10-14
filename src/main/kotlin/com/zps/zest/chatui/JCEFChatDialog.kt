@@ -257,6 +257,7 @@ class JCEFChatDialog(
             onComplete = { fullResponse ->
                 ApplicationManager.getApplication().invokeLater {
                     chatPanel.finalizeStreaming()
+                    chatPanel.setChatMemory(chatService.getChatMemory())
 
                     // Reset UI state
                     isProcessing = false
@@ -301,14 +302,30 @@ class JCEFChatDialog(
 
         // Add temporary DOM-only chunks
         chatPanel.addTemporaryChunk("👤 **You**", userMessage, "user")
-        chatPanel.addTemporaryChunk("🤖 **AI**", "Thinking...", "ai")
+        chatPanel.addTemporaryChunk("🤖 **AI**", "Processing (tools may be executing)...", "ai")
+
+        var lastMessageCount = chatService.getChatMemory().messages().size
+        val refreshTimer = java.util.Timer()
+        refreshTimer.scheduleAtFixedRate(object : java.util.TimerTask() {
+            override fun run() {
+                val currentCount = chatService.getChatMemory().messages().size
+                if (currentCount != lastMessageCount) {
+                    lastMessageCount = currentCount
+                    ApplicationManager.getApplication().invokeLater {
+                        chatPanel.setChatMemory(chatService.getChatMemory())
+                    }
+                }
+            }
+        }, 500, 500)
 
         // Send to AI without streaming
         chatService.sendMessage(
             userMessage,
             onComplete = { response ->
+                refreshTimer.cancel()
                 ApplicationManager.getApplication().invokeLater {
                     chatPanel.finalizeStreaming()
+                    chatPanel.setChatMemory(chatService.getChatMemory())
 
                     // Reset UI state
                     isProcessing = false
@@ -320,6 +337,7 @@ class JCEFChatDialog(
                 }
             },
             onError = { error ->
+                refreshTimer.cancel()
                 ApplicationManager.getApplication().invokeLater {
                     // Show error as temporary chunk
                     chatPanel.addTemporaryChunk("❌ **Error**", "Failed: ${error.message}", "system")

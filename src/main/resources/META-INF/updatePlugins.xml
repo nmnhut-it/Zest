@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.904">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.906">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,6 +9,53 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
+            <h3>Version 1.9.906 - Smart Code Completion & UX Optimizations 🧠</h3>
+            <h4>🧠 Intelligent Code Completion</h4>
+            <ul>
+                <li><b>PSI-Based Context Analysis</b> - AI now knows available methods, fields, variables (with types), imports, and class structure for contextual completions</li>
+                <li><b>Intent Detection</b> - Automatically detects cursor context: method call arguments, variable assignment, return statement, member access, etc.</li>
+                <li><b>Massive Context Window</b> - Increased from 10 to 100 lines before/after cursor - AI sees entire class for better pattern understanding</li>
+                <li><b>Open Files Context</b> - Includes code from up to 3 other open editor tabs to understand cross-file dependencies</li>
+            </ul>
+
+            <h4>✨ Enhanced Completion Dialog</h4>
+            <ul>
+                <li><b>Side-by-Side Preview</b> - 2 completion options shown in parallel with syntax highlighting and line numbers</li>
+                <li><b>Yellow Highlighting</b> - New code clearly marked with bright yellow background and orange border in preview</li>
+                <li><b>Responsive Sizing</b> - Dialog adapts to screen size (75% width × 65% height) - bigger on large monitors</li>
+                <li><b>Regenerate Feature</b> - Press R to get new options without restarting - try up to 3 times</li>
+            </ul>
+
+            <h4>🔧 Git UI State Management</h4>
+            <ul>
+                <li><b>Context Limit Detection</b> - Pre-checks diff size (100KB max, 50KB warning) before calling AI</li>
+                <li><b>Progress Tracking</b> - Buttons show state: "Generating... 5s", "Committing...", "Pushing..." with spinners</li>
+                <li><b>Enhanced Error Handling</b> - Clear error messages for timeouts, context limits, and model failures with actionable guidance</li>
+                <li><b>Session Timeouts</b> - 120-second timeout on both client and server with user-friendly messages</li>
+            </ul>
+
+            <h4>⌨️ Quick Action Improvements</h4>
+            <ul>
+                <li><b>Context-Aware Menu</b> - Works anywhere (not just in methods) with global actions: "Fill code at cursor", "Commit and push all"</li>
+                <li><b>Smart Disabled States</b> - Options requiring method context shown in gray with explanation "(requires cursor in method)"</li>
+                <li><b>Pure Keyboard UX</b> - Complete workflow without mouse: Quick Action → Number → Number → Done</li>
+            </ul>
+
+            <h4>✅ Quality Validation</h4>
+            <ul>
+                <li><b>Similarity Checking</b> - Automatic Levenshtein distance calculation prevents duplicate options (>80% similar = rejected)</li>
+                <li><b>Better Parsing</b> - Handles markdown code blocks, multiple numbering formats (1. 1) 1:), and AI explanations gracefully</li>
+                <li><b>Format Flexibility</b> - Accepts numbered lists, bullet points, or plain text from AI responses</li>
+            </ul>
+
+            <h4>💬 Chat UI Fixes</h4>
+            <ul>
+                <li><b>MessageDetailDialog Fixed</b> - Messages now render correctly with proper temporary chat memory initialization</li>
+                <li><b>JCEFChatPanel Enhancement</b> - Chat memory now required in constructor, preventing race conditions and empty displays</li>
+            </ul>
+
+            <p><em>Major UX overhaul focused on better AI results through smarter context and user visibility! 🎉</em></p>
+
             <h3>Version 1.9.904 - Comprehensive Metrics System & Session Logging 📊</h3>
             <h4>🎯 Complete Metrics System Refactoring</h4>
             <ul>

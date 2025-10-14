@@ -182,8 +182,10 @@ public class ToolApiServer {
                 String excludePattern = getStringParam(request, "excludePattern", "arg2");
                 Integer beforeLines = getIntParam(request, "beforeLines", "arg3", 0);
                 Integer afterLines = getIntParam(request, "afterLines", "arg4", 0);
+                Boolean multiline = request.has("multiline") ? request.get("multiline").getAsBoolean()
+                                  : request.has("arg5") ? request.get("arg5").getAsBoolean() : false;
 
-                String result = ripgrepTool.searchCode(query, filePattern, excludePattern, beforeLines, afterLines);
+                String result = ripgrepTool.searchCode(query, filePattern, excludePattern, beforeLines, afterLines, multiline);
                 return createSuccessResponse(result);
             });
         }

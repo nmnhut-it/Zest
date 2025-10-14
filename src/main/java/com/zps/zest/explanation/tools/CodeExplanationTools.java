@@ -110,12 +110,18 @@ public class CodeExplanationTools {
         }
     }
 
-    @Tool("Search for code patterns, text, or keywords across the entire project using grep-like functionality")
-    public String searchCode(String query, String filePattern, String excludePattern) {
-        String params = String.format("query: '%s', files: %s", query, 
-            filePattern != null ? filePattern : "all files");
+    @Tool("Search for code patterns, text, or keywords across the entire project using grep-like functionality. " +
+          "Set multiline=true for patterns that span multiple lines (e.g., 'method.*?}'), false for single-line patterns (faster).")
+    public String searchCode(String query, String filePattern, String excludePattern,
+                            Integer beforeLines, Integer afterLines, Boolean multiline) {
+        if (beforeLines == null) beforeLines = 0;
+        if (afterLines == null) afterLines = 0;
+        if (multiline == null) multiline = false;
+
+        String params = String.format("query: '%s', files: %s, multiline: %s", query,
+            filePattern != null ? filePattern : "all files", multiline);
         notifyTool("searchCode", params);
-        String result = ripgrepCodeTool.searchCode(query, filePattern, excludePattern);
+        String result = ripgrepCodeTool.searchCode(query, filePattern, excludePattern, beforeLines, afterLines, multiline);
         
         // Parse the search result to extract file paths and usage patterns
         try {

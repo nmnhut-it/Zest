@@ -85,13 +85,20 @@ public class GrepSearchTool extends BaseCodeExplorationTool {
         afterLines.addProperty("minimum", 0);
         afterLines.addProperty("maximum", 5);
         properties.add("afterLines", afterLines);
-        
+
+        // Optional: multiline
+        JsonObject multiline = new JsonObject();
+        multiline.addProperty("type", "boolean");
+        multiline.addProperty("description", "Enable multiline matching for patterns spanning lines (default: false). Use true for patterns like 'private void.*?\\}' that match across newlines");
+        multiline.addProperty("default", false);
+        properties.add("multiline", multiline);
+
         schema.add("properties", properties);
-        
+
         JsonArray required = new JsonArray();
         required.add("query");
         schema.add("required", required);
-        
+
         return schema;
     }
     
@@ -102,7 +109,8 @@ public class GrepSearchTool extends BaseCodeExplorationTool {
         String excludePattern = getOptionalString(parameters, "excludePattern", null);
         int contextLines = parameters.has("contextLines") ? parameters.get("contextLines").getAsInt() : 0;
         boolean caseSensitive = parameters.has("caseSensitive") && parameters.get("caseSensitive").getAsBoolean();
-        
+        boolean multiline = parameters.has("multiline") && parameters.get("multiline").getAsBoolean();
+
         // Check for specific before/after lines
         int beforeLines = parameters.has("beforeLines") ? parameters.get("beforeLines").getAsInt() : contextLines;
         int afterLines = parameters.has("afterLines") ? parameters.get("afterLines").getAsInt() : contextLines;
@@ -126,9 +134,9 @@ public class GrepSearchTool extends BaseCodeExplorationTool {
                 finalAfterLines = contextLines;
             }
 
-            // Use unified searchCode method with before/after parameters
+            // Use unified searchCode method with before/after and multiline parameters
             String result = ripgrep.searchCode(query, filePattern, excludePattern,
-                                              finalBeforeLines, finalAfterLines);
+                                              finalBeforeLines, finalAfterLines, multiline);
             
             // Create metadata
             JsonObject metadata = createMetadata();

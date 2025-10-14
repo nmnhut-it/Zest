@@ -50,7 +50,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
             "}");
 
         // Test basic annotation search
-        String result = ripgrepTool.searchCode("@Test", null, null);
+        String result = ripgrepTool.searchCode("@Test", null, null, 0, 0, false);
 
         // Should either find results with ripgrep or show installation message
         assertTrue("Should contain @Test results or installation message",
@@ -68,7 +68,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
             "}");
 
         // Test regex pattern for email-like strings
-        String result = ripgrepTool.searchCode("[a-zA-Z]+@[a-zA-Z]+\\.[a-zA-Z]+", null, null);
+        String result = ripgrepTool.searchCode("[a-zA-Z]+@[a-zA-Z]+\\.[a-zA-Z]+", null, null, 0, 0, false);
 
         assertTrue("Should find email patterns or show availability message",
                    (result.contains("@example.com") || result.contains("@site.org"))
@@ -84,7 +84,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
             "}");
 
         // Case-insensitive search should find all variations
-        String result = ripgrepTool.searchCode("test", null, null);
+        String result = ripgrepTool.searchCode("test", null, null, 0, 0, false);
 
         if (!result.contains("Ripgrep not available")) {
             assertTrue("Case-insensitive search should find multiple matches",
@@ -101,7 +101,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
         myFixture.addFileToProject("config.properties", "database.url=localhost");
 
         // Test Java files only
-        String result = ripgrepTool.searchCode("@Entity", "*.java", null);
+        String result = ripgrepTool.searchCode("@Entity", "*.java", null, 0, 0, false);
 
         if (!result.contains("Ripgrep not available")) {
             assertTrue("Should find pattern in Java files only",
@@ -118,7 +118,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
         myFixture.addFileToProject("style.css", ".process { color: red; }");
 
         // Test multiple extension patterns
-        String result = ripgrepTool.searchCode("process", "*.{java,kt}", null);
+        String result = ripgrepTool.searchCode("process", "*.{java,kt}", null, 0, 0, false);
 
         if (!result.contains("Ripgrep not available")) {
             assertTrue("Should find in Java files", result.contains("Main.java"));
@@ -134,7 +134,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
         myFixture.addFileToProject("docs/App.java", "public class App { void document() {} }");
 
         // Test recursive glob pattern
-        String result = ripgrepTool.searchCode("start", "src/**/*.java", null);
+        String result = ripgrepTool.searchCode("start", "src/**/*.java", null, 0, 0, false);
 
         if (!result.contains("Ripgrep not available")) {
             assertTrue("Should find in src directories",
@@ -151,7 +151,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
         myFixture.addFileToProject("TestHelper.java", "public class TestHelper { @Test void help() {} }");
 
         // Exclude test files
-        String result = ripgrepTool.searchCode("@Test", null, "*Test*");
+        String result = ripgrepTool.searchCode("@Test", null, "*Test*", 0, 0, false);
 
         if (!result.contains("Ripgrep not available")) {
             assertTrue("Should find in non-test files", result.contains("Main.java"));
@@ -167,7 +167,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
         myFixture.addFileToProject("docs/Doc.java", "public class Doc { void run() {} }");
 
         // Exclude multiple patterns
-        String result = ripgrepTool.searchCode("run", null, "test,build");
+        String result = ripgrepTool.searchCode("run", null, "test,build", 0, 0, false);
 
         if (!result.contains("Ripgrep not available")) {
             assertTrue("Should find in src files", result.contains("src/Main.java"));
@@ -189,7 +189,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
             "}");
 
         // Test with context lines
-        String result = ripgrepTool.searchCode("testMethod", null, null, 1, 1);
+        String result = ripgrepTool.searchCode("testMethod", null, null, 1, 1, false);
 
         if (!result.contains("Ripgrep not available")) {
             assertTrue("Should contain the match", result.contains("testMethod"));
@@ -206,7 +206,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
             "    }\n" +
             "}");
 
-        String result = ripgrepTool.searchCode("targetMethod", null, null, 2,0);
+        String result = ripgrepTool.searchCode("targetMethod", null, null, 2, 0, false);
 
         if (!result.contains("Ripgrep not available")) {
             assertTrue("Should find target method", result.contains("targetMethod"));
@@ -223,7 +223,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
             "    }\n" +
             "}");
 
-        String result = ripgrepTool.searchCode("targetMethod", null, null, 0,3);
+        String result = ripgrepTool.searchCode("targetMethod", null, null, 0, 3, false);
 
 
         if (!result.contains("Ripgrep not available")) {
@@ -268,7 +268,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
     public void testEmptyQuery() {
         myFixture.addFileToProject("Test.java", "public class Test { }");
 
-        String result = ripgrepTool.searchCode("", null, null);
+        String result = ripgrepTool.searchCode("", null, null, 0, 0, false);
         assertNotNull("Should handle empty query", result);
     }
 
@@ -276,7 +276,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
         myFixture.addFileToProject("Test.java", "public class Test { }");
 
         try {
-            String result = ripgrepTool.searchCode(null, null, null);
+            String result = ripgrepTool.searchCode(null, null, null, 0, 0, false);
             assertNotNull("Should handle null query", result);
         } catch (NullPointerException e) {
             fail("Should not throw NPE for null query");
@@ -287,7 +287,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
         myFixture.addFileToProject("Test.java", "public class Test { }");
 
         // Invalid regex pattern
-        String result = ripgrepTool.searchCode("[[[", null, null);
+        String result = ripgrepTool.searchCode("[[[", null, null, 0, 0, false);
         assertNotNull("Should handle invalid regex", result);
         assertTrue("Should return error or no results",
                    result.contains("Error") || result.contains("No results") || result.contains("Ripgrep not available"));
@@ -300,7 +300,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
                 "public class Test" + i + " { void commonMethod() {} }");
         }
 
-        String result = ripgrepTool.searchCode("commonMethod", null, null);
+        String result = ripgrepTool.searchCode("commonMethod", null, null, 0, 0, false);
 
         if (!result.contains("Ripgrep not available")) {
             // Should limit results (MAX_RESULTS is 20)
@@ -328,9 +328,9 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
         usagePatterns.clear();
 
         // Search for imports
-        ripgrepTool.searchCode("Service", null, null);
+        ripgrepTool.searchCode("Service", null, null, 0, 0, false);
 
-        if (!ripgrepTool.searchCode("Service", null, null).contains("Ripgrep not available")) {
+        if (!ripgrepTool.searchCode("Service", null, null, 0, 0, false).contains("Ripgrep not available")) {
             // Check if usage patterns were recorded
             boolean hasImportPattern = usagePatterns.stream()
                 .anyMatch(p -> p.contains("Import") && p.contains("Service"));
@@ -350,9 +350,9 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
         relatedFiles.clear();
 
         // Search that should find both files
-        ripgrepTool.searchCode("test", null, null);
+        ripgrepTool.searchCode("test", null, null, 0, 0, false);
 
-        if (!ripgrepTool.searchCode("test", null, null).contains("Ripgrep not available")) {
+        if (!ripgrepTool.searchCode("test", null, null, 0, 0, false).contains("Ripgrep not available")) {
             // Check if files were added to relatedFiles
             assertFalse("Should track related files", relatedFiles.isEmpty());
         }
@@ -362,7 +362,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
 
     public void testPlatformDetection() {
         // This test verifies the tool works on the current platform
-        String result = ripgrepTool.searchCode("test", null, null);
+        String result = ripgrepTool.searchCode("test", null, null, 0, 0, false);
 
         assertNotNull("Should work on current platform", result);
         assertFalse("Should not return null or empty", result.trim().isEmpty());
@@ -370,7 +370,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
 
     public void testRipgrepAvailability() {
         // Test that the tool handles ripgrep availability gracefully
-        String result = ripgrepTool.searchCode("test", null, null);
+        String result = ripgrepTool.searchCode("test", null, null, 0, 0, false);
 
         assertNotNull("Result should not be null", result);
         assertFalse("Result should not be empty", result.trim().isEmpty());
@@ -390,7 +390,7 @@ public class RipgrepCodeToolTest extends LightJavaCodeInsightFixtureTestCase {
             String.join("\n", Collections.nCopies(1000, "public void method() { /* complex */ }")));
 
         long startTime = System.currentTimeMillis();
-        String result = ripgrepTool.searchCode("complex", null, null);
+        String result = ripgrepTool.searchCode("complex", null, null, 0, 0, false);
         long endTime = System.currentTimeMillis();
 
         assertNotNull("Should complete within timeout", result);

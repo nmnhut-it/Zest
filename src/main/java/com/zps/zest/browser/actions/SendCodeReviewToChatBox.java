@@ -124,14 +124,14 @@ public class SendCodeReviewToChatBox extends BaseChatAction {
                 context.testFiles = parseFileList(testSearchResult);
 
                 // Search for usage patterns
-                String usageResult = ripgrepTool.searchCode(className, "*.java", null, 2, 2);
+                String usageResult = ripgrepTool.searchCode(className, "*.java", null, 2, 2, false);
                 context.usagePatterns = extractUsageExamples(usageResult, className);
             }
 
             // Search for similar patterns in the codebase
             if (!methodNames.isEmpty()) {
                 for (String methodName : methodNames) {
-                    String similarResult = ripgrepTool.searchCode(methodName, "*.java", null, 1, 1);
+                    String similarResult = ripgrepTool.searchCode(methodName, "*.java", null, 1, 1, false);
                     context.similarImplementations.add("Method '" + methodName + "' found in: " +
                                                      countOccurrences(similarResult));
                 }

@@ -344,7 +344,8 @@ class RipgrepTestDialog(private val project: Project) : DialogWrapper(project, t
                             filePatternField.text.ifEmpty { null },
                             excludePatternField.text.ifEmpty { null },
                             0,  // no before lines
-                            0   // no after lines
+                            0,  // no after lines
+                            false  // multiline
                         )
                     }
                     findFilesRadio.isSelected -> {
@@ -359,7 +360,8 @@ class RipgrepTestDialog(private val project: Project) : DialogWrapper(project, t
                             filePatternField.text.ifEmpty { null },
                             excludePatternField.text.ifEmpty { null },
                             contextLines,  // same before and after
-                            contextLines   // same before and after
+                            contextLines,  // same before and after
+                            false  // multiline
                         )
                     }
                     beforeContextRadio.isSelected -> {
@@ -368,7 +370,8 @@ class RipgrepTestDialog(private val project: Project) : DialogWrapper(project, t
                             filePatternField.text.ifEmpty { null },
                             excludePatternField.text.ifEmpty { null },
                             beforeLinesSpinner.value as Int,  // only before
-                            0   // no after
+                            0,  // no after
+                            false  // multiline
                         )
                     }
                     afterContextRadio.isSelected -> {
@@ -377,7 +380,8 @@ class RipgrepTestDialog(private val project: Project) : DialogWrapper(project, t
                             filePatternField.text.ifEmpty { null },
                             excludePatternField.text.ifEmpty { null },
                             0,  // no before
-                            afterLinesSpinner.value as Int   // only after
+                            afterLinesSpinner.value as Int,  // only after
+                            false  // multiline
                         )
                     }
                     else -> "No test mode selected"

@@ -111,7 +111,7 @@ function createToolBadges(toolCalls) {
 }
 
 /**
- * Show tool details in a simple alert or modal
+ * Show tool details in custom modal
  */
 function showToolDetails(tool) {
     let argsText;
@@ -122,14 +122,85 @@ function showToolDetails(tool) {
         argsText = tool.args;
     }
 
-    let details = '🔧 ' + tool.name + '\n\n';
-    details += 'Arguments:\n' + argsText;
+    const overlay = document.createElement('div');
+    overlay.className = 'tool-modal-overlay';
+    overlay.onclick = function() { closeToolModal(); };
+
+    const modal = document.createElement('div');
+    modal.className = 'tool-modal-content';
+    modal.onclick = function(e) { e.stopPropagation(); };
+
+    const header = document.createElement('div');
+    header.className = 'tool-modal-header';
+    header.innerHTML = '<h3>🔧 ' + escapeHtml(tool.name) + '</h3>' +
+                       '<button class="tool-modal-close" onclick="closeToolModal()">✕</button>';
+
+    const body = document.createElement('div');
+    body.className = 'tool-modal-body';
+
+    const argsSection = document.createElement('div');
+    argsSection.className = 'tool-modal-section';
+    argsSection.innerHTML = '<h4>Arguments:</h4>' +
+                            '<pre><code class="json">' + escapeHtml(argsText) + '</code></pre>' +
+                            '<button class="copy-btn" onclick="copyToolContent(\'' +
+                            escapeHtml(argsText).replace(/'/g, "\\'") + '\')">📋 Copy</button>';
+
+    body.appendChild(argsSection);
 
     if (tool.result) {
-        details += '\n\nResult:\n' + tool.result;
+        const resultSection = document.createElement('div');
+        resultSection.className = 'tool-modal-section';
+        resultSection.innerHTML = '<h4>Result:</h4>' +
+                                  '<pre><code>' + escapeHtml(tool.result) + '</code></pre>' +
+                                  '<button class="copy-btn" onclick="copyToolContent(\'' +
+                                  escapeHtml(tool.result).replace(/'/g, "\\'") + '\')">📋 Copy</button>';
+        body.appendChild(resultSection);
     }
 
-    alert(details);
+    modal.appendChild(header);
+    modal.appendChild(body);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    if (typeof hljs !== 'undefined') {
+        hljs.highlightElement(modal.querySelector('code.json'));
+    }
+
+    document.addEventListener('keydown', handleModalEscape);
+}
+
+/**
+ * Close tool modal
+ */
+function closeToolModal() {
+    const overlay = document.querySelector('.tool-modal-overlay');
+    if (overlay) {
+        overlay.remove();
+    }
+    document.removeEventListener('keydown', handleModalEscape);
+}
+
+/**
+ * Handle Escape key for modal
+ */
+function handleModalEscape(e) {
+    if (e.key === 'Escape') {
+        closeToolModal();
+    }
+}
+
+/**
+ * Copy tool content to clipboard
+ */
+function copyToolContent(text) {
+    navigator.clipboard.writeText(text).then(function() {
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.textContent = '✓ Copied!';
+        setTimeout(function() {
+            btn.textContent = originalText;
+        }, 2000);
+    });
 }
 
 /**

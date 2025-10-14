@@ -128,19 +128,15 @@ public class CodeModificationTools {
                         virtualFile.getFileType(),
                         virtualFile.getName(),
                         (kotlin.jvm.functions.Function0<kotlin.Unit>) () -> {
-                            // onAccept - Apply the change
-                            applyReplacement(editor, startOffset, endOffset, modifiedContent);
                             resultFuture.complete(true);
                             return kotlin.Unit.INSTANCE;
                         },
                         (kotlin.jvm.functions.Function0<kotlin.Unit>) () -> {
-                            // onReject
                             resultFuture.complete(false);
                             return kotlin.Unit.INSTANCE;
                         }
                     );
                 } else {
-                    // Fallback to non-modal if no parent available
                     MethodRewriteDiffDialogV2.Companion.show(
                         project,
                         editor,
@@ -151,7 +147,6 @@ public class CodeModificationTools {
                         virtualFile.getFileType(),
                         virtualFile.getName(),
                         (kotlin.jvm.functions.Function0<kotlin.Unit>) () -> {
-                            applyReplacement(editor, startOffset, endOffset, modifiedContent);
                             resultFuture.complete(true);
                             return kotlin.Unit.INSTANCE;
                         },
@@ -163,11 +158,12 @@ public class CodeModificationTools {
                 }
             });
 
-            // Wait for user decision (timeout after 5 minutes)
             Boolean accepted = resultFuture.get(5, TimeUnit.MINUTES);
 
             if (accepted) {
-                // Get updated content after replacement to show context
+                CompletableFuture<Void> applyFuture = applyReplacement(editor, startOffset, endOffset, modifiedContent);
+                applyFuture.get(30, TimeUnit.SECONDS);
+
                 String updatedContent = ApplicationManager.getApplication().runReadAction(
                     (Computable<String>) () -> editor.getDocument().getText()
                 );
@@ -429,30 +425,36 @@ public class CodeModificationTools {
         }
     }
 
-    private void applyReplacement(Editor editor, int startOffset, int endOffset, String newContent) {
-        // MUST be on EDT for write operations
+    private CompletableFuture<Void> applyReplacement(Editor editor, int startOffset, int endOffset, String newContent) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+
         ApplicationManager.getApplication().invokeLater(() -> {
             WriteCommandAction.runWriteCommandAction(project, () -> {
-                // Replace the code
-                editor.getDocument().replaceString(startOffset, endOffset, newContent);
+                try {
+                    editor.getDocument().replaceString(startOffset, endOffset, newContent);
 
-                // Commit document to sync PSI
-                PsiDocumentManager psiDocManager = PsiDocumentManager.getInstance(project);
-                psiDocManager.commitDocument(editor.getDocument());
+                    PsiDocumentManager psiDocManager = PsiDocumentManager.getInstance(project);
+                    psiDocManager.commitDocument(editor.getDocument());
 
-                // Reformat the changed range
-                com.intellij.psi.PsiFile psiFile = psiDocManager.getPsiFile(editor.getDocument());
-                if (psiFile != null) {
-                    try {
-                        int newEndOffset = startOffset + newContent.length();
-                        com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
-                                .reformatRange(psiFile, startOffset, newEndOffset);
-                    } catch (Exception e) {
-                        LOG.warn("Failed to reformat code after replacement", e);
+                    com.intellij.psi.PsiFile psiFile = psiDocManager.getPsiFile(editor.getDocument());
+                    if (psiFile != null) {
+                        try {
+                            int newEndOffset = startOffset + newContent.length();
+                            com.intellij.psi.codeStyle.CodeStyleManager.getInstance(project)
+                                    .reformatRange(psiFile, startOffset, newEndOffset);
+                        } catch (Exception e) {
+                            LOG.warn("Failed to reformat code after replacement", e);
+                        }
                     }
+
+                    future.complete(null);
+                } catch (Exception e) {
+                    future.completeExceptionally(e);
                 }
             });
         });
+
+        return future;
     }
 
     /**

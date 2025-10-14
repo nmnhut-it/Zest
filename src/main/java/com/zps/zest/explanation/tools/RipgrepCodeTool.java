@@ -51,9 +51,10 @@ public class RipgrepCodeTool {
         Search for patterns INSIDE file contents across the entire project using high-performance ripgrep.
         This searches the text content of files, not file names. Use findFiles() to search file names.
 
-        KEY DIFFERENCE:
+        KEY FEATURES:
         - query: Uses REGEX syntax (| works for OR, e.g., "TODO|FIXME")
         - filePattern: Uses GLOB syntax OR specific file path (auto-detected)
+        - multiline: Explicit control for cross-line pattern matching
 
         Parameters:
         - query: The search pattern (REGEX) to find in file contents
@@ -61,27 +62,33 @@ public class RipgrepCodeTool {
         - excludePattern: Optional comma-separated patterns to exclude files (only for glob patterns)
         - beforeLines: Number of lines to show before each match (0-10)
         - afterLines: Number of lines to show after each match (0-10)
+        - multiline: Enable multiline matching for patterns spanning multiple lines (default: false)
 
         filePattern Formats (auto-detected):
         1. GLOB pattern: "*.java" - Searches all Java files
         2. File name: "Service.java" - Searches any file named Service.java
         3. SPECIFIC PATH: "src/main/java/Service.java" - Searches ONLY that exact file
 
+        When to use multiline (true vs false):
+        - multiline=false: Single-line patterns (faster) - "import.*ArrayList", "TODO", "getUserById"
+        - multiline=true: Cross-line patterns (slower) - "private void.*?\\}", "class.*?\\{.*?\\}"
+
+        Performance note: Multiline mode is significantly slower. Only use when pattern must span lines.
+
         Examples:
-        - searchCode("TODO|FIXME", "*.java,*.kt", null, 0, 0) - Find in all Java/Kotlin files
-        - searchCode("getUserById", "*.java", "test,generated", 0, 0) - Find in Java, exclude test/generated
-        - searchCode("import.*ArrayList", "src/main/java/Service.java", null, 0, 0) - Search ONLY that exact file
-        - searchCode("void", "com/example/UserService.java", null, 10, 10) - Search exact file with context
+        - searchCode("TODO|FIXME", "*.java,*.kt", null, 0, 0, false) - Single-line search
+        - searchCode("getUserById", "*.java", "test,generated", 0, 0, false) - Single-line
+        - searchCode("import.*ArrayList", "src/main/java/Service.java", null, 0, 0, false) - Single-line in specific file
+        - searchCode("private void processPayload.*?\\}", "Service.java", null, 0, 0, true) - MULTILINE: entire method
 
         Those examples illustrate only notable usages of this tool, not how to call it.
         """)
     public String searchCode(String query, @Nullable String filePattern, @Nullable String excludePattern,
-                           Integer beforeLines, Integer afterLines) {
+                           Integer beforeLines, Integer afterLines, @Nullable Boolean multiline) {
         if (query == null || query.trim().isEmpty()) {
             return "Error: Search query cannot be empty";
         }
 
-        // Check for null values and return error
         if (beforeLines == null) {
             return "Error: beforeLines parameter cannot be null";
         }
@@ -89,27 +96,19 @@ public class RipgrepCodeTool {
             return "Error: afterLines parameter cannot be null";
         }
 
-        // Validate context lines are within reasonable bounds
         beforeLines = Math.max(0, Math.min(10, beforeLines));
         afterLines = Math.max(0, Math.min(10, afterLines));
 
-        // Try as exact file path first (fallback to glob if not found)
+        boolean isMultiline = multiline != null && multiline;
+
         if (filePattern != null && !filePattern.isEmpty()) {
             String absolutePath = tryConvertToAbsolutePath(filePattern);
             if (absolutePath != null) {
-                return searchInExactFile(query, absolutePath, beforeLines, afterLines);
+                return searchInExactFile(query, absolutePath, beforeLines, afterLines, isMultiline);
             }
         }
 
-        // Fallback: treat as glob pattern
-        return searchWithRipgrep(query, filePattern, excludePattern, beforeLines, afterLines, false);
-    }
-
-    /**
-     * Backward compatibility overload - searches without context lines
-     */
-    public String searchCode(String query, @Nullable String filePattern, @Nullable String excludePattern) {
-        return searchCode(query, filePattern, excludePattern, 0, 0);
+        return searchWithRipgrep(query, filePattern, excludePattern, beforeLines, afterLines, false, isMultiline);
     }
     
     /**
@@ -145,7 +144,7 @@ public class RipgrepCodeTool {
      * Core ripgrep search implementation
      */
     private String searchWithRipgrep(String query, @Nullable String filePattern, @Nullable String excludePattern,
-                                   Integer beforeLines, Integer afterLines, boolean caseSensitive) {
+                                   Integer beforeLines, Integer afterLines, boolean caseSensitive, boolean multiline) {
         try {
             String projectPath = project.getBasePath();
             if (projectPath == null) {
@@ -165,8 +164,8 @@ public class RipgrepCodeTool {
             }
             
             // Build and execute ripgrep command
-            List<String> command = buildRipgrepCommand(rgPath, query, projectPath, filePattern, excludePattern, 
-                                                     beforeLines, afterLines, caseSensitive);
+            List<String> command = buildRipgrepCommand(rgPath, query, projectPath, filePattern, excludePattern,
+                                                     beforeLines, afterLines, caseSensitive, multiline);
             return executeRipgrepCommand(command, query);
             
         } catch (Exception e) {
@@ -348,15 +347,21 @@ public class RipgrepCodeTool {
      */
     private List<String> buildRipgrepCommand(String rgPath, String query, String projectPath,
                                            @Nullable String filePattern, @Nullable String excludePattern,
-                                           Integer beforeLines, Integer afterLines, boolean caseSensitive) {
+                                           Integer beforeLines, Integer afterLines, boolean caseSensitive, boolean multiline) {
         List<String> command = new ArrayList<>();
         command.add(rgPath);
-        
+
         // Output options
         command.add("--json");        // JSON output for parsing
         command.add("--line-number"); // Include line numbers
         command.add("--no-heading");  // No file headers
-        
+
+        // Multiline support for patterns with .* or .+
+        if (multiline) {
+            command.add("--multiline");
+            command.add("--multiline-dotall");
+        }
+
         // Context options
         if (beforeLines != null && beforeLines > 0) {
             command.add("--before-context");
@@ -366,7 +371,7 @@ public class RipgrepCodeTool {
             command.add("--after-context");
             command.add(String.valueOf(afterLines));
         }
-        
+
         // Case sensitivity
         if (!caseSensitive) {
             command.add("--ignore-case");
@@ -643,9 +648,8 @@ public class RipgrepCodeTool {
      * Search in a specific file using exact path.
      * Converts relative path to absolute and uses ripgrep on that exact file.
      */
-    private String searchInExactFile(String query, String filePath, Integer beforeLines, Integer afterLines) {
+    private String searchInExactFile(String query, String filePath, Integer beforeLines, Integer afterLines, boolean multiline) {
         try {
-            // filePath is already an absolute path when this method is called
             String absolutePath = filePath;
 
             String rgPath = findRipgrepBinary();
@@ -659,6 +663,11 @@ public class RipgrepCodeTool {
             command.add("--line-number");
             command.add("--no-heading");
             command.add("--ignore-case");
+
+            if (multiline) {
+                command.add("--multiline");
+                command.add("--multiline-dotall");
+            }
 
             if (beforeLines != null && beforeLines > 0) {
                 command.add("--before-context");

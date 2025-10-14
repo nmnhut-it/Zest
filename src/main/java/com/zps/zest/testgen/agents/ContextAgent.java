@@ -648,15 +648,20 @@ Stop when you can test the code without making assumptions about external resour
             - excludePattern: Exclude files (comma-separated, e.g., "test,generated")
             - beforeLines: Lines to show before match (0-10)
             - afterLines: Lines to show after match (0-10)
+            - multiline: Enable multiline matching for patterns spanning lines (default: false)
+              * false: Single-line patterns (faster) - "import.*", "TODO", "methodName"
+              * true: Cross-line patterns (slower) - "private void.*?\\}", "class.*?\\{.*?\\}"
 
             Examples:
-            - searchCode("TODO|FIXME", "*.java,*.kt", null, 0, 0)
+            - searchCode("TODO|FIXME", "*.java,*.kt", null, 0, 0, false)
               → Find TODO or FIXME in Java/Kotlin files
-            - searchCode("new (User|Admin|Guest)Service\\(", "*.java", "test,generated", 2, 2)
+            - searchCode("new (User|Admin|Guest)Service\\(", "*.java", "test,generated", 2, 2, false)
               → Find service instantiations with context
+            - searchCode("private void processData.*?\\}", "Service.java", null, 0, 0, true)
+              → Find entire method across multiple lines (slower)
             """)
         public String searchCode(String query, String filePattern, String excludePattern,
-                                Integer beforeLines, Integer afterLines) {
+                                Integer beforeLines, Integer afterLines, Boolean multiline) {
             try {
                 // Validate required parameters
                 if (query == null || query.trim().isEmpty()) {
@@ -675,9 +680,9 @@ Stop when you can test the code without making assumptions about external resour
                     return "Error: afterLines must be between 0 and 10";
                 }
 
-                notifyTool("searchCode", String.format("query=%s, filePattern=%s, excludePattern=%s, before=%d, after=%d",
-                                                       query, filePattern, excludePattern, beforeLines, afterLines));
-                return ripgrepCodeTool.searchCode(query, filePattern, excludePattern, beforeLines, afterLines);
+                notifyTool("searchCode", String.format("query=%s, filePattern=%s, excludePattern=%s, before=%d, after=%d, multiline=%s",
+                                                       query, filePattern, excludePattern, beforeLines, afterLines, multiline));
+                return ripgrepCodeTool.searchCode(query, filePattern, excludePattern, beforeLines, afterLines, multiline);
             } catch (Exception e) {
                 LOG.error("Error in searchCode tool", e);
                 return "Error searching code with query '" + query + "': " + e.getMessage();

@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.zps"
-version = "1.9.907"
+version = "1.9.908"
 
 repositories {
     mavenCentral()
@@ -60,6 +60,9 @@ dependencies {
 
     // https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-open-ai
     implementation("dev.langchain4j:langchain4j-open-ai:1.7.1")
+
+    // https://mvnrepository.com/artifact/dev.langchain4j/langchain4j-http-client-jdk
+    implementation("dev.langchain4j:langchain4j-http-client-jdk:1.7.1")
 
     // Tree-sitter for AST-based code chunking
     implementation("io.github.bonede:tree-sitter:0.25.3")

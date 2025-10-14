@@ -33,9 +33,10 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
 
     private static final Logger LOG = Logger.getInstance(ZestStreamingChatLanguageModel.class);
     private final OpenAiStreamingChatModel delegateModel;
-    private final NaiveLLMService naiveLlmService; // Keep for backward compatibility if needed
+    private final NaiveLLMService naiveLlmService;
     private final ChatboxUtilities.EnumUsage usage;
     private final ConfigurationManager config;
+    private final com.zps.zest.langchain4j.http.CancellableJdkHttpClient cancellableHttpClient;
 
     // Rate limiting configuration - now configurable via environment variables
     private static final long DEFAULT_MIN_DELAY_MS = 2000; // Default 2 seconds for streaming (less than sync)
@@ -102,13 +103,20 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         this.usage = usage;
         this.config = ConfigurationManager.getInstance(naiveLlmService.getProject());
 
+        // Create cancellable HTTP client first
+        com.zps.zest.langchain4j.http.CancellableJdkHttpClientBuilder builder =
+            com.zps.zest.langchain4j.http.CancellableJdkHttpClientBuilder.builder()
+                .connectTimeout(Duration.ofSeconds(30))
+                .readTimeout(Duration.ofSeconds(300));
+        this.cancellableHttpClient = builder.getClient();
+
         // Load configurable delays from environment variables (lower than sync model)
         this.minDelayMs = loadDelayFromEnv("OPENAI_STREAMING_MIN_DELAY_MS", DEFAULT_MIN_DELAY_MS);
         this.requestDelayMs = loadDelayFromEnv("OPENAI_STREAMING_REQUEST_DELAY_MS", DEFAULT_REQUEST_DELAY_MS);
 
         LOG.info("Streaming rate limiting configured - Min delay: " + minDelayMs + "ms, Request delay: " + requestDelayMs + "ms");
 
-        this.delegateModel = createOpenAiStreamingModel(naiveLlmService.getProject(), selectedModel);
+        this.delegateModel = createOpenAiStreamingModel(naiveLlmService.getProject(), selectedModel, builder);
 
         // Trigger username fetch
         NaiveLLMService.fetchAndStoreUsername(naiveLlmService.getProject());
@@ -133,7 +141,8 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         return defaultValue;
     }
 
-    private OpenAiStreamingChatModel createOpenAiStreamingModel(@NotNull Project project, String selectedModel) {
+    private OpenAiStreamingChatModel createOpenAiStreamingModel(@NotNull Project project, String selectedModel,
+                                                                com.zps.zest.langchain4j.http.CancellableJdkHttpClientBuilder httpClientBuilder) {
         ConfigurationManager config = ConfigurationManager.getInstance(project);
 
         // Load environment variables from .env file
@@ -229,7 +238,9 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
                     .logRequests(true)
                     .logResponses(true)
                     .parallelToolCalls(false)
-                    .timeout(Duration.ofSeconds(1200));
+                    .timeout(Duration.ofSeconds(1200))
+                    .httpClientBuilder(httpClientBuilder)
+                    ;
 
             // Add metadata for chat.zingplay/talk.zingplay APIs
             if (finalApiUrl.contains("chat.zingplay") || finalApiUrl.contains("talk.zingplay")) {
@@ -238,6 +249,25 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
 
             return builder.build();
         });
+    }
+
+    /**
+     * Cancel all active HTTP connections
+     */
+    public void cancelAll() {
+        if (cancellableHttpClient != null) {
+            cancellableHttpClient.cancelAll();
+            LOG.info("Cancelled all active streaming requests");
+        }
+    }
+
+    /**
+     * Reset for new session
+     */
+    public void reset() {
+        if (cancellableHttpClient != null) {
+            cancellableHttpClient.reset();
+        }
     }
 
     @Override

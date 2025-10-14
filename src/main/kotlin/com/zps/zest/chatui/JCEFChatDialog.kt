@@ -21,6 +21,9 @@ class JCEFChatDialog(
     private val project: Project
 ) : DialogWrapper(project, false) {
 
+    companion object {
+        private val LOG = com.intellij.openapi.diagnostic.Logger.getInstance(JCEFChatDialog::class.java)
+    }
 
     private val chatService = project.getService(ChatUIService::class.java)
     private val chatPanel = JCEFChatPanel(
@@ -30,7 +33,9 @@ class JCEFChatDialog(
     )
     private val inputArea = JBTextArea()
     private val sendButton = JButton("Send")
+    private val stopButton = JButton("Stop")
     private var isProcessing = false
+    private var isDisposed = false
 
     init {
         title = "💬 Zest Chat"
@@ -196,11 +201,29 @@ class JCEFChatDialog(
         newChatButton.addActionListener { startNewChat() }
         panel.add(newChatButton)
 
+        stopButton.addActionListener { stopCurrentSession() }
+        stopButton.isVisible = false
+        panel.add(stopButton)
+
         sendButton.addActionListener { sendMessage() }
         sendButton.isEnabled = !isProcessing
         panel.add(sendButton)
 
         return panel
+    }
+
+    private fun stopCurrentSession() {
+        LOG .info("User requested to stop current session")
+        chatService.cancelCurrentSession()
+
+        // Reset UI state
+        isProcessing = false
+        sendButton.text = "Send"
+        sendButton.isEnabled = true
+        stopButton.isVisible = false
+
+        // Add notification to chat
+        chatPanel.addTemporaryChunk("⏹ **Stopped**", "Chat session cancelled by user", "system")
     }
 
     private fun sendMessage() {
@@ -222,10 +245,14 @@ class JCEFChatDialog(
     }
 
     private fun sendMessageStreaming(userMessage: String) {
+        // Reset for new session
+        chatService.resetSession()
+
         // Update UI state
         isProcessing = true
         sendButton.text = "Streaming..."
         sendButton.isEnabled = false
+        stopButton.isVisible = true
 
         // Add temporary DOM-only chunks (AiServices will add to ChatMemory)
         println("[DIALOG] Adding temporary chunks...")
@@ -255,30 +282,36 @@ class JCEFChatDialog(
 //                LOG.debug("Intermediate response: ${response.aiMessage().toolExecutionRequests().size} tools")
             },
             onComplete = { fullResponse ->
-                ApplicationManager.getApplication().invokeLater {
-                    chatPanel.finalizeStreaming()
-                    chatPanel.setChatMemory(chatService.getChatMemory())
+                if (!isDisposed) {
+                    ApplicationManager.getApplication().invokeLater {
+                        chatPanel.finalizeStreaming()
+                        chatPanel.setChatMemory(chatService.getChatMemory())
 
-                    // Reset UI state
-                    isProcessing = false
-                    sendButton.text = "Send"
-                    sendButton.isEnabled = true
-                    currentResponse.clear()
+                        // Reset UI state
+                        isProcessing = false
+                        sendButton.text = "Send"
+                        sendButton.isEnabled = true
+                        stopButton.isVisible = false
+                        currentResponse.clear()
 
-                    // Focus back to input
-                    inputArea.requestFocus()
+                        // Focus back to input
+                        inputArea.requestFocus()
+                    }
                 }
             },
             onError = { error ->
-                ApplicationManager.getApplication().invokeLater {
-                    // Show error as temporary chunk
-                    chatPanel.addTemporaryChunk("❌ **Error**", "Failed: ${error.message}", "system")
-                    chatPanel.finalizeStreaming()
+                if (!isDisposed) {
+                    ApplicationManager.getApplication().invokeLater {
+                        // Show error as temporary chunk
+                        chatPanel.addTemporaryChunk("❌ **Error**", "Failed: ${error.message}", "system")
+                        chatPanel.finalizeStreaming()
 
-                    // Reset UI state
-                    isProcessing = false
-                    sendButton.text = "Send"
-                    sendButton.isEnabled = true
+                        // Reset UI state
+                        isProcessing = false
+                        sendButton.text = "Send"
+                        sendButton.isEnabled = true
+                        stopButton.isVisible = false
+                    }
                 }
             },
             onToolCall = { toolName, toolArgs, toolCallId ->
@@ -534,4 +567,17 @@ class JCEFChatDialog(
     }
 
     private fun isDarkMode(): Boolean = com.zps.zest.util.ThemeUtils.isDarkTheme()
+
+    override fun dispose() {
+        if (!isDisposed) {
+            isDisposed = true
+            chatService.cancelCurrentSession()
+            super.dispose()
+        }
+    }
+
+    override fun doCancelAction() {
+        chatService.cancelCurrentSession()
+        super.doCancelAction()
+    }
 }

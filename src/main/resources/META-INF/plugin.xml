@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.907</version>
+    <version>1.9.908</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -412,6 +412,18 @@
 
     <!-- Change notes for version updates -->
     <change-notes><![CDATA[
+        <h3>Version 1.9.908</h3>
+        <ul>
+            <li><b>🔧 Git UI Dialog:</b> "Open Git UI" in quick action now opens separate dialog (like "Commit and push all") instead of using main browser panel</li>
+            <li><b>📋 Tool Call Format:</b> Enforced "Tool calls so far: X/5" BEFORE every tool call with clear examples and double accountability (before + after)</li>
+            <li><b>📦 Import Handling:</b> Added guidance for AI to check imports with searchCode and use fully qualified names when needed</li>
+            <li><b>🎯 Exact File Search:</b> searchCode now handles specific file paths (e.g., "src/main/java/Service.java") with fallback to glob patterns</li>
+            <li><b>📄 Context Lines Fixed:</b> before/after context lines now properly parsed and displayed from ripgrep JSON output</li>
+            <li><b>🔄 Multiline Regex:</b> Added explicit multiline parameter for cross-line pattern matching (e.g., "private void.*?\\}") - AI has full control</li>
+            <li><b>🪟 Tool Details Modal:</b> Replaced blocking alert() with beautiful modal for tool call details - scrollable, copyable, syntax-highlighted</li>
+            <li><b>✅ Fixed replaceCodeInFile:</b> Tool response now shows NEW code after user accepts (was showing old code due to async timing issue)</li>
+        </ul>
+
         <h3>Version 1.9.907</h3>
         <ul>
             <li><b>🚫 Binary File Exclusion:</b> Images, JARs, executables, and other binary files automatically excluded from AI commit message generation - clearer what AI analyzes</li>

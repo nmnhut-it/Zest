@@ -339,6 +339,21 @@ ${cachedProjectRules}
         toolEnabledAssistant = null
         streamingToolEnabledAssistant = null
     }
+
+    /**
+     * Cancel current streaming session and close HTTP connections
+     */
+    fun cancelCurrentSession() {
+        LOG.info("Cancelling current chat session")
+        streamingChatModel.cancelAll()
+    }
+
+    /**
+     * Reset for new session
+     */
+    fun resetSession() {
+        streamingChatModel.reset()
+    }
     
     /**
      * Open the chat dialog

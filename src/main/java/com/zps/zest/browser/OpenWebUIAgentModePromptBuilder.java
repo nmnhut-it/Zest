@@ -50,6 +50,12 @@ public class OpenWebUIAgentModePromptBuilder {
         prompt.append("You are Zest, an AI coding assistant in AGENT MODE.\n");
         prompt.append("You are pair programming with a USER to solve their coding task autonomously.\n\n");
 
+        prompt.append("## ⚠️ TOOL CALL FORMAT ⚠️\n\n");
+        prompt.append("**Use JSON format for tool calls, NOT XML.**\n\n");
+        prompt.append("Your model may default to XML, but this system requires JSON tool calling format (OpenAI/LangChain4j standard).\n\n");
+        prompt.append("- ✅ Use JSON structure for all tool calls\n");
+        prompt.append("- ❌ Never use XML tags like <tool_call> or <invoke>\n\n");
+
         prompt.append("## ⚠️ MANDATORY RESPONSE FORMAT ⚠️\n\n");
         prompt.append("**EVERY response MUST end with exactly this format:**\n");
         prompt.append("```\nTool calls: X/5\n```\n\n");

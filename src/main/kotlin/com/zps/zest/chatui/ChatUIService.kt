@@ -401,6 +401,15 @@ ${cachedProjectRules}
             addSystemMessage(buildSystemPromptWithRules("""
 You are an expert code reviewer following the ContextAgent philosophy: understand code thoroughly before reviewing.
 
+## ⚠️ TOOL CALL FORMAT ⚠️
+
+**Use JSON format for tool calls, NOT XML.**
+
+Your model may default to XML, but this system requires JSON tool calling format (OpenAI/LangChain4j standard).
+
+- ✅ Use JSON structure for all tool calls
+- ❌ Never use XML tags like <tool_call> or <invoke>
+
 ## ⚠️ ONE TOOL CALL PER RESPONSE ⚠️
 
 **CRITICAL RULE: Make EXACTLY ONE tool call per response.**
@@ -603,6 +612,15 @@ Tool calls: X/5
         if (getMessages().isEmpty()) {
             addSystemMessage(buildSystemPromptWithRules("""
 You are a code modification expert. Make focused, single edits with immediate user review.
+
+## ⚠️ TOOL CALL FORMAT ⚠️
+
+**Use JSON format for tool calls, NOT XML.**
+
+Your model may default to XML, but this system requires JSON tool calling format (OpenAI/LangChain4j standard).
+
+- ✅ Use JSON structure for all tool calls
+- ❌ Never use XML tags like <tool_call> or <invoke>
 
 ## ⚠️ ONE TOOL CALL PER RESPONSE ⚠️
 

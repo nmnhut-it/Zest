@@ -11,7 +11,7 @@ import javax.swing.*
 
 /**
  * Dialog that shows Pochi CLI output streaming in real-time.
- * Provides visibility into what Pochi is doing and allows user to cancel.
+ * Strips ANSI escape codes for clean display.
  */
 class PochiStreamingDialog(
     private val project: Project,
@@ -38,7 +38,7 @@ class PochiStreamingDialog(
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout())
-        panel.preferredSize = Dimension(800, 500)
+        panel.preferredSize = Dimension(900, 600)
 
         // Status header
         val headerPanel = JPanel(BorderLayout())
@@ -65,13 +65,27 @@ class PochiStreamingDialog(
     }
 
     /**
-     * Append text chunk to output area (called from background thread)
+     * Append text chunk to output (called from background thread)
+     * Strips ANSI escape codes for clean display
      */
     fun appendOutput(text: String) {
         SwingUtilities.invokeLater {
-            outputArea.append(text)
+            val cleaned = stripAnsiCodes(text)
+            outputArea.append(cleaned)
             outputArea.caretPosition = outputArea.document.length
         }
+    }
+
+    /**
+     * Strip ANSI escape codes from text
+     */
+    private fun stripAnsiCodes(text: String): String {
+        // Remove ANSI color codes, cursor movement, etc.
+        return text
+            .replace(Regex("\u001B\\[[;\\d]*m"), "")  // Color codes
+            .replace(Regex("\u001B\\[[\\d]*[A-Z]"), "") // Cursor movement
+            .replace(Regex("\u001B\\[\\?[\\d;]*[a-zA-Z]"), "") // Private sequences
+            .replace("\r", "") // Carriage returns (for spinners)
     }
 
     /**

@@ -57,6 +57,59 @@ object RipgrepPathHelper {
     }
 
     /**
+     * Extract ripgrep directly to npm directory (same location as pochi.cmd)
+     */
+    fun extractRipgrepToNpmDirectory(npmPath: String) {
+        try {
+            val platform = detectPlatform()
+            val resourcePath = "/bin/rg-$platform${if (platform.contains("windows")) ".exe" else ""}"
+
+            LOG.info("Extracting ripgrep to npm directory: $npmPath")
+
+            val bundledBinary = RipgrepPathHelper::class.java.getResourceAsStream(resourcePath)
+            if (bundledBinary == null) {
+                LOG.warn("No bundled ripgrep found at: $resourcePath")
+                return
+            }
+
+            // Create both rg.exe and ripgrep.exe (Pochi might look for either)
+            val rgFile = File(npmPath, "rg.exe")
+            val ripgrepFile = File(npmPath, "ripgrep.exe")
+
+            // Check if already exists
+            if (ripgrepFile.exists() && isExecutableValid(ripgrepFile.absolutePath)) {
+                LOG.info("Ripgrep already exists in npm directory: ${ripgrepFile.absolutePath}")
+                bundledBinary.close()
+                return
+            }
+
+            // Extract binary as ripgrep.exe
+            Files.copy(bundledBinary, ripgrepFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+
+            // Also copy as rg.exe for compatibility
+            if (!rgFile.exists()) {
+                val bundledBinary2 = RipgrepPathHelper::class.java.getResourceAsStream(resourcePath)
+                if (bundledBinary2 != null) {
+                    Files.copy(bundledBinary2, rgFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                    bundledBinary2.close()
+                }
+            }
+
+            bundledBinary.close()
+
+            // Verify it works
+            if (isExecutableValid(ripgrepFile.absolutePath)) {
+                LOG.info("Successfully installed ripgrep to npm directory: ${ripgrepFile.absolutePath}")
+            } else {
+                LOG.warn("Ripgrep extracted but verification failed")
+            }
+
+        } catch (e: Exception) {
+            LOG.error("Failed to extract ripgrep to npm directory", e)
+        }
+    }
+
+    /**
      * Extract bundled ripgrep binary - installs next to pochi.cmd for easy access
      */
     private fun extractBundledRipgrep(): String? {

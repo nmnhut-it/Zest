@@ -64,10 +64,16 @@ class PochiConfigManager(private val project: Project) {
 
     /**
      * Extracts base URL from full API URL
-     * Example: https://chat.zingplay.com/api/chat/completions -> https://chat.zingplay.com/v1
+     * Example: https://chat.zingplay.com/api/chat/completions -> https://chat.zingplay.com/api/v1
      */
     private fun extractBaseUrl(apiUrl: String): String {
         return when {
+            // Zingplay endpoints need /api preserved
+            apiUrl.contains("zingplay.com") && apiUrl.contains("/api/chat/completions") -> {
+                apiUrl.replace("/chat/completions", "/v1")
+                // Result: https://chat.zingplay.com/api/v1
+            }
+            // Other OpenAI-compatible endpoints
             apiUrl.contains("/api/chat/completions") -> {
                 apiUrl.replace("/api/chat/completions", "/v1")
             }

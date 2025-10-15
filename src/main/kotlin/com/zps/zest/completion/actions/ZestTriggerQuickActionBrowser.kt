@@ -25,7 +25,6 @@ import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
 import com.zps.zest.completion.metrics.ZestQuickActionMetricsService
 import com.zps.zest.testgen.actions.GenerateTestAction
 import com.zps.zest.pochi.PochiCliService
-import com.zps.zest.pochi.PochiStreamingDialog
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
 import java.awt.*
@@ -488,7 +487,7 @@ class ZestTriggerQuickActionBrowser : AnAction(), HasPriority {
     }
 
     /**
-     * Execute code rewrite using Pochi CLI with streaming dialog
+     * Execute code rewrite using Pochi CLI in visible terminal
      */
     private fun openChatForRewrite(project: Project, methodContext: MethodContext, instruction: String) {
         try {
@@ -506,35 +505,18 @@ class ZestTriggerQuickActionBrowser : AnAction(), HasPriority {
                 customInstruction = customInstruction
             )
 
-            // Create and show streaming dialog
-            val streamingDialog = PochiStreamingDialog(project, methodContext.methodName)
+            // Show notification
+            com.zps.zest.ZestNotifications.showInfo(
+                project,
+                "Pochi Code Rewrite",
+                "Opening terminal to run Pochi AI agent for: ${methodContext.methodName}"
+            )
 
-            // Execute Pochi CLI in background
+            // Execute Pochi CLI in terminal (user will see it)
             val pochiService = PochiCliService(project)
-            streamingDialog.updateStatus("Starting Pochi AI agent...")
+            pochiService.executeRewrite(methodContext, instruction) { /* output visible in terminal */ }
 
-            pochiService.executeRewrite(methodContext, instruction) { chunk ->
-                // Stream output to dialog
-                streamingDialog.appendOutput(chunk)
-            }.thenAccept { result ->
-                com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
-                    streamingDialog.markComplete()
-                    streamingDialog.updateStatus("✓ Pochi completed - analyzing result...")
-                    handlePochiResult(project, methodContext, result, rewriteId)
-                    streamingDialog.close(DialogWrapper.OK_EXIT_CODE)
-                }
-            }.exceptionally { error ->
-                com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
-                    logger.error("Pochi CLI failed", error)
-                    streamingDialog.markFailed(error.message ?: "Unknown error")
-                }
-                null
-            }
-
-            // Show dialog (non-modal)
-            streamingDialog.show()
-
-            logger.info("Started Pochi rewrite for method: ${methodContext.methodName}, rewriteId: $rewriteId")
+            logger.info("Started Pochi rewrite in terminal for method: ${methodContext.methodName}, rewriteId: $rewriteId")
 
         } catch (e: Exception) {
             logger.error("Failed to execute Pochi CLI", e)

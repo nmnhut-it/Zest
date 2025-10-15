@@ -172,6 +172,13 @@
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="Mac OS X"/>
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="Mac OS X 10.5+"/>
             </action>
+
+            <action id="Zest.TriggerQuickActionBrowser"
+                    class="com.zps.zest.completion.actions.ZestTriggerQuickActionBrowser"
+                    text="Quick Action (Browser)... / Thao tác nhanh (Trình duyệt)..."
+                    description="Open quick action menu with OpenWebUI browser chat / Mở menu thao tác nhanh với chat trình duyệt OpenWebUI">
+                <keyboard-shortcut first-keystroke="alt shift B" keymap="$default"/>
+            </action>
         </group>
 
         <group id="ZestGroup" text="Zest" description="AI-powered tools for development / Công cụ AI hỗ trợ lập trình" popup="true"

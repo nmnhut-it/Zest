@@ -103,30 +103,25 @@
       if (!settings.ui) settings.ui = {};
       if (!settings.ui.toolServers) settings.ui.toolServers = [];
       
-      // Check if this specific project's tool server already exists
+      // Remove ALL existing entries for this project's URL (prevents duplicates)
       const newServer = toolResponse.servers[0];
       const zestUrl = newServer?.url;
       const projectName = newServer?.info?.name || '';
-      
-      const existingIndex = settings.ui.toolServers.findIndex(server => {
-        // Match by exact URL (same port = same project)
-        if (server.url === zestUrl) return true;
-        
-        // Match by project name in the info
-        if (server.info?.name === projectName && projectName.includes('Zest Code Explorer')) return true;
-        
-        return false;
-      });
-      
-      if (existingIndex >= 0) {
-        // Update existing server for this project
-        settings.ui.toolServers[existingIndex] = newServer;
-        console.log('[Tool Injector] Updated existing Zest tool server for project:', projectName);
-      } else {
-        // Add new server - this allows multiple project tools to coexist
-        settings.ui.toolServers.push(...toolResponse.servers);
-        console.log('[Tool Injector] Added new Zest tool server for project:', projectName);
+
+      // Filter out ALL entries with matching URL (deduplication)
+      const originalCount = settings.ui.toolServers.length;
+      settings.ui.toolServers = settings.ui.toolServers.filter(server =>
+        server.url !== zestUrl
+      );
+      const removedCount = originalCount - settings.ui.toolServers.length;
+
+      if (removedCount > 0) {
+        console.log('[Tool Injector] Removed', removedCount, 'duplicate entries for URL:', zestUrl);
       }
+
+      // Add new server (now guaranteed to be unique)
+      settings.ui.toolServers.push(newServer);
+      console.log('[Tool Injector] Added Zest tool server for project:', projectName);
       
       // Update settings
       const updateResponse = await fetch('/api/v1/users/user/settings/update', {

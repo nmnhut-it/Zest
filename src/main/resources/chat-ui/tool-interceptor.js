@@ -60,13 +60,13 @@
             // Clone init to avoid mutating original
             const newInit = init ? {...init} : {};
 
-            // Parse and modify request body
+            // Parse and inject tool server into request body
             if (newInit.body) {
                 const bodyText = typeof newInit.body === 'string' ? newInit.body : await readBody(newInit.body);
-                const modifiedBody = await filterToolsByProject(bodyText);
+                const modifiedBody = await injectToolServerIntoRequest(bodyText, toolServerUrl);
                 newInit.body = modifiedBody;
 
-                console.log('[Zest Tool Interceptor] Filtered tools by project');
+                console.log('[Zest Tool Interceptor] Injected Zest tool server into request');
             }
 
             return originalFetch(input, newInit);
@@ -111,87 +111,84 @@
         }
     }
 
-    /**
-     * Convert OpenAPI spec to inline tools format
-     */
-    function convertOpenApiToTools(openApiSpec) {
-        const tools = [];
-
-        if (!openApiSpec || !openApiSpec.paths) {
-            return tools;
-        }
-
-        // Iterate through paths and extract tool definitions
-        for (const [path, pathItem] of Object.entries(openApiSpec.paths)) {
-            if (pathItem.post) {
-                const operation = pathItem.post;
-                const toolName = operation.operationId || path.replace(/^\/api\/tools\//, '');
-
-                const tool = {
-                    type: 'function',
-                    function: {
-                        name: toolName,
-                        description: operation.summary || operation.description || '',
-                        parameters: {
-                            type: 'object',
-                            properties: {},
-                            required: []
-                        }
-                    }
-                };
-
-                // Extract parameters from requestBody schema
-                if (operation.requestBody?.content?.['application/json']?.schema) {
-                    const schema = operation.requestBody.content['application/json'].schema;
-                    tool.function.parameters = schema;
-                }
-
-                tools.push(tool);
-            }
-        }
-
-        console.log('[Zest Tool Interceptor] Converted', tools.length, 'tools from OpenAPI spec');
-        return tools;
-    }
 
     /**
-     * Filter tools to only include current project's tools
+     * Inject Zest tool server into chat completion request
      */
-    async function filterToolsByProject(bodyText) {
+    async function injectToolServerIntoRequest(bodyText, toolServerUrl) {
         try {
             const data = JSON.parse(bodyText);
 
-            // Get current project path
-            const currentProjectPath = window.__project_info__?.projectFilePath;
-            if (!currentProjectPath) {
-                console.warn('[Zest Tool Interceptor] No project path available, skipping filter');
+            // Fetch OpenAPI spec from tool server
+            const openApiSpec = await fetchOpenApiSpec(toolServerUrl);
+            if (!openApiSpec) {
+                console.warn('[Zest Tool Interceptor] No OpenAPI spec available, skipping injection');
                 return bodyText;
             }
 
-            // Filter tools array if it exists
-            if (data.tools && Array.isArray(data.tools)) {
-                const originalCount = data.tools.length;
-
-                // Keep only tools that match current project path in description
-                data.tools = data.tools.filter(tool => {
-                    const description = tool.function?.description || '';
-                    // Check if description contains current project path
-                    return description.includes('[Project: ' + currentProjectPath + ']');
-                });
-
-                const filteredCount = originalCount - data.tools.length;
-                if (filteredCount > 0) {
-                    console.log('[Zest Tool Interceptor] Filtered out', filteredCount, 'tools from other projects');
-                }
-                console.log('[Zest Tool Interceptor] Keeping', data.tools.length, 'tools for project:', currentProjectPath);
+            // Initialize tool_servers array if not exists
+            if (!data.tool_servers) {
+                data.tool_servers = [];
             }
+
+            // Remove any existing Zest tool server for this URL (deduplication)
+            data.tool_servers = data.tool_servers.filter(server =>
+                server.url !== toolServerUrl
+            );
+
+            // Build tool server entry with OpenAPI spec and specs array
+            const toolServerEntry = {
+                url: toolServerUrl,
+                openapi: openApiSpec,
+                info: openApiSpec.info || {},
+                specs: convertOpenApiToSpecs(openApiSpec)
+            };
+
+            // Add to tool_servers
+            data.tool_servers.push(toolServerEntry);
+
+            console.log('[Zest Tool Interceptor] Injected Zest tool server:', toolServerUrl);
+            console.log('[Zest Tool Interceptor] Total tool servers:', data.tool_servers.length);
 
             return JSON.stringify(data);
 
         } catch (error) {
-            console.error('[Zest Tool Interceptor] Failed to filter tools:', error);
+            console.error('[Zest Tool Interceptor] Failed to inject tool server:', error);
             return bodyText;
         }
+    }
+
+    /**
+     * Convert OpenAPI spec to specs array format (for OpenWebUI)
+     */
+    function convertOpenApiToSpecs(openApiSpec) {
+        const specs = [];
+
+        if (!openApiSpec || !openApiSpec.paths) {
+            return specs;
+        }
+
+        for (const [path, pathItem] of Object.entries(openApiSpec.paths)) {
+            if (pathItem.post) {
+                const operation = pathItem.post;
+                const toolName = operation.operationId || path.replace(/^\//, '').replace(/_/g, '');
+
+                const spec = {
+                    name: toolName,
+                    description: operation.summary || operation.description || '',
+                    parameters: {}
+                };
+
+                // Extract parameters from requestBody schema
+                if (operation.requestBody?.content?.['application/json']?.schema) {
+                    spec.parameters = operation.requestBody.content['application/json'].schema;
+                }
+
+                specs.push(spec);
+            }
+        }
+
+        return specs;
     }
 
     /**

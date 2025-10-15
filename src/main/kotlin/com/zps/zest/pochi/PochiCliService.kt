@@ -1,12 +1,16 @@
 package com.zps.zest.pochi
 
+import com.intellij.execution.configurations.GeneralCommandLine
+import com.intellij.execution.process.OSProcessHandler
+import com.intellij.execution.process.ProcessAdapter
+import com.intellij.execution.process.ProcessEvent
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Key
+import com.intellij.terminal.TerminalExecutionConsole
 import com.zps.zest.completion.MethodContext
 import com.zps.zest.completion.MethodContextFormatter
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
@@ -30,57 +34,42 @@ class PochiCliService(private val project: Project) {
     private val configManager = PochiConfigManager(project)
 
     /**
-     * Find pochi command - returns full path on Windows to avoid PATH issues
+     * Find available pochi scripts (ps1, cmd, sh)
+     * Returns map of shell type to script path
      */
-    private fun findPochiCommand(): String {
+    private fun findPochiScripts(): Map<String, String> {
+        val scripts = mutableMapOf<String, String>()
         val os = System.getProperty("os.name")
 
         if (os.startsWith("Windows")) {
-            // Try common npm global locations
             val appData = System.getenv("APPDATA")
             if (appData != null) {
-                val pochiCmd = File("$appData\\npm\\pochi.cmd")
-                if (pochiCmd.exists()) {
-                    LOG.info("Found pochi at: ${pochiCmd.absolutePath}")
-                    return pochiCmd.absolutePath
+                val npmPath = "$appData\\npm"
+
+                // Check for PowerShell script
+                val ps1File = File("$npmPath\\pochi.ps1")
+                if (ps1File.exists()) {
+                    scripts["powershell"] = ps1File.absolutePath
+                    LOG.info("Found pochi.ps1: ${ps1File.absolutePath}")
+                }
+
+                // Check for cmd script
+                val cmdFile = File("$npmPath\\pochi.cmd")
+                if (cmdFile.exists()) {
+                    scripts["cmd"] = cmdFile.absolutePath
+                    LOG.info("Found pochi.cmd: ${cmdFile.absolutePath}")
+                }
+
+                // Check for Unix script (for Git Bash)
+                val shFile = File("$npmPath\\pochi")
+                if (shFile.exists()) {
+                    scripts["bash"] = shFile.absolutePath
+                    LOG.info("Found pochi (sh): ${shFile.absolutePath}")
                 }
             }
-
-            // Fallback: try to find via PowerShell
-            val psPath = findPochiViaPowerShell()
-            if (psPath != null) {
-                LOG.info("Found pochi via PowerShell: $psPath")
-                return psPath
-            }
-
-            LOG.warn("Could not find pochi.cmd, using 'pochi' and hoping it's in PATH")
         }
 
-        return POCHI_COMMAND
-    }
-
-    /**
-     * Find pochi using PowerShell's Get-Command
-     */
-    private fun findPochiViaPowerShell(): String? {
-        return try {
-            val process = ProcessBuilder(
-                "powershell.exe", "-Command",
-                "(Get-Command pochi).Source"
-            ).start()
-
-            val output = process.inputStream.bufferedReader().readText().trim()
-            process.waitFor(5, TimeUnit.SECONDS)
-
-            if (process.exitValue() == 0 && output.isNotEmpty()) {
-                output
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            LOG.warn("Failed to find pochi via PowerShell", e)
-            null
-        }
+        return scripts
     }
 
     /**
@@ -169,7 +158,7 @@ Return the complete rewritten code in a code block.
     }
 
     /**
-     * Executes Pochi CLI with streaming output using stdin to avoid shell escaping issues
+     * Executes Pochi CLI using GeneralCommandLine (official IntelliJ API)
      */
     private fun executePochiCli(
         prompt: String,
@@ -179,21 +168,43 @@ Return the complete rewritten code in a code block.
         Thread {
             try {
                 val modelId = configManager.getPochiModelId()
-                val pochiCmd = findPochiCommand()
 
-                // Build command without prompt - we'll pipe prompt via stdin
-                // This avoids all shell escaping issues
-                // Use full path to pochi on Windows to avoid PATH issues
-                val command = when {
-                    System.getProperty("os.name").startsWith("Windows") -> {
-                        listOf(
-                            "powershell.exe", "-Command",
-                            "$pochiCmd --model $modelId --max-steps $MAX_STEPS --max-retries $MAX_RETRIES"
+                // Ensure ripgrep exists in npm directory
+                if (System.getProperty("os.name").startsWith("Windows")) {
+                    val appData = System.getenv("APPDATA")
+                    val npmPath = "$appData\\npm"
+                    RipgrepPathHelper.extractRipgrepToNpmDirectory(npmPath)
+                }
+
+                // Find available pochi scripts
+                val pochiScripts = findPochiScripts()
+
+                // Build GeneralCommandLine based on available script
+                val commandLine = when {
+                    // Prefer cmd.exe with pochi.cmd (most reliable on Windows)
+                    pochiScripts.containsKey("cmd") -> {
+                        GeneralCommandLine(
+                            "cmd.exe", "/c",
+                            pochiScripts["cmd"],
+                            "--model", modelId,
+                            "--max-steps", MAX_STEPS.toString(),
+                            "--max-retries", MAX_RETRIES.toString()
                         )
                     }
+                    // PowerShell with pochi.ps1
+                    pochiScripts.containsKey("powershell") -> {
+                        GeneralCommandLine(
+                            "powershell.exe", "-File",
+                            pochiScripts["powershell"],
+                            "-model", modelId,
+                            "-max-steps", MAX_STEPS.toString(),
+                            "-max-retries", MAX_RETRIES.toString()
+                        )
+                    }
+                    // Fallback to direct execution
                     else -> {
-                        listOf(
-                            pochiCmd,
+                        GeneralCommandLine(
+                            "pochi",
                             "--model", modelId,
                             "--max-steps", MAX_STEPS.toString(),
                             "--max-retries", MAX_RETRIES.toString()
@@ -201,65 +212,63 @@ Return the complete rewritten code in a code block.
                     }
                 }
 
-                LOG.info("Executing Pochi CLI: ${command.joinToString(" ")}")
-                LOG.info("Prompt will be sent via stdin (${prompt.length} characters)")
+                // Set working directory
+                commandLine.setWorkDirectory(project.basePath)
 
-                // Start process with full PATH
-                val processBuilder = ProcessBuilder(command)
-
-                // On Windows: Set full PATH (System + User) so Pochi has access to Node.js, npm, etc.
-                // Also ensure ripgrep is installed next to pochi.cmd
+                // Set environment with full Windows PATH
                 if (System.getProperty("os.name").startsWith("Windows")) {
-                    // Install ripgrep next to pochi.cmd (so Pochi can find it)
-                    RipgrepPathHelper.findRipgrepDirectory(project)
-
-                    val env = processBuilder.environment()
                     val fullPath = getFullWindowsPath()
-
                     if (fullPath.isNotEmpty()) {
-                        env["PATH"] = fullPath
-                        LOG.info("Set full Windows PATH for Pochi (includes Node.js, npm, ripgrep)")
+                        commandLine.environment["Path"] = fullPath
+                        commandLine.environment["PATH"] = fullPath
+                        LOG.info("Set full PATH for Pochi (${fullPath.length} chars)")
                     }
                 }
 
-                processBuilder.redirectErrorStream(true) // Merge stderr into stdout
-                val process = processBuilder.start()
+                LOG.info("Executing Pochi via GeneralCommandLine in: ${project.basePath}")
+                LOG.info("Command: ${commandLine.commandLineString}")
 
-                // Write prompt to stdin in a separate thread
+                // Create ProcessHandler
+                val processHandler = OSProcessHandler(commandLine)
+
+                // Create TerminalExecutionConsole for visual display
+                val console = TerminalExecutionConsole(project, processHandler)
+
+                val outputBuffer = StringBuilder()
+
+                // Listen to process output
+                processHandler.addProcessListener(object : ProcessAdapter() {
+                    override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
+                        val text = event.text
+                        outputBuffer.append(text)
+                        onChunk(text)
+                    }
+
+                    override fun processTerminated(event: ProcessEvent) {
+                        LOG.info("Pochi terminated with exit code: ${event.exitCode}")
+                        if (event.exitCode == 0) {
+                            future.complete(outputBuffer.toString())
+                        } else {
+                            val error = "Pochi CLI failed (exit code ${event.exitCode}):\n${outputBuffer.toString().take(500)}"
+                            future.completeExceptionally(Exception(error))
+                        }
+                    }
+                })
+
+                // Write prompt to stdin
                 Thread {
                     try {
-                        process.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
-                            writer.write(prompt)
-                            writer.flush()
-                        }
+                        Thread.sleep(500) // Let process start
+                        processHandler.processInput?.write(prompt.toByteArray(Charsets.UTF_8))
+                        processHandler.processInput?.flush()
+                        processHandler.processInput?.close()
                     } catch (e: Exception) {
                         LOG.warn("Failed to write prompt to stdin", e)
                     }
                 }.start()
 
-                // Read and stream output
-                val output = StringBuilder()
-                BufferedReader(InputStreamReader(process.inputStream, Charsets.UTF_8)).use { reader ->
-                    var line: String?
-                    while (reader.readLine().also { line = it } != null) {
-                        line?.let {
-                            output.append(it).append("\n")
-                            onChunk(it + "\n")
-                        }
-                    }
-                }
-
-                // Wait for process to complete
-                val exitCode = process.waitFor()
-
-                if (exitCode == 0) {
-                    future.complete(output.toString())
-                } else {
-                    val errorOutput = output.toString()
-                    LOG.warn("Pochi CLI exited with code $exitCode. Output:\n$errorOutput")
-                    val errorMsg = "Pochi CLI failed (exit code $exitCode):\n${errorOutput.take(500)}"
-                    future.completeExceptionally(Exception(errorMsg))
-                }
+                // Start process
+                processHandler.startNotify()
 
             } catch (e: Exception) {
                 LOG.error("Error executing Pochi CLI", e)

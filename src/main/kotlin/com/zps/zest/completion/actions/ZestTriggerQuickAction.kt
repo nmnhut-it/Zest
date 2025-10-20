@@ -675,8 +675,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                             if (e.isControlDown) {
                                 val customInstruction = customTextArea.text.trim()
                                 if (customInstruction.isNotEmpty()) {
-                                    close(OK_EXIT_CODE)
-                                    onInstructionSelected?.invoke(customInstruction)
+                                    saveAndInvokeCustomInstruction(customInstruction)
                                 }
                                 e.consume()
                             }
@@ -956,8 +955,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             if (isCustomMode) {
                 val customInstruction = customTextArea.text.trim()
                 if (customInstruction.isNotEmpty()) {
-                    close(OK_EXIT_CODE)
-                    onInstructionSelected?.invoke(customInstruction)
+                    saveAndInvokeCustomInstruction(customInstruction)
                 } else {
                     super.doOKAction()
                 }
@@ -997,6 +995,52 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
             val cyclomaticComplexity = content.count { it == '(' } +
                     content.split(Regex("\\b(if|for|while|switch|case|catch)\\b")).size - 1
             return lines > 30 || cyclomaticComplexity > 10
+        }
+
+        private fun saveAndInvokeCustomInstruction(customInstruction: String) {
+            // Find next available shortcut (1-9)
+            val usedShortcuts = customPrompts.map { it.shortcut }.toSet()
+            val nextShortcut = (1..9).firstOrNull { it !in usedShortcuts } ?: run {
+                // All slots full, use slot 9 (overwrite)
+                9
+            }
+
+            // Generate title from prompt
+            val title = generateTitleFromPrompt(customInstruction)
+
+            // Save the custom prompt
+            try {
+                val loader = ZestCustomPromptsLoader.getInstance(project)
+                val saved = loader.saveCustomPrompt(nextShortcut, title, customInstruction)
+
+                if (saved) {
+                    // Reload custom prompts for next time
+                    customPrompts = loadCustomPrompts()
+
+                    // Show notification
+                    com.zps.zest.ZestNotifications.showInfo(
+                        project,
+                        "Custom Action Saved",
+                        "Saved as Shift+$nextShortcut: \"$title\" for future use"
+                    )
+                    logger.info("Saved custom instruction as Shift+$nextShortcut: $title")
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to save custom prompt", e)
+            }
+
+            // Execute the instruction
+            close(OK_EXIT_CODE)
+            onInstructionSelected?.invoke(customInstruction)
+        }
+
+        private fun generateTitleFromPrompt(prompt: String): String {
+            val words = prompt.split(Regex("\\s+")).take(5)
+            var title = words.joinToString(" ")
+            if (title.length > 40) {
+                title = title.substring(0, 37) + "..."
+            }
+            return title.replaceFirstChar { it.uppercase() }
         }
 
         private data class RewriteOption(

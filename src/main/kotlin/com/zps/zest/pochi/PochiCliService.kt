@@ -1,22 +1,20 @@
 package com.zps.zest.pochi
 
-import com.intellij.execution.configurations.GeneralCommandLine
-import com.intellij.execution.process.OSProcessHandler
-import com.intellij.execution.process.ProcessAdapter
-import com.intellij.execution.process.ProcessEvent
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Key
-import com.intellij.terminal.TerminalExecutionConsole
+import com.intellij.openapi.wm.ToolWindowManager
 import com.zps.zest.completion.MethodContext
 import com.zps.zest.completion.MethodContextFormatter
+import org.jetbrains.plugins.terminal.TerminalToolWindowManager
 import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
 /**
- * Service for executing Pochi CLI and streaming results.
- * Uses Pochi's AI agent capabilities to rewrite code.
+ * Service for executing AI CLI tools (Claude Code or Pochi) in IntelliJ terminal.
+ * Supports switching between Claude Code and Pochi for code analysis and rewriting.
+ * Executes in actual terminal window for best rendering and user experience.
  */
 class PochiCliService(private val project: Project) {
 
@@ -29,15 +27,30 @@ class PochiCliService(private val project: Project) {
         // Cached full Windows PATH (System + User)
         private var cachedFullPath: String? = null
         private var pathInitialized = false
+
+        // AI Tool selection
+        const val TOOL_POCHI = "pochi"
+        const val TOOL_CLAUDE = "claude"
     }
+
+    // Current tool (can be set via configuration later)
+    private var currentTool = TOOL_CLAUDE  // Default to Claude Code
 
     private val configManager = PochiConfigManager(project)
 
     /**
-     * Find available pochi scripts (ps1, cmd, sh)
+     * Set which AI tool to use (claude or pochi)
+     */
+    fun setTool(tool: String) {
+        currentTool = tool
+        LOG.info("Switched AI tool to: $tool")
+    }
+
+    /**
+     * Find available CLI tool scripts (ps1, cmd, sh)
      * Returns map of shell type to script path
      */
-    private fun findPochiScripts(): Map<String, String> {
+    private fun findCliScripts(toolName: String): Map<String, String> {
         val scripts = mutableMapOf<String, String>()
         val os = System.getProperty("os.name")
 
@@ -47,30 +60,40 @@ class PochiCliService(private val project: Project) {
                 val npmPath = "$appData\\npm"
 
                 // Check for PowerShell script
-                val ps1File = File("$npmPath\\pochi.ps1")
+                val ps1File = File("$npmPath\\$toolName.ps1")
                 if (ps1File.exists()) {
                     scripts["powershell"] = ps1File.absolutePath
-                    LOG.info("Found pochi.ps1: ${ps1File.absolutePath}")
+                    LOG.info("Found $toolName.ps1: ${ps1File.absolutePath}")
                 }
 
                 // Check for cmd script
-                val cmdFile = File("$npmPath\\pochi.cmd")
+                val cmdFile = File("$npmPath\\$toolName.cmd")
                 if (cmdFile.exists()) {
                     scripts["cmd"] = cmdFile.absolutePath
-                    LOG.info("Found pochi.cmd: ${cmdFile.absolutePath}")
+                    LOG.info("Found $toolName.cmd: ${cmdFile.absolutePath}")
                 }
 
                 // Check for Unix script (for Git Bash)
-                val shFile = File("$npmPath\\pochi")
+                val shFile = File("$npmPath\\$toolName")
                 if (shFile.exists()) {
                     scripts["bash"] = shFile.absolutePath
-                    LOG.info("Found pochi (sh): ${shFile.absolutePath}")
+                    LOG.info("Found $toolName (sh): ${shFile.absolutePath}")
                 }
             }
         }
 
         return scripts
     }
+
+    /**
+     * Find available pochi scripts (ps1, cmd, sh)
+     */
+    private fun findPochiScripts() = findCliScripts("pochi")
+
+    /**
+     * Find available claude scripts (ps1, cmd, sh)
+     */
+    private fun findClaudeScripts() = findCliScripts("claude")
 
     /**
      * Get full Windows PATH (System + User) - cached for performance
@@ -142,7 +165,7 @@ class PochiCliService(private val project: Project) {
     }
 
     /**
-     * Builds the prompt for Pochi to rewrite code
+     * Builds the prompt for AI tools to rewrite code
      */
     private fun buildRewritePrompt(methodContext: MethodContext, instruction: String): String {
         // Use existing MethodContextFormatter to format the context
@@ -158,14 +181,14 @@ Return the complete rewritten code in a code block.
     }
 
     /**
-     * Executes Pochi CLI using GeneralCommandLine (official IntelliJ API)
+     * Executes AI CLI tool in actual IntelliJ terminal window
      */
     private fun executePochiCli(
         prompt: String,
         onChunk: (String) -> Unit,
         future: CompletableFuture<String>
     ) {
-        Thread {
+        com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
             try {
                 val modelId = configManager.getPochiModelId()
 
@@ -176,105 +199,100 @@ Return the complete rewritten code in a code block.
                     RipgrepPathHelper.extractRipgrepToNpmDirectory(npmPath)
                 }
 
-                // Find available pochi scripts
-                val pochiScripts = findPochiScripts()
+                // Write prompt to temp file (avoids escaping issues)
+                val tempFile = Files.createTempFile("ai-prompt-", ".txt")
+                Files.writeString(tempFile, prompt)
+                LOG.info("Wrote prompt to temp file: $tempFile (${prompt.length} chars)")
 
-                // Build GeneralCommandLine based on available script
-                val commandLine = when {
-                    // Prefer cmd.exe with pochi.cmd (most reliable on Windows)
-                    pochiScripts.containsKey("cmd") -> {
-                        GeneralCommandLine(
-                            "cmd.exe", "/c",
-                            pochiScripts["cmd"],
-                            "--model", modelId,
-                            "--max-steps", MAX_STEPS.toString(),
-                            "--max-retries", MAX_RETRIES.toString()
-                        )
-                    }
-                    // PowerShell with pochi.ps1
-                    pochiScripts.containsKey("powershell") -> {
-                        GeneralCommandLine(
-                            "powershell.exe", "-File",
-                            pochiScripts["powershell"],
-                            "-model", modelId,
-                            "-max-steps", MAX_STEPS.toString(),
-                            "-max-retries", MAX_RETRIES.toString()
-                        )
-                    }
-                    // Fallback to direct execution
-                    else -> {
-                        GeneralCommandLine(
-                            "pochi",
-                            "--model", modelId,
-                            "--max-steps", MAX_STEPS.toString(),
-                            "--max-retries", MAX_RETRIES.toString()
-                        )
-                    }
-                }
+                // Get terminal manager
+                val terminalManager = TerminalToolWindowManager.getInstance(project)
 
-                // Set working directory
-                commandLine.setWorkDirectory(project.basePath)
+                // Create terminal tab with appropriate name
+                val toolDisplayName = if (currentTool == TOOL_CLAUDE) "Claude Code" else "Pochi"
+                @Suppress("DEPRECATION")
+                val widget = terminalManager.createLocalShellWidget(
+                    project.basePath,
+                    toolDisplayName
+                )
 
-                // Set environment with full Windows PATH
-                if (System.getProperty("os.name").startsWith("Windows")) {
-                    val fullPath = getFullWindowsPath()
-                    if (fullPath.isNotEmpty()) {
-                        commandLine.environment["Path"] = fullPath
-                        commandLine.environment["PATH"] = fullPath
-                        LOG.info("Set full PATH for Pochi (${fullPath.length} chars)")
-                    }
-                }
+                // Show Terminal window
+                val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terminal")
+                toolWindow?.show()
 
-                LOG.info("Executing Pochi via GeneralCommandLine in: ${project.basePath}")
-                LOG.info("Command: ${commandLine.commandLineString}")
+                LOG.info("Created terminal tab: $toolDisplayName")
 
-                // Create ProcessHandler
-                val processHandler = OSProcessHandler(commandLine)
+                // Build command to execute AI tool with temp file input
+                val command = buildTerminalCommand(tempFile, modelId)
+                LOG.info("Executing in terminal: $command")
 
-                // Create TerminalExecutionConsole for visual display
-                val console = TerminalExecutionConsole(project, processHandler)
+                // Execute in terminal (user sees everything!)
+                widget.executeCommand(command)
 
-                val outputBuffer = StringBuilder()
-
-                // Listen to process output
-                processHandler.addProcessListener(object : ProcessAdapter() {
-                    override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
-                        val text = event.text
-                        outputBuffer.append(text)
-                        onChunk(text)
-                    }
-
-                    override fun processTerminated(event: ProcessEvent) {
-                        LOG.info("Pochi terminated with exit code: ${event.exitCode}")
-                        if (event.exitCode == 0) {
-                            future.complete(outputBuffer.toString())
-                        } else {
-                            val error = "Pochi CLI failed (exit code ${event.exitCode}):\n${outputBuffer.toString().take(500)}"
-                            future.completeExceptionally(Exception(error))
-                        }
-                    }
-                })
-
-                // Write prompt to stdin
+                // Clean up temp file after delay
                 Thread {
+                    Thread.sleep(120000) // 2 minutes - enough time for AI to read it
                     try {
-                        Thread.sleep(500) // Let process start
-                        processHandler.processInput?.write(prompt.toByteArray(Charsets.UTF_8))
-                        processHandler.processInput?.flush()
-                        processHandler.processInput?.close()
+                        Files.deleteIfExists(tempFile)
+                        LOG.info("Cleaned up temp file: $tempFile")
                     } catch (e: Exception) {
-                        LOG.warn("Failed to write prompt to stdin", e)
+                        LOG.warn("Failed to delete temp file", e)
                     }
                 }.start()
 
-                // Start process
-                processHandler.startNotify()
+                // Complete immediately - output visible in terminal
+                future.complete("$toolDisplayName running in terminal tab")
 
             } catch (e: Exception) {
-                LOG.error("Error executing Pochi CLI", e)
+                LOG.error("Error executing AI CLI in terminal", e)
                 future.completeExceptionally(e)
             }
-        }.start()
+        }
+    }
+
+    /**
+     * Build terminal command to execute AI tool with prompt from temp file
+     * Uses PowerShell syntax (IntelliJ terminal default on Windows)
+     */
+    private fun buildTerminalCommand(tempFile: java.nio.file.Path, modelId: String): String {
+        val tempFilePath = tempFile.toString()
+
+        return when (currentTool) {
+            TOOL_CLAUDE -> {
+                // Claude Code - simple execution with stdin
+                val claudeScripts = findClaudeScripts()
+                when {
+                    claudeScripts.containsKey("powershell") -> {
+                        // Use PowerShell script if available
+                        "Get-Content '$tempFilePath' -Raw | & '${claudeScripts["powershell"]}'"
+                    }
+                    claudeScripts.containsKey("cmd") -> {
+                        // Execute .cmd file using PowerShell call operator
+                        "Get-Content '$tempFilePath' | & '${claudeScripts["cmd"]}'"
+                    }
+                    else -> {
+                        "Get-Content '$tempFilePath' | claude"
+                    }
+                }
+            }
+            TOOL_POCHI -> {
+                // Pochi - with model and parameters
+                val pochiScripts = findPochiScripts()
+                when {
+                    pochiScripts.containsKey("powershell") -> {
+                        // Use PowerShell script
+                        "Get-Content '$tempFilePath' -Raw | & '${pochiScripts["powershell"]}' -model $modelId -max-steps $MAX_STEPS -max-retries $MAX_RETRIES"
+                    }
+                    pochiScripts.containsKey("cmd") -> {
+                        // Execute .cmd file using PowerShell call operator &
+                        "Get-Content '$tempFilePath' | & '${pochiScripts["cmd"]}' --model $modelId --max-steps $MAX_STEPS --max-retries $MAX_RETRIES"
+                    }
+                    else -> {
+                        "Get-Content '$tempFilePath' | pochi --model $modelId --max-steps $MAX_STEPS --max-retries $MAX_RETRIES"
+                    }
+                }
+            }
+            else -> "Write-Host 'Unknown AI tool: $currentTool'"
+        }
     }
 
     /**

@@ -1,8 +1,10 @@
 package com.zps.zest.pochi
 
+import com.intellij.execution.process.ProcessHandler
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
-import com.intellij.ui.components.JBScrollPane
+import com.intellij.terminal.TerminalExecutionConsole
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -10,82 +12,101 @@ import java.awt.Font
 import javax.swing.*
 
 /**
- * Dialog that shows Pochi CLI output streaming in real-time.
- * Strips ANSI escape codes for clean display.
+ * Dialog that shows AI CLI output streaming in real-time with proper terminal rendering.
+ * Uses TerminalExecutionConsole for ANSI colors, progress bars, and spinners.
+ * Flushes console every 100ms for true real-time streaming.
  */
 class PochiStreamingDialog(
     private val project: Project,
-    private val methodName: String
+    private val processHandler: ProcessHandler,
+    private val toolName: String = "AI Assistant"
 ) : DialogWrapper(project) {
 
-    private val outputArea = JTextArea()
-    private val statusLabel = JLabel("Starting Pochi...")
-    private var isCancelled = false
+    private val console: TerminalExecutionConsole
+    private val statusLabel = JLabel("Starting $toolName...")
+    private val progressBar = JProgressBar()
+    private var flushTimer: Timer? = null
 
     init {
-        title = "Pochi AI Agent - $methodName"
-        setupUI()
+        title = "$toolName - Code Analysis"
+
+        // Create TerminalExecutionConsole (handles ANSI codes, colors, etc.)
+        console = TerminalExecutionConsole(project, processHandler)
+
+        // Start flush timer for real-time streaming (every 100ms)
+        startFlushTimer()
+
         init()
     }
 
-    private fun setupUI() {
-        outputArea.isEditable = false
-        outputArea.font = Font("Monospaced", Font.PLAIN, 12)
-        outputArea.lineWrap = true
-        outputArea.wrapStyleWord = true
-        outputArea.border = JBUI.Borders.empty(5)
+    private fun startFlushTimer() {
+        flushTimer = Timer(100) {
+            SwingUtilities.invokeLater {
+                try {
+                    console.flushImmediately()
+                } catch (e: Exception) {
+                    // Ignore - might fail if not on EDT or console disposed
+                }
+            }
+        }
+        flushTimer?.start()
     }
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout())
-        panel.preferredSize = Dimension(900, 600)
+        panel.preferredSize = Dimension(1200, 850)
+        panel.minimumSize = Dimension(900, 600)
 
-        // Status header
+        // Status header with progress bar
         val headerPanel = JPanel(BorderLayout())
-        headerPanel.border = JBUI.Borders.empty(5, 10)
-        statusLabel.font = statusLabel.font.deriveFont(Font.BOLD)
+        headerPanel.border = JBUI.Borders.empty(12, 15, 8, 15)
+
+        // Status label
+        statusLabel.font = UIManager.getFont("Label.font").deriveFont(Font.BOLD, 15f)
         headerPanel.add(statusLabel, BorderLayout.WEST)
+
+        // Progress indicator
+        progressBar.isIndeterminate = true
+        progressBar.preferredSize = Dimension(150, 20)
+        val progressPanel = JPanel(BorderLayout())
+        progressPanel.add(progressBar, BorderLayout.EAST)
+        headerPanel.add(progressPanel, BorderLayout.EAST)
+
         panel.add(headerPanel, BorderLayout.NORTH)
 
-        // Output area with scroll
-        val scrollPane = JBScrollPane(outputArea)
-        scrollPane.border = JBUI.Borders.customLine(UIManager.getColor("Component.borderColor"), 1)
-        panel.add(scrollPane, BorderLayout.CENTER)
+        // Console component (fills entire center area - no extra borders)
+        val consoleComponent = console.component
+        panel.add(consoleComponent, BorderLayout.CENTER)
 
         return panel
     }
 
     override fun createActions(): Array<Action> {
-        return arrayOf(cancelAction)
+        return arrayOf(okAction, cancelAction)
     }
 
     override fun doCancelAction() {
-        isCancelled = true
-        super.doCancelAction()
-    }
+        // Stop flush timer
+        flushTimer?.stop()
+        flushTimer = null
 
-    /**
-     * Append text chunk to output (called from background thread)
-     * Strips ANSI escape codes for clean display
-     */
-    fun appendOutput(text: String) {
-        SwingUtilities.invokeLater {
-            val cleaned = stripAnsiCodes(text)
-            outputArea.append(cleaned)
-            outputArea.caretPosition = outputArea.document.length
+        // Stop progress bar
+        progressBar.isIndeterminate = false
+
+        // Destroy process if user cancels
+        if (processHandler.isProcessTerminating || processHandler.isProcessTerminated) {
+            super.doCancelAction()
+        } else {
+            processHandler.destroyProcess()
+            super.doCancelAction()
         }
     }
 
-    /**
-     * Strip ANSI escape codes from text
-     */
-    private fun stripAnsiCodes(text: String): String {
-        // Remove ANSI color codes, cursor movement, etc.
-        return text
-            .replace(Regex("\u001B\\[[;\\d]*m"), "")  // Color codes
-            .replace(Regex("\u001B\\[[\\d]*[A-Z]"), "") // Cursor movement
-            .replace(Regex("\u001B\\[\\?[\\d;]*[a-zA-Z]"), "") // Private sequences
-            .replace("\r", "") // Carriage returns (for spinners)
+    override fun dispose() {
+        // Clean up timer
+        flushTimer?.stop()
+        flushTimer = null
+        super.dispose()
     }
 
     /**
@@ -98,31 +119,17 @@ class PochiStreamingDialog(
     }
 
     /**
-     * Mark as completed successfully
+     * Stop progress indicator (when process completes)
      */
-    fun markComplete() {
+    fun stopProgress() {
         SwingUtilities.invokeLater {
-            statusLabel.text = "✓ Pochi completed successfully"
+            progressBar.isIndeterminate = false
+            progressBar.value = 100
         }
     }
 
     /**
-     * Mark as failed with error
+     * Get the console view (for additional operations if needed)
      */
-    fun markFailed(error: String) {
-        SwingUtilities.invokeLater {
-            statusLabel.text = "✗ Pochi failed: $error"
-            appendOutput("\n\n=== ERROR ===\n$error\n")
-        }
-    }
-
-    /**
-     * Check if user cancelled
-     */
-    fun isCancelled(): Boolean = isCancelled
-
-    /**
-     * Get all output text
-     */
-    fun getOutputText(): String = outputArea.text
+    fun getConsole(): TerminalExecutionConsole = console
 }

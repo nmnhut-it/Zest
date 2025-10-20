@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.908">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.909">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,6 +9,30 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
+            <h3>Version 1.9.909 - Enhanced Quick Actions & System Improvements 🚀</h3>
+            <h4>⚡ Quick Action Enhancements</h4>
+            <ul>
+                <li><b>Improved Keyboard Navigation</b> - Better keyboard shortcuts and navigation flow</li>
+                <li><b>Custom Prompt Support</b> - Save frequently used instructions with Shift+1-9 shortcuts</li>
+                <li><b>Smart Context Detection</b> - Better understanding of cursor position and code intent</li>
+            </ul>
+
+            <h4>🔍 Search & Tool Improvements</h4>
+            <ul>
+                <li><b>Multiline Regex Support</b> - Search patterns can now span multiple lines</li>
+                <li><b>Tool Server Deduplication</b> - Eliminates duplicate tool entries for cleaner integration</li>
+                <li><b>Better Tool Injection</b> - Improved reliability when injecting tools into AI requests</li>
+            </ul>
+
+            <h4>🎯 UI & UX Polish</h4>
+            <ul>
+                <li><b>Streaming Controls</b> - Added cancel and reset features for better control</li>
+                <li><b>Simplified Git UI</b> - Cleaner commit workflow with improved service architecture</li>
+                <li><b>Responsive Dialogs</b> - Better sizing and layout on different screen sizes</li>
+            </ul>
+
+            <p><em>Focused improvements for smoother workflows and better AI integration! 🎉</em></p>
+
             <h3>Version 1.9.908 - Quick Actions & Tool Improvements 🔧</h3>
             <h4>🔧 Enhanced Quick Actions</h4>
             <ul>

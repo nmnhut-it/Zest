@@ -2,9 +2,7 @@ package com.zps.zest.chatui
 
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.zps.zest.browser.JCEFBrowserManager
-import com.zps.zest.browser.JCEFBrowserService
-import com.zps.zest.browser.BrowserPurpose
+import com.zps.zest.browser.LightweightChatBrowser
 import java.awt.BorderLayout
 import java.text.SimpleDateFormat
 import java.util.*
@@ -16,7 +14,6 @@ import javax.swing.JPanel
  */
 class JCEFChatPanel(
     private val project: Project,
-    private val purpose: BrowserPurpose = BrowserPurpose.CHAT,
     private var chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory = dev.langchain4j.memory.chat.MessageWindowChatMemory.withMaxMessages(100)
 ) : JPanel(BorderLayout()) {
 
@@ -24,7 +21,7 @@ class JCEFChatPanel(
         private val LOG = Logger.getInstance(JCEFChatPanel::class.java)
     }
 
-    private val browserManager: JCEFBrowserManager = JCEFBrowserService.getInstance(project).getBrowserManager(purpose)
+    private val browser: LightweightChatBrowser = LightweightChatBrowser(project)
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
     private var messageCounter = 0
 
@@ -33,7 +30,7 @@ class JCEFChatPanel(
         initializeBrowser()
 
         // Add browser component directly
-        add(browserManager.browser.component, BorderLayout.CENTER)
+        add(browser.getComponent(), BorderLayout.CENTER)
     }
 
     /**
@@ -49,17 +46,9 @@ class JCEFChatPanel(
         // Create base64 data URL to avoid encoding issues
         val encodedHtml = java.util.Base64.getEncoder().encodeToString(initialHtml.toByteArray())
         val dataUrl = "data:text/html;base64,$encodedHtml"
-        browserManager.loadURL(dataUrl)
-        
-        // Set up JavaScript bridge for chat interactions
-        setupJavaScriptBridge()
-    }
-    
-    private fun setupJavaScriptBridge() {
-        // Use the existing JavaScript bridge from JCEFBrowserManager
-        val jsBridge = browserManager.javaScriptBridge
-        // The bridge is already set up by JCEFBrowserManager, just log that it's ready
-        LOG.info("JavaScript bridge ready for chat interactions")
+        browser.loadURL(dataUrl)
+
+        LOG.info("Lightweight chat browser initialized")
     }
     
     /**
@@ -90,7 +79,7 @@ class JCEFChatPanel(
         val contentEscaped = escapeJavaScriptString(content)
         val typeEscaped = escapeJavaScriptString(chunkType)
 
-        browserManager.executeJavaScript("""
+        browser.executeJavaScript("""
             console.log('[KOTLIN->JS] Executing addTemporaryChunk');
             if (window.chatFunctions && window.chatFunctions.addTemporaryChunk) {
                 console.log('[KOTLIN->JS] window.chatFunctions found, calling addTemporaryChunk');
@@ -114,7 +103,7 @@ class JCEFChatPanel(
     fun updateLastMessage(newContent: String) {
         // Send chunk to client-side streaming handler (no page reload)
         val escapedContent = escapeJavaScriptString(newContent)
-        browserManager.executeJavaScript("""
+        browser.executeJavaScript("""
             if (window.chatFunctions && window.chatFunctions.updateLastMessageStreaming) {
                 window.chatFunctions.updateLastMessageStreaming('$escapedContent');
             }
@@ -126,7 +115,7 @@ class JCEFChatPanel(
      */
     fun finalizeStreaming() {
         // Trigger finalize
-        browserManager.executeJavaScript("""
+        browser.executeJavaScript("""
             if (window.chatFunctions && window.chatFunctions.finalizeWithAnimation) {
                 window.chatFunctions.finalizeWithAnimation();
             }
@@ -146,7 +135,7 @@ class JCEFChatPanel(
     fun addToolBadgeLive(toolName: String, toolArgs: String, toolId: String) {
         val toolArgsEscaped = escapeJavaScriptString(toolArgs)
         val toolNameEscaped = escapeJavaScriptString(toolName)
-        browserManager.executeJavaScript("""
+        browser.executeJavaScript("""
             if (window.chatFunctions && window.chatFunctions.appendToolBadge) {
                 window.chatFunctions.appendToolBadge('$toolNameEscaped', '$toolArgsEscaped', '$toolId');
             }
@@ -158,7 +147,7 @@ class JCEFChatPanel(
      */
     fun updateToolBadgeWithResult(toolId: String, result: String) {
         val resultEscaped = escapeJavaScriptString(result)
-        browserManager.executeJavaScript("""
+        browser.executeJavaScript("""
             if (window.chatFunctions && window.chatFunctions.updateToolBadgeWithResult) {
                 window.chatFunctions.updateToolBadgeWithResult('$toolId', '$resultEscaped');
             }
@@ -180,7 +169,7 @@ class JCEFChatPanel(
         val encodedHtml = java.util.Base64.getEncoder().encodeToString(html.toByteArray())
         val dataUrl = "data:text/html;base64,$encodedHtml"
 
-        browserManager.executeJavaScript("""
+        browser.executeJavaScript("""
             (function() {
                 const scrollY = window.scrollY;
                 const maxScroll = document.body.scrollHeight - window.innerHeight;
@@ -189,9 +178,9 @@ class JCEFChatPanel(
             })();
         """)
 
-        browserManager.loadURL(dataUrl)
+        browser.loadURL(dataUrl)
 
-        browserManager.executeJavaScript("""
+        browser.executeJavaScript("""
             setTimeout(function() {
                 const scrollY = window.__preservedScrollY;
                 if (scrollY === -1) {
@@ -207,7 +196,7 @@ class JCEFChatPanel(
      * Scroll to bottom of chat with delay to ensure DOM is ready
      */
     private fun scrollToBottom() {
-        browserManager.executeJavaScript("""
+        browser.executeJavaScript("""
             setTimeout(function() {
                 window.scrollTo(0, document.body.scrollHeight);
             }, 100);
@@ -476,10 +465,10 @@ class JCEFChatPanel(
     /**
      * Get the browser component for integration
      */
-    fun getBrowserComponent(): JComponent = browserManager.component
-    
+    fun getBrowserComponent(): JComponent = browser.getComponent()
+
     /**
-     * Get the browser manager for developer tools access
+     * Get the lightweight browser for developer tools access
      */
-    fun getBrowserManager(): JCEFBrowserManager = browserManager
+    fun getLightweightBrowser(): LightweightChatBrowser = browser
 }

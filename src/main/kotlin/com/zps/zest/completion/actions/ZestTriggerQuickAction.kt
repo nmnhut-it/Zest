@@ -19,6 +19,7 @@ import com.intellij.util.ui.JBUI
 import com.zps.zest.completion.MethodContext
 import com.zps.zest.completion.MethodContextFormatter
 import com.zps.zest.completion.prompts.ZestCustomPromptsLoader
+import com.zps.zest.completion.prompts.ZestPromptManager
 import com.zps.zest.completion.metrics.ZestQuickActionMetricsService
 import com.zps.zest.testgen.actions.GenerateTestAction
 import com.intellij.psi.*
@@ -541,6 +542,7 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         private var isShiftPressed = false
         private val hasMethod = methodContext != null
 
+        private val promptManager = ZestPromptManager(project)
         private val builtInOptions = generateContextOptions()
         private var customPrompts = loadCustomPrompts()
         private val builtInLabels = mutableListOf<JLabel>()
@@ -693,67 +695,20 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
         }
 
         private fun generateContextOptions(): List<RewriteOption> {
-            val globalActions = listOf(
-                RewriteOption("📝", "Fill code at cursor", Instructions.FILL_CODE, requiresMethod = false),
-                RewriteOption("🚀", "Open Git UI", Instructions.OPEN_GIT_UI, requiresMethod = false)
-            )
-
-            if (methodContext == null) {
-                return globalActions + listOf(
-                    RewriteOption("🧪", "Write unit test", Instructions.WRITE_TEST, requiresMethod = true, disabledReason = "requires cursor in method"),
-                    RewriteOption("🔧", "Refactor method", "Refactor this method", requiresMethod = true, disabledReason = "requires cursor in method"),
-                    RewriteOption("📋", "Add logging", "Add logging statements", requiresMethod = true, disabledReason = "requires cursor in method"),
-                    RewriteOption("🛡️", "Add error handling", "Add try-catch blocks", requiresMethod = true, disabledReason = "requires cursor in method")
+            val prompts = promptManager.getContextAwarePrompts(methodContext)
+            return prompts.map { prompt ->
+                RewriteOption(
+                    icon = prompt.icon,
+                    title = prompt.title,
+                    instruction = prompt.formatInstruction(methodContext),
+                    requiresMethod = prompt.requiresMethod,
+                    disabledReason = prompt.disabledReason
                 )
             }
-
-            val methodContent = methodContext.methodContent
-            val methodName = methodContext.methodName
-            val methodActions = when {
-                isEmptyOrMinimalMethod(methodContent) -> listOf(
-                    RewriteOption("✨", "Complete implementation", "Implement this $methodName method with proper functionality"),
-                    RewriteOption("📋", "Add logging only", "Add logging statements to track method execution"),
-                    RewriteOption("🛡️", "Add error handling", "Add try-catch blocks and input validation"),
-                    RewriteOption("🧪", "Write unit test", Instructions.WRITE_TEST)
-                )
-
-                hasTodoComment(methodContent) -> {
-                    val todoText = extractTodoText(methodContent)
-                    val todoInstruction = if (todoText.isNotEmpty()) "Complete TODO: $todoText" else "Complete TODO functionality"
-                    listOf(
-                        RewriteOption("✅", "Complete TODO", todoInstruction),
-                        RewriteOption("📋", "Add logging", "Add logging statements"),
-                        RewriteOption("🛡️", "Add error handling", "Add try-catch blocks"),
-                        RewriteOption("🧪", "Write unit test", Instructions.WRITE_TEST)
-                    )
-                }
-
-                isComplexMethod(methodContent) -> listOf(
-                    RewriteOption("✂️", "Split into smaller methods", "Break this method into smaller, focused methods"),
-                    RewriteOption("🐛", "Add debug logging", "Add detailed logging for debugging"),
-                    RewriteOption("⚡", "Optimize performance", "Apply performance optimizations"),
-                    RewriteOption("🧪", "Write unit test", Instructions.WRITE_TEST)
-                )
-
-                else -> listOf(
-                    RewriteOption("🔧", "Fix specific issue", "Fix bugs or issues in this method"),
-                    RewriteOption("📋", "Add logging", "Add logging statements"),
-                    RewriteOption("🛡️", "Add error handling", "Add try-catch blocks"),
-                    RewriteOption("🧪", "Write unit test", Instructions.WRITE_TEST)
-                )
-            }
-
-            return globalActions + methodActions
         }
 
         private fun loadCustomPrompts(): List<ZestCustomPromptsLoader.CustomPrompt> {
-            return try {
-                val loader = ZestCustomPromptsLoader.getInstance(project)
-                loader.loadCustomPrompts()
-            } catch (e: Exception) {
-                logger.warn("Failed to load custom prompts", e)
-                emptyList()
-            }
+            return promptManager.getCustomPrompts()
         }
 
         private fun updateHighlighting() {
@@ -970,31 +925,6 @@ class ZestTriggerQuickAction : AnAction(), HasPriority {
                     super.doOKAction()
                 }
             }
-        }
-
-        private fun isEmptyOrMinimalMethod(content: String): Boolean {
-            val body = content.substringAfter("{").substringBeforeLast("}")
-            val cleanBody = body.trim()
-                .replace(Regex("//.*"), "")
-                .replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
-                .trim()
-            return cleanBody.isEmpty() || cleanBody == "return null;" || cleanBody == "return;" || cleanBody.length < 10
-        }
-
-        private fun hasTodoComment(content: String): Boolean {
-            return content.contains(Regex("//\\s*(TODO|FIXME|XXX|HACK)", RegexOption.IGNORE_CASE))
-        }
-
-        private fun extractTodoText(content: String): String {
-            val todoRegex = Regex("//\\s*(TODO|FIXME|XXX|HACK)\\s*:?\\s*(.*)", RegexOption.IGNORE_CASE)
-            return todoRegex.find(content)?.groupValues?.get(2)?.trim() ?: ""
-        }
-
-        private fun isComplexMethod(content: String): Boolean {
-            val lines = content.lines().size
-            val cyclomaticComplexity = content.count { it == '(' } +
-                    content.split(Regex("\\b(if|for|while|switch|case|catch)\\b")).size - 1
-            return lines > 30 || cyclomaticComplexity > 10
         }
 
         private fun saveAndInvokeCustomInstruction(customInstruction: String) {

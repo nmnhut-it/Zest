@@ -445,7 +445,6 @@ public class MessageDetailDialog(
         // Create JCEFChatPanel with the populated temporary memory
         val chatPanel = com.zps.zest.chatui.JCEFChatPanel(
             project,
-            com.zps.zest.browser.BrowserPurpose.MESSAGE_DETAIL,
             tempMemory
         )
         chatPanel.preferredSize = JBUI.size(800, 600)

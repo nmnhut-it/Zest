@@ -37,44 +37,10 @@ public class JCEFBrowserManager implements Disposable {
 
     private static final Logger LOG = Logger.getInstance(JCEFBrowserManager.class);
 
-    // Shared client across all browser instances to prevent black screen issues
-    private static volatile JBCefClient sharedClient;
-    private static final Object clientLock = new Object();
-    private static int clientRefCount = 0;
-
     private final JBCefBrowser browser;
     private final Project project;
     private final JavaScriptBridge jsBridge;
     private JBCefJSQuery jsQuery;
-
-    /**
-     * Gets or creates the shared JBCefClient instance.
-     * This prevents the black screen issue when multiple browsers are open.
-     */
-    private static JBCefClient getSharedClient() {
-        synchronized (clientLock) {
-            if (sharedClient == null) {
-                LOG.info("Creating shared JBCefClient for all browser instances");
-                sharedClient = JBCefApp.getInstance().createClient();
-                sharedClient.setProperty(JS_QUERY_POOL_SIZE, 10);
-            }
-            clientRefCount++;
-            LOG.info("Shared client reference count: " + clientRefCount);
-            return sharedClient;
-        }
-    }
-
-    /**
-     * Decrements the reference count for the shared client.
-     * The shared client is never disposed to prevent black screen issues.
-     */
-    private static void releaseSharedClient() {
-        synchronized (clientLock) {
-            clientRefCount--;
-            LOG.info("Released shared client reference, count: " + clientRefCount);
-            // Never dispose the shared client - keep it alive for the lifetime of the IDE
-        }
-    }
 
     /**
      * Creates a new browser manager with the specified project.
@@ -96,7 +62,7 @@ public class JCEFBrowserManager implements Disposable {
         }
 
         // Use the shared client instead of creating a new one
-        JBCefClient client = getSharedClient();
+        JBCefClient client = JCEFClientProvider.getSharedClient();
 
         // Enable cookies in browser settings
         JBCefBrowserBuilder browserBuilder = new JBCefBrowserBuilder()
@@ -580,7 +546,7 @@ public class JCEFBrowserManager implements Disposable {
                 Disposer.dispose(browser);
 
                 // Release the shared client reference (but don't dispose the client itself)
-                releaseSharedClient();
+                JCEFClientProvider.releaseSharedClient();
 
                 // Force garbage collection to help clean up native resources
                 System.gc();

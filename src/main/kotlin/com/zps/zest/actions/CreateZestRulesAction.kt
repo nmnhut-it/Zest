@@ -38,12 +38,12 @@ class CreateZestRulesAction : AnAction() {
         if (rulesLoader.rulesFileExists()) {
             // Check if existing rules are minimal and offer to upgrade
             if (rulesLoader.isCurrentRulesFileMinimal()) {
-                val upgraded = rulesLoader.forceUpgradeToComprehensiveRules()
+                val upgraded = rulesLoader.forceUpgradeToSimplifiedRules()
                 if (upgraded) {
                     ZestNotifications.showInfo(
                         project,
                         "Rules File Upgraded",
-                        "Upgraded your rules file with comprehensive coding standards while preserving your custom rules.\nOpening enhanced rules file for editing."
+                        "Upgraded your rules file with streamlined quality-focused rules while preserving your custom content.\nOpening enhanced rules file for editing."
                     )
                 } else {
                     ZestNotifications.showInfo(
@@ -55,7 +55,7 @@ class CreateZestRulesAction : AnAction() {
             } else {
                 ZestNotifications.showInfo(
                     project,
-                    "Rules File Exists", 
+                    "Rules File Exists",
                     "The rules file exists. Opening it for editing.\nNote: Rules are now stored in .zest/rules.md"
                 )
             }

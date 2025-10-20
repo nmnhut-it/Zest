@@ -22,72 +22,49 @@ class ZestRulesLoader(private val project: Project) {
         const val DEFAULT_RULES_HEADER = """
 # Zest Custom Rules
 
-Define your custom LLM rules below. These rules will be included at the top of all prompts sent to the LLM.
-You can use this to:
-- Define coding standards specific to your project
-- Add domain-specific knowledge
-- Set preferred coding patterns
-- Include project-specific requirements
+## High-Impact Rules:
 
-## Default Coding Standards:
+### Code Clarity:
+- Use descriptive, meaningful names for variables, functions, and classes
+- Follow single responsibility principle - each unit should do one thing well
+- Keep functions small and focused (under 30 lines when possible)
+- Prefer self-documenting code over comments
 
-### Code Quality & Style:
-- Use descriptive, meaningful names for variables, methods, and classes (avoid abbreviations)
-- Follow single responsibility principle - each method/class should have one clear purpose
-- Keep methods under 20 lines when possible - extract complex logic into helper methods
-- Prefer early returns to reduce nesting and improve readability
-- Write self-documenting code - prefer clear logic over comments when possible
-- Use consistent indentation and formatting
-
-### Java/Kotlin Best Practices:
-- Use Optional<T> instead of returning null in Java methods
-- Prefer immutable objects and final variables when possible
-- Use Kotlin data classes for value objects and DTOs
-- Always implement equals() and hashCode() together in Java
-- Use @NotNull/@Nullable annotations for better null safety
-- Prefer dependency injection through constructor parameters
-- Use sealed classes/enums instead of magic strings or numbers
-
-### IntelliJ Plugin Development:
-- Always run UI operations on EDT using ApplicationManager.getApplication().invokeLater()
-- Run heavy computations in background threads with proper progress indicators
-- Dispose resources properly by implementing Disposable interface
-- Use project services instead of static instances for better testability
-- Cache expensive operations using CachedValuesManager or similar mechanisms
-- Use ReadAction/WriteAction for PSI operations
-- Validate project state before accessing project-dependent resources
-
-### Error Handling & Logging:
-- Never swallow exceptions silently - always log or re-throw appropriately
+### Error Handling:
+- Never swallow exceptions silently - always log or re-throw with context
 - Use specific exception types instead of generic Exception
-- Log with appropriate levels (DEBUG, INFO, WARN, ERROR) and meaningful context
-- Validate method inputs early with clear error messages
-- Use guard clauses to fail fast on invalid conditions
-- Include stack traces in error logs for debugging
+- Provide meaningful error messages that help debugging
+- Validate inputs early and fail fast
 
-### Testing & Documentation:
-- Write unit tests for all business logic and edge cases
-- Use descriptive test method names that explain what is being tested
-- Add KDoc/JavaDoc for public APIs, especially complex methods
-- Include code examples in documentation for complex APIs
-- Mock external dependencies in unit tests
+### Null Safety:
+- Avoid null references - use Optional, nullable types, or default values
+- Always check for null before dereferencing
+- Document when null is a valid return value
+- Use language-specific null-safety features
+
+### Maintainability:
+- Follow DRY (Don't Repeat Yourself) - extract common logic
+- Avoid magic numbers and strings - use named constants or enums
+- Write modular code with clear interfaces
+- Keep dependencies explicit and minimal
+
+### Thread Safety:
+- Document thread-safety assumptions
+- Use immutable objects when possible
+- Properly synchronize shared mutable state
+- Avoid blocking operations in critical paths
+
+### Testing:
+- Write unit tests for business logic and edge cases
 - Test both success and failure scenarios
+- Use descriptive test names that explain what's being tested
+- Mock external dependencies in tests
 
-### Performance & Security:
-- Avoid blocking operations on EDT that could freeze the UI
-- Use lazy initialization for expensive resources that may not be needed
-- Don't log sensitive information like passwords or API keys
-- Validate and sanitize all external inputs
-- Use StringBuilder for string concatenation in loops
-- Cache results of expensive computations when appropriate
-- Prefer immutable collections for thread safety
-
-### Project-Specific Patterns:
-- Use Result<T> or similar wrapper types for operations that can fail
-- Follow repository pattern for data access layers
-- Use builder pattern for complex object creation
-- Implement proper cleanup in dispose() methods
-- Use service locators sparingly - prefer explicit dependency injection
+### Documentation:
+- Add brief inline comments for complex logic
+- Document public APIs with input/output examples
+- Keep documentation up-to-date with code changes
+- Explain the "why" not the "what"
 
 ## Your Rules:
 
@@ -111,8 +88,8 @@ You can use this to:
             if (newContent != null) {
                 // Check if this is a dummy/minimal rules file and upgrade if needed
                 if (isDummyRulesFile(newContent)) {
-                    logger.info("Detected minimal rules file, upgrading to comprehensive default rules")
-                    upgradeToComprehensiveRules()
+                    logger.info("Detected bloated/minimal rules file, upgrading to simplified high-impact rules")
+                    upgradeToSimplifiedRules()
                     // Re-read the upgraded content
                     val upgradedContent = configManager.readZestConfigFile(NEW_RULES_FILE_NAME)
                     if (upgradedContent != null) {
@@ -213,7 +190,8 @@ You can use this to:
             when {
                 // Check for rules sections
                 line.trim().startsWith("## Default Coding Standards:") ||
-                line.trim().startsWith("## Your Rules:") || 
+                line.trim().startsWith("## High-Impact Rules:") ||
+                line.trim().startsWith("## Your Rules:") ||
                 line.trim().startsWith("## Custom Rules:") ||
                 line.trim().startsWith("## Project Rules:") -> {
                     inRulesSection = true
@@ -280,85 +258,66 @@ You can use this to:
     }
     
     /**
-     * Check if the existing rules file contains only minimal/dummy content
+     * Check if the existing rules file contains only minimal/placeholder content
+     * Only returns true if the file is truly a placeholder with no user content
      */
     private fun isDummyRulesFile(content: String): Boolean {
         // Extract only the actual rules content (skip headers and examples)
         val rulesContent = extractRulesContent(content)
-        
-        // Check for indicators of minimal/dummy rules
-        val minimalIndicators = listOf(
-            "<!-- Add your custom rules below this line -->",
-            "<!-- Add your project-specific rules below this line -->",
-            "## Example Rules:",
-            "Define your custom LLM rules below"
-        )
-        
-        // If the content contains default boilerplate text, consider upgrading
-        val hasBoilerplate = minimalIndicators.any { indicator -> 
-            content.contains(indicator, ignoreCase = true) 
-        }
-        
-        // Check if it lacks comprehensive sections like "Default Coding Standards"
-        val lacksComprehensiveRules = !content.contains("## Default Coding Standards:", ignoreCase = true)
-        
-        // Check if it lacks key comprehensive categories that indicate old/minimal rules
-        val comprehensiveCategories = listOf(
-            "IntelliJ Plugin Development:",
-            "Performance & Security:",
-            "Testing & Documentation:",
-            "Error Handling & Logging:"
-        )
-        
-        val lacksComprehensiveCategories = comprehensiveCategories.none { category ->
-            content.contains(category, ignoreCase = true)
-        }
-        
-        // Check for very basic/generic rules that suggest it's just placeholder content
-        val hasOnlyBasicRules = rulesContent.lines().size < 20 && (
-            rulesContent.contains("Use descriptive variable names", ignoreCase = true) ||
-            rulesContent.contains("Add null checks", ignoreCase = true) ||
-            rulesContent.contains("Follow the repository pattern", ignoreCase = true)
-        ) && !rulesContent.contains("ApplicationManager.getApplication().invokeLater", ignoreCase = true)
-        
-        // Consider upgrading if:
-        // 1. Has boilerplate placeholders, OR
-        // 2. Lacks comprehensive structure (both comprehensive rules and categories), OR  
-        // 3. Has only basic rules without plugin-specific guidance
-        return hasBoilerplate || 
-               (lacksComprehensiveRules && lacksComprehensiveCategories) ||
-               hasOnlyBasicRules
+
+        // Check if content has the placeholder comment but no actual rules below it
+        val hasPlaceholderOnly = content.contains("<!-- Add your", ignoreCase = true) &&
+                                 rulesContent.trim().isEmpty()
+
+        // Check if it's the old bloated default rules (has many sections we want to simplify)
+        val hasBloatedDefaults = content.contains("## Default Coding Standards:", ignoreCase = true) &&
+                                 content.contains("### Code Quality & Style:", ignoreCase = true) &&
+                                 content.contains("### Java/Kotlin Best Practices:", ignoreCase = true) &&
+                                 content.contains("### Testing & Documentation:", ignoreCase = true) &&
+                                 content.contains("### Performance & Security:", ignoreCase = true)
+
+        // User has actual content if:
+        // - Rules section has substantial content (>10 lines of actual rules)
+        // - Rules contain specific project details (not just generic advice)
+        val hasUserContent = rulesContent.lines().filter { it.isNotBlank() }.size > 10 &&
+                            !hasBloatedDefaults
+
+        // Only migrate if:
+        // 1. File is truly placeholder-only (no rules), OR
+        // 2. File has the old bloated defaults AND no significant user additions beyond that
+        return hasPlaceholderOnly ||
+               (hasBloatedDefaults && !hasUserContent)
     }
     
     /**
-     * Upgrade existing minimal rules to comprehensive default rules while preserving user content
+     * Upgrade existing bloated/minimal rules to simplified high-impact rules while preserving user content
      */
-    private fun upgradeToComprehensiveRules(): Boolean {
+    private fun upgradeToSimplifiedRules(): Boolean {
         try {
             val configManager = ConfigurationManager.getInstance(project)
-            
+
             // Read existing content
             val existingContent = configManager.readZestConfigFile(NEW_RULES_FILE_NAME) ?: ""
-            
+
             // Extract any existing user rules
             val existingUserRules = extractUserRulesOnly(existingContent)
-            
-            // Create new content with comprehensive defaults + preserved user rules
+
+            // Create new content with simplified defaults + preserved user rules
             val upgradedContent = if (existingUserRules.isNotBlank()) {
                 DEFAULT_RULES_HEADER + "\n" + existingUserRules
             } else {
                 DEFAULT_RULES_HEADER
             }
-            
+
             // Write the upgraded content
             val success = configManager.writeZestConfigFile(NEW_RULES_FILE_NAME, upgradedContent)
-            
+
             if (success) {
-                logger.info("Successfully upgraded rules file with comprehensive defaults")
+                logger.info("Successfully upgraded rules file with simplified high-impact defaults")
             }
-            
+
             return success
-            
+
         } catch (e: Exception) {
             logger.error("Failed to upgrade rules file", e)
             return false
@@ -411,10 +370,10 @@ You can use this to:
     }
     
     /**
-     * Force upgrade rules file to comprehensive defaults (for testing/maintenance)
+     * Force upgrade rules file to simplified defaults (for testing/maintenance)
      */
-    fun forceUpgradeToComprehensiveRules(): Boolean {
-        return upgradeToComprehensiveRules()
+    fun forceUpgradeToSimplifiedRules(): Boolean {
+        return upgradeToSimplifiedRules()
     }
     
     /**

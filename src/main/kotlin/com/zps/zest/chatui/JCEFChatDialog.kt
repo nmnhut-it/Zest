@@ -28,7 +28,6 @@ class JCEFChatDialog(
     private val chatService = project.getService(ChatUIService::class.java)
     private val chatPanel = JCEFChatPanel(
         project,
-        com.zps.zest.browser.BrowserPurpose.CHAT,
         chatService.getChatMemory()
     )
     private val inputArea = JBTextArea()
@@ -428,7 +427,7 @@ class JCEFChatDialog(
         val devToolsItem = JMenuItem("Open Developer Tools (F12)")
         devToolsItem.addActionListener {
             try {
-                chatPanel.getBrowserManager().getBrowser().openDevtools()
+                chatPanel.getLightweightBrowser().getCefBrowser().devTools?.createImmediately()
             } catch (ex: Exception) {
                 ex.printStackTrace();
             }
@@ -460,7 +459,7 @@ class JCEFChatDialog(
         panel.actionMap.put("openDevTools", object : AbstractAction() {
             override fun actionPerformed(e: java.awt.event.ActionEvent) {
                 try {
-                    chatPanel.getBrowserManager().getBrowser().openDevtools()
+                    chatPanel.getLightweightBrowser().getCefBrowser().devTools?.createImmediately()
 //                    LOG.info("Dev tools opened via F12 key")
                 } catch (ex: Exception) {
 //                    LOG.warn("Failed to open dev tools via F12", ex)

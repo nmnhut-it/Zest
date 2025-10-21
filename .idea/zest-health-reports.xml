@@ -3,53 +3,53 @@
   <component name="CodeHealthReportStorage">
     <option name="reports">
       <map>
-        <entry key="2025-09-19">
+        <entry key="2025-10-21">
           <value>
             <SerializableHealthReport>
-              <option name="date" value="2025-09-19" />
+              <option name="date" value="2025-10-21" />
               <option name="results">
                 <list>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.setReasoning" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.determineOverallTestType" />
                     <option name="healthScore" value="85" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.85" />
-                          <option name="description" value="Reasoning input is passed directly to notifyTool without sanitization, risking exposure of sensitive or malformed content in UI." />
-                          <option name="impact" value="Could display malicious or confusing text in UI if LLM generates harmful reasoning." />
-                          <option name="issueCategory" value="Security" />
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="Default return of INTEGRATION_TESTS when no scenarios or unclear types may mislead users about actual test coverage" />
+                          <option name="impact" value="Users may assume integration tests are needed when unit tests would suffice, leading to unnecessary test infrastructure setup" />
+                          <option name="issueCategory" value="Logic" />
                           <option name="severity" value="3" />
-                          <option name="suggestedFix" value="Sanitize reasoning string before UI output, especially if it includes code, paths, or credentials." />
-                          <option name="title" value="Unfiltered reasoning in UI" />
+                          <option name="suggestedFix" value="Return a new UNKNOWN type or throw exception when test type cannot be determined, rather than defaulting to INTEGRATION_TESTS" />
+                          <option name="title" value="Default case may misrepresent test type" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Potential information disclosure" />
+                    <option name="summary" value="Determines overall test type based on scenarios" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.determineOverallTestType" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.buildPlanningRequest" />
                     <option name="healthScore" value="80" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.9" />
-                          <option name="description" value="When no scenarios exist or types are unclear, method defaults to INTEGRATION_TESTS, which may be inappropriate for pure logic classes." />
-                          <option name="impact" value="May generate unnecessarily heavy integration tests for unit-only code, increasing execution time and complexity." />
-                          <option name="issueCategory" value="Logic" />
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Using StringBuilder.append() in loops for string building, but concatenating large strings without considering potential memory impact" />
+                          <option name="impact" value="Could cause performance issues or OutOfMemoryError when processing large codebases with many analyzed classes" />
+                          <option name="issueCategory" value="Performance" />
                           <option name="severity" value="3" />
-                          <option name="suggestedFix" value="Default to UNIT_TESTS when no scenarios exist, or introduce UNKNOWN type to force explicit decision." />
-                          <option name="title" value="Ambiguous default test type" />
+                          <option name="suggestedFix" value="Consider using StringBuilder capacity estimation or breaking large content into chunks for processing" />
+                          <option name="title" value="Inefficient string concatenation in loop" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Default to integration test may be unsafe" />
+                    <option name="summary" value="Builds LLM prompt with context information" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
                     <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.buildTestPlan" />
@@ -57,61 +57,41 @@
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.95" />
-                          <option name="description" value="coordinatorAgent is accessed directly without null check when sending UI updates, risking NPE if agent is disposed or uninitialized." />
-                          <option name="impact" value="UI update fails silently or causes crash if coordinatorAgent is null during plan finalization." />
-                          <option name="issueCategory" value="Logic" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Add null check before calling coordinatorAgent.sendTestPlanUpdate()." />
-                          <option name="title" value="Null dereference risk" />
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Exception caught during priority conversion is silently ignored, defaulting to MEDIUM without user notification" />
+                          <option name="impact" value="Test scenarios may be displayed with incorrect priority, affecting user's perception of test importance" />
+                          <option name="issueCategory" value="Error-Handling" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Log the exception or notify user when priority conversion fails, rather than silently defaulting to MEDIUM" />
+                          <option name="title" value="Exception ignored in priority conversion" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Potential NPE on coordinatorAgent access" />
+                    <option name="summary" value="Builds final test plan from collected data" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.TestWriterAgent.buildTestWritingRequest" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.planTests" />
                     <option name="healthScore" value="75" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.85" />
-                          <option name="description" value="Uses StringBuilder but appends in loop without initial capacity; minor inefficiency" />
-                          <option name="impact" value="Increased GC pressure and memory usage for large test plans" />
-                          <option name="issueCategory" value="Performance" />
-                          <option name="severity" value="3" />
-                          <option name="suggestedFix" value="Pre-estimate capacity or use Collectors.joining for scenario list" />
-                          <option name="title" value="Inefficient string concatenation" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="String concatenation in loop creates excessive objects" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.TestWriterAgent.extractBeforeEachCode" />
-                    <option name="healthScore" value="70" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="description" value="Relies on method name 'setUp' to detect @BeforeEach body; fails if method is named differently" />
-                          <option name="impact" value="Setup code not extracted, leading to incomplete test generation" />
-                          <option name="issueCategory" value="Logic" />
+                          <option name="confidence" value="0.95" />
+                          <option name="description" value="Exception caught in CompletableFuture.supplyAsync is rethrown as RuntimeException without preserving original type or context" />
+                          <option name="impact" value="Loss of debugging information, makes it harder to distinguish between different failure causes in test planning" />
+                          <option name="issueCategory" value="Error-Handling" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Parse method signature after @BeforeEach annotation regardless of name using PSI" />
-                          <option name="title" value="Fragile method detection logic" />
+                          <option name="suggestedFix" value="Wrap original exception in a custom TestPlanningException with detailed context, or log full stack trace before rethrowing" />
+                          <option name="title" value="Exception swallowed in CompletableFuture" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Fails to detect JUnit 5 @BeforeEach in complex code" />
+                    <option name="summary" value="Main test planning method with async execution" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
                     <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.addTestScenarios" />
@@ -119,101 +99,125 @@
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="description" value="Method accepts List&lt;TestScenario&gt; without @NotNull annotation or null check, risking NullPointerException during iteration." />
-                          <option name="impact" value="App crash if LangChain4j or external tool passes null list, breaking test generation flow." />
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="Multiple UI updates from different threads without synchronization, potentially causing inconsistent test plan displays" />
+                          <option name="impact" value="UI may show incorrect or incomplete test scenarios, leading to user confusion and potential data corruption" />
                           <option name="issueCategory" value="Logic" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Add @NotNull annotation and validate input with Objects.requireNonNull or early guard clause." />
-                          <option name="title" value="Null list parameter not validated" />
+                          <option name="suggestedFix" value="Use ApplicationManager.getApplication().invokeLater() for all UI operations instead of SwingUtilities.invokeLater() to ensure EDT compliance" />
+                          <option name="title" value="Race condition in UI update" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Missing null check on critical parameter" />
+                    <option name="summary" value="Adds multiple test scenarios to plan" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.TestWriterAgent.extractAfterEachCode" />
-                    <option name="healthScore" value="68" />
+                    <option name="fqn" value="com.zps.zest.explanation.tools.RipgrepCodeTool.searchCode" />
+                    <option name="healthScore" value="85" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="Regex validation misses several common malformed patterns including unclosed brackets" />
+                          <option name="impact" value="Malformed regex patterns can cause ripgrep to fail or produce incorrect results" />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add comprehensive regex validation using Pattern.compile() with try-catch" />
+                          <option name="title" value="Invalid regex validation logic" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Main search method with input validation and ripgrep execution" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.explanation.tools.RipgrepCodeTool.buildRipgrepCommand" />
+                    <option name="healthScore" value="82" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="File patterns are comma-separated but not validated for edge cases" />
+                          <option name="impact" value="Unexpected behavior when patterns contain commas" />
+                          <option name="issueCategory" value="API-Usage" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Add validation to ensure comma-separated patterns don't contain malformed elements" />
+                          <option name="title" value="Inconsistent pattern handling" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Builds ripgrep command with various flags and patterns" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.explanation.tools.RipgrepCodeTool.executeRipgrepCommand" />
+                    <option name="healthScore" value="80" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Process input stream not properly closed in all code paths, potential resource leak" />
+                          <option name="impact" value="Memory exhaustion or file descriptor leaks when executing many commands" />
+                          <option name="issueCategory" value="Resource" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Use try-with-resources for BufferedReader and ensure process destruction on failure" />
+                          <option name="title" value="Resource leak in process handling" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Executes ripgrep process and handles output parsing" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.explanation.tools.RipgrepCodeTool.searchWithRipgrep" />
+                    <option name="healthScore" value="78" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
                           <option name="confidence" value="0.95" />
-                          <option name="description" value="Only recognizes 'tearDown' or 'cleanUp' for @AfterEach; misses other valid names like 'reset'" />
-                          <option name="impact" value="AfterEach logic may be omitted from parsing, breaking test isolation" />
-                          <option name="issueCategory" value="Logic" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Detect any method immediately following @AfterEach annotation using PSI parsing" />
-                          <option name="title" value="Limited teardown method names" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Incomplete detection of teardown method names" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.TestWriterAgent.generateTestsWithRetry" />
-                    <option name="healthScore" value="65" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.95" />
-                          <option name="description" value="Thread.sleep(2000) used in retry loop without off-EDT guarantee; may freeze UI if called from EDT" />
-                          <option name="impact" value="UI unresponsiveness for 2 seconds per retry, perceived as app freeze" />
-                          <option name="issueCategory" value="Performance" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Use non-blocking delay via ModalityState or background timer instead of Thread.sleep" />
-                          <option name="title" value="Thread.sleep on EDT risk" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Blocking sleep in retry loop risks UI freeze" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.planTests" />
-                    <option name="healthScore" value="60" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="description" value="Swing UI updates via sendToUI are called from CompletableFuture.supplyAsync, which runs on a background thread, violating Swing's single-thread rule." />
-                          <option name="impact" value="Risk of UI freezes, race conditions, or undetected rendering defects in the test planning interface." />
-                          <option name="issueCategory" value="Concurrency" />
+                          <option name="description" value="Direct command execution with user input without sanitization" />
+                          <option name="impact" value="Arbitrary code execution via malicious query patterns" />
+                          <option name="issueCategory" value="Security" />
                           <option name="severity" value="5" />
-                          <option name="suggestedFix" value="Wrap all sendToUI calls in SwingUtilities.invokeLater() to ensure UI updates occur on the Event Dispatch Thread." />
-                          <option name="title" value="EDT violation in background thread" />
+                          <option name="suggestedFix" value="Implement strict input validation and sanitization before passing to shell" />
+                          <option name="title" value="Command injection vulnerability" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Background task uses EDT-unsafe UI updates" />
+                    <option name="summary" value="Core ripgrep search implementation with binary detection" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.TestWriterAgent.generateTests" />
-                    <option name="healthScore" value="60" />
+                    <option name="fqn" value="com.zps.zest.explanation.tools.RipgrepCodeTool.parseMatch" />
+                    <option name="healthScore" value="75" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="description" value="CompletableFuture runs on background thread but calls sendToUI and notifyComplete without ApplicationManager.invokeLater" />
-                          <option name="impact" value="Causes UI freezes, race conditions, or exceptions in IntelliJ platform" />
-                          <option name="issueCategory" value="Concurrency" />
-                          <option name="severity" value="5" />
-                          <option name="suggestedFix" value="Wrap all UI calls like sendToUI and notifyComplete in ApplicationManager.getApplication().invokeLater()" />
-                          <option name="title" value="UI access from background thread" />
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Exception caught but silently ignored, returning null without logging" />
+                          <option name="impact" value="Data loss or failed search results without diagnostic information" />
+                          <option name="issueCategory" value="Error-Handling" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Log parsing exceptions with stack trace for debugging and return default values" />
+                          <option name="title" value="Silent failure in JSON parsing" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Background thread uses UI operations without EDT dispatch" />
+                    <option name="summary" value="Parses match data from JSON output" />
                   </SerializableMethodResult>
                 </list>
               </option>

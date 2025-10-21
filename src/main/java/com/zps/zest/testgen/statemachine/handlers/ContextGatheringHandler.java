@@ -366,7 +366,16 @@ public class ContextGatheringHandler extends AbstractStateHandler {
     public boolean isSkippable() {
         return true; // Context gathering can be skipped if user provides manual context
     }
-    
+
+    @Override
+    public void cancel() {
+        super.cancel();
+        if (contextAgent != null) {
+            contextAgent.cancel();
+            LOG.info("Cancelled ContextAgent");
+        }
+    }
+
     /**
      * Get the context agent (direct access instead of session data)
      */

@@ -45,12 +45,16 @@ dependencies {
     // Mockito Kotlin (makes Mockito more Kotlin-friendly)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
 
-    // Coroutines testing
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    // MockWebServer for integration testing with mock HTTP server
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 
-    // Kotlin Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.7.3")
+    // Kotlin Coroutines - use compileOnly to avoid conflicts with IntelliJ Platform's bundled version
+    // The IntelliJ Platform 2024.3 bundles kotlinx-coroutines 1.8+
+    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.8.1")
+
+    // For tests, also use compileOnly to use the platform's version
+    testCompileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 
     // https://mvnrepository.com/artifact/dev.langchain4j/langchain4j
     implementation("dev.langchain4j:langchain4j:1.7.1")
@@ -73,6 +77,9 @@ dependencies {
 
     // Java Diff Utils for gdiff functionality
     implementation("io.github.java-diff-utils:java-diff-utils:4.12")
+
+    // JGit for pure-Java Git operations (no process spawning, EDT-safe)
+    implementation("org.eclipse.jgit:org.eclipse.jgit:6.10.0.202406032230-r")
 
     // Gson for JSON serialization (used by custom LangChain4j codec)
     implementation("com.google.code.gson:gson:2.10.1")

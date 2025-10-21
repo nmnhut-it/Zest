@@ -102,16 +102,14 @@ ALWAYS START WITH:
 
 INITIAL EXPLORATION PLAN (mandatory before any tool usage):
 📋 What needs exploring, for example:
-- [Item 1: specific file/pattern/config to find]
-- [Item 2: dependencies or callers to trace]
+- [Item 1: specific file/pattern/config to find]. To achieve this, I need to ...
+- [Item 2: dependencies or callers or usage of the code under test]. To achieve this, I need to ... 
 - [Item 3: external resources or configs or API contracts]
 - [Continue listing all items that need investigation]
 
 RESPONSE TEMPLATE (mandatory for each subsequent tool usage):
 📍 Phase: [Discovery|Analysis|Validation|Summary]
 🔍 Exploring: [What you're looking for from the plan above]
-📊 Found: [Key findings - bullet points]
-🎯 Confidence: [High|Medium|Low]
 ⚡ Next: [Specific next action from plan or new discovery]
 💰 Budget: [X/N tool calls used] (N is provided at session start)
 
@@ -148,14 +146,14 @@ Do not read a file because you think it might exist - you need to prove that it 
 
 YOUR TASK: Find context needed to understand the code under test:
 - IMPORTANT: Find where and how other classes call or depend on the method(s) being tested.
-- External APIs, services or script called dynamically. This should be noted via takeNote tools
+- External APIs, services or script called dynamically. This should be noted via takeNote tools.
+- Usage of methods under test throughout the project. You can do this by searching for method calls or instance creation. You also need to pay attention to the class's imports so as not to be confused by similar names in different packages. 
 - Unknown function/method implementation that is crucial to code understanding or writing correct test code.
 - Configuration files (JSON, XML, YAML, properties) referenced by string literals
 - Resource files loaded at runtime
 - Database schemas or migration files
 - Message formats or protocol definitions
 - Existing test classes of the code under test, if such classes exist.
-- Usage of methods under test throughout the project. You can do this by searching for method calls or instance creation. You also need to pay attention to the class's imports so as not to be confused by similar names in different packages. 
 - Read *.iml (Intelij project file), pom (maven), gradle or ./lib(s) folders to understand what frameworks are being used and takeNote accordingly. 
 
 AVOID:
@@ -203,12 +201,18 @@ Stop when you can test the code without making assumptions about external resour
                 int iteration = 0;
 
                 while (!contextTools.isContextCollectionDone() && iteration < maxIterations) {
+                    // Check cancellation at start of each iteration
+                    checkCancellation();
+
                     iteration++;
 
                     try {
                         // For first iteration, use full context request; for subsequent iterations, just continue
                         String promptToUse = (iteration == 1) ? contextRequest :
                             "Continue gathering context. Remember to call markContextCollectionDone when you have sufficient context.";
+
+                        // Check cancellation before making assistant call
+                        checkCancellation();
 
                         // Let LangChain4j handle the conversation with streaming
                         String response = assistant.gatherContext(promptToUse);
@@ -226,6 +230,10 @@ Stop when you can test the code without making assumptions about external resour
                             sendToUI("\n🔄 Continuing context gathering (iteration " + (iteration + 1) + ")...\n");
                         }
 
+                    } catch (java.util.concurrent.CancellationException e) {
+                        LOG.info("Context gathering cancelled by user");
+                        sendToUI("\n🚫 Context gathering cancelled by user.\n");
+                        throw e; // Re-throw to propagate cancellation
                     } catch (Exception e) {
                         LOG.warn("Context agent encountered an error but continuing", e);
                         sendToUI("\n⚠️ Context agent stopped: " + e.getMessage());
@@ -618,6 +626,10 @@ Stop when you can test the code without making assumptions about external resour
 
             🔍 POWERFUL PATTERNS FOR TEST WRITING:
 
+            ⚠️ ESCAPING REMINDER: In JSON, use double backslashes (\\) for regex special chars
+            - Example: To match "method(" use "method\\("
+            - Example: To match "Class." use "Class\\."
+
             1. USAGE/INSTANTIATION PATTERNS - Find where classes are used:
                - "new ClassName\\(" → Find instantiations
                - "ClassName\\." → Find static method calls
@@ -628,15 +640,21 @@ Stop when you can test the code without making assumptions about external resour
                - "methodName\\(" → All calls to method
                - "\\.methodName\\(" → Instance method calls
                - "(save|update|delete)\\(" → Multiple methods with |
-               - "getUserById\\(.*\\)" → Calls with any arguments
+               - "getUserById\\([^)]*\\)" → Calls with any arguments (use [^)] not .*)
 
-            3. CASE-SENSITIVE TIPS:
+            3. CHARACTER CLASSES (match anything except):
+               - "[^)]" → Anything except closing paren (correct)
+               - "[^\\\"]" → Anything except quote (needs triple backslash in JSON)
+               - "[^;]+" → Anything except semicolon
+               ⚠️ NEVER use empty classes like [^] - they are invalid
+
+            4. CASE-SENSITIVE PATTERNS:
                - CamelCase: "[A-Z][a-z]+[A-Z]" → getUserName, firstName
                - snake_case: "[a-z]+_[a-z]+" → user_name, first_name
                - CONSTANTS: "[A-Z_]+" → MAX_SIZE, DEFAULT_VALUE
                - Mixed: "(userId|user_id|UserID)" → All variations
 
-            4. COMBINED SEARCHES:
+            5. COMBINED SEARCHES:
                - "@Test.*void.*test" → Test methods
                - "@(Test|ParameterizedTest|RepeatedTest)" → Any test annotation
                - "assert(Equals|True|NotNull)\\(" → Any assertion

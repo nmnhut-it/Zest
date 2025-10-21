@@ -292,13 +292,21 @@ public class TestGenerationStateMachine {
      */
     public void cancel(@Nullable String reason) {
         LOG.info("Cancelling workflow: " + (reason != null ? reason : "User requested"));
-        
-        // If currently executing, the state will be set to cancelled when execution completes
+
+        // Cancel the current state handler to propagate to agents
+        StateHandler currentHandler = stateHandlers.get(currentState);
+        if (currentHandler != null) {
+            currentHandler.cancel();
+            LOG.info("Cancelled current state handler: " + currentState);
+        }
+
+        // Transition to cancelled state
         transitionTo(TestGenerationState.CANCELLED, reason);
-        
+
         // Try to interrupt current execution
         if (currentExecution != null && !currentExecution.isDone()) {
             currentExecution.cancel(true);
+            LOG.info("Cancelled current execution future");
         }
     }
     

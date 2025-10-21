@@ -4,6 +4,8 @@ import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
+import com.zps.zest.testgen.agents.ContextAgent;
+import com.zps.zest.testgen.agents.CoordinatorAgent;
 import com.zps.zest.testgen.model.TestGenerationRequest;
 import com.zps.zest.testgen.model.TestPlan;
 import com.zps.zest.testgen.statemachine.*;
@@ -226,9 +228,13 @@ public final class StateMachineTestGenerationService {
             LOG.warn("No active state machine found for session: " + sessionId);
             return;
         }
-        
+
         LOG.info("Cancelling test generation for session: " + sessionId);
+
+        // Cancel the state machine (which will cancel handlers and agents)
         stateMachine.cancel(reason);
+
+        LOG.info("Cancellation complete for session: " + sessionId);
     }
     
     /**
@@ -304,8 +310,27 @@ public final class StateMachineTestGenerationService {
     public void cleanupSession(@NotNull String sessionId) {
         TestGenerationStateMachine stateMachine = activeStateMachines.remove(sessionId);
         sessionListeners.remove(sessionId);
-        
+        streamingCallbacks.remove(sessionId);
+
         if (stateMachine != null) {
+            // Reset any agents to release HTTP connections
+            try {
+                StateHandler currentHandler = stateMachine.getCurrentHandler(AbstractStateHandler.class);
+                if (currentHandler instanceof ContextGatheringHandler) {
+                    ContextAgent contextAgent = ((ContextGatheringHandler) currentHandler).getContextAgent();
+                    if (contextAgent != null) {
+                        contextAgent.reset();
+                    }
+                } else if (currentHandler instanceof TestPlanningHandler) {
+                    CoordinatorAgent coordinatorAgent = ((TestPlanningHandler) currentHandler).getCoordinatorAgent();
+                    if (coordinatorAgent != null) {
+                        coordinatorAgent.reset();
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("Error resetting agents during session cleanup", e);
+            }
+
             LOG.info("Cleaned up session: " + sessionId);
         }
     }

@@ -11,9 +11,12 @@ import org.jetbrains.annotations.Nullable;
  */
 public abstract class AbstractStateHandler implements StateHandler {
     protected final Logger LOG = Logger.getInstance(getClass());
-    
+
     private final TestGenerationState handledState;
-    
+
+    // Cancellation flag
+    protected volatile boolean cancelled = false;
+
     protected AbstractStateHandler(@NotNull TestGenerationState handledState) {
         this.handledState = handledState;
     }
@@ -148,5 +151,21 @@ public abstract class AbstractStateHandler implements StateHandler {
     @FunctionalInterface
     protected interface ActivityCallback {
         void executeStep(int stepIndex, String stepDescription) throws Exception;
+    }
+
+    /**
+     * Cancel this handler's operations
+     * Override in subclasses to cancel agent operations
+     */
+    public void cancel() {
+        LOG.info("Cancelling handler: " + handledState);
+        this.cancelled = true;
+    }
+
+    /**
+     * Check if this handler has been cancelled
+     */
+    public boolean isCancelled() {
+        return cancelled;
     }
 }

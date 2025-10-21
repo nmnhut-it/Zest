@@ -16,10 +16,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public class GitServiceHelper {
     private static final Logger LOG = Logger.getInstance(GitServiceHelper.class);
     private static final Gson gson = new Gson();
-    
-    // Cache configuration
+
     private static final Duration CACHE_TTL = Duration.ofMinutes(5);
     private static final Map<String, CachedDiff> diffCache = new ConcurrentHashMap<>();
+
+    private static volatile boolean useJGit = true;
+    private static volatile boolean jgitAvailable = true;
     
     /**
      * Creates a success response with optional data.
@@ -247,5 +249,36 @@ public class GitServiceHelper {
     public static String escapeForShell(String input) {
         if (input == null) return "";
         return input.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    /**
+     * Sets whether to use JGit or CLI git for operations.
+     */
+    public static void setUseJGit(boolean use) {
+        useJGit = use;
+        LOG.info("JGit usage set to: " + use);
+    }
+
+    /**
+     * Gets whether JGit is currently enabled.
+     */
+    public static boolean isUseJGit() {
+        return useJGit && jgitAvailable;
+    }
+
+    /**
+     * Marks JGit as unavailable (e.g., after repeated failures).
+     */
+    public static void disableJGit(String reason) {
+        jgitAvailable = false;
+        LOG.warn("JGit disabled: " + reason);
+    }
+
+    /**
+     * Re-enables JGit after it was disabled.
+     */
+    public static void enableJGit() {
+        jgitAvailable = true;
+        LOG.info("JGit re-enabled");
     }
 }

@@ -46,7 +46,22 @@ public interface StateHandler {
     default String getDescription() {
         return getHandledState().getDescription();
     }
-    
+
+    /**
+     * Cancel this handler's operations
+     * Default implementation does nothing - override to cancel agents
+     */
+    default void cancel() {
+        // Default no-op implementation
+    }
+
+    /**
+     * Check if this handler has been cancelled
+     */
+    default boolean isCancelled() {
+        return false; // Default implementation - override if needed
+    }
+
     /**
      * Result of state execution
      */

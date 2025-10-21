@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.browser.utils.ChatboxUtilities;
+import com.zps.zest.util.EnvLoader;
 import com.zps.zest.completion.metrics.ModelComparisonResult;
 import com.zps.zest.completion.metrics.ZestInlineCompletionMetricsService;
 import com.zps.zest.rules.ZestRulesLoader;
@@ -82,17 +83,22 @@ public final class NaiveLLMService implements Disposable {
     public NaiveLLMService(@NotNull Project project) {
         this.project = project;
         this.config = ConfigurationManager.getInstance(project);
-        
+
+        // Load environment variables from .env file
+        if (project.getBasePath() != null) {
+            EnvLoader.loadEnv(project.getBasePath());
+        }
+
         // Initialize rules loader
         this.rulesLoader = new ZestRulesLoader(project);
-        
+
         // Create executor service for HTTP client (new)
         this.executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE, r -> {
             Thread t = new Thread(r, "LLMService-" + Thread.currentThread().getId());
             t.setDaemon(true);
             return t;
         });
-        
+
         // Create HTTP client with connection pooling and HTTP/2 support (new)
         this.httpClient = HttpClient.newBuilder()
             .executor(executorService)
@@ -100,12 +106,12 @@ public final class NaiveLLMService implements Disposable {
             .version(HttpClient.Version.HTTP_2) // Prefer HTTP/2
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
-            
+
         LOG.info("Initialized LLMService with connection pooling for project: " + project.getName());
-        
+
         // Fetch username on service initialization
         fetchAndStoreUsername(project);
-        
+
         // Warm up connections (new)
         warmUpConnections();
     }
@@ -231,8 +237,29 @@ public final class NaiveLLMService implements Disposable {
     @NotNull
     public CompletableFuture<String> queryWithParamsAsync(@NotNull LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) {
         if (useOptimizedClient) {
-            String apiUrl = config.getApiUrl();
-            String authToken = config.getAuthToken();
+            // Check for OpenAI configuration in .env file first
+            String envApiKey = EnvLoader.getEnv("OPENAI_API_KEY", null);
+            String envModel = EnvLoader.getEnv("OPENAI_MODEL", null);
+            String envBaseUrl = EnvLoader.getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1");
+
+            String apiUrl, authToken;
+
+            if (envApiKey != null && !envApiKey.isEmpty()) {
+                // Use OpenAI configuration from .env
+                apiUrl = envBaseUrl;
+                authToken = envApiKey;
+
+                // Override model if env var is set
+                if (envModel != null && !envModel.isEmpty() && params.getModel() == null) {
+                    params.withModel(envModel);
+                }
+
+                LOG.debug("Using OpenAI configuration from .env file for async query");
+            } else {
+                // Fallback to ConfigurationManager
+                apiUrl = config.getApiUrl();
+                authToken = config.getAuthToken();
+            }
 
             if (apiUrl == null || apiUrl.isEmpty()) {
                 return CompletableFuture.failedFuture(new IllegalStateException("LLM API URL not configured"));
@@ -289,8 +316,29 @@ public final class NaiveLLMService implements Disposable {
      * Internal method to query with retry logic (original implementation).
      */
     private String queryWithRetry(LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
-        String apiUrl = config.getApiUrl();
-        String authToken = config.getAuthToken();
+        // Check for OpenAI configuration in .env file first
+        String envApiKey = EnvLoader.getEnv("OPENAI_API_KEY", null);
+        String envModel = EnvLoader.getEnv("OPENAI_MODEL", null);
+        String envBaseUrl = EnvLoader.getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1");
+
+        String apiUrl, authToken;
+
+        if (envApiKey != null && !envApiKey.isEmpty()) {
+            // Use OpenAI configuration from .env
+            apiUrl = envBaseUrl;
+            authToken = envApiKey;
+
+            // Override model if env var is set
+            if (envModel != null && !envModel.isEmpty() && params.getModel() == null) {
+                params.withModel(envModel);
+            }
+
+            LOG.debug("Using OpenAI configuration from .env file for sync query");
+        } else {
+            // Fallback to ConfigurationManager
+            apiUrl = config.getApiUrl();
+            authToken = config.getAuthToken();
+        }
 
         if (apiUrl == null || apiUrl.isEmpty()) {
             throw new IllegalStateException("LLM API URL not configured");

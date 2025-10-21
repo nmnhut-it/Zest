@@ -181,12 +181,15 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
                 // Build the planning request
                 String planRequest = buildPlanningRequest(request);
-                
+
                 // Send the request to UI
                 sendToUI("📋 Request:\n" + planRequest + "\n\n");
                 sendToUI("🤖 Assistant Response:\n");
                 sendToUI("-".repeat(40) + "\n");
-                
+
+                // Check cancellation before making assistant call
+                checkCancellation();
+
                 // Let LangChain4j handle the entire planning with all tool calls
                 // The assistant will make ALL scenario additions in one response
                 String response = assistant.planTests(planRequest);
@@ -211,9 +214,13 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 notifyComplete();
                 
                 LOG.debug("Test planning complete: " + testPlan.getScenarioCount() + " scenarios");
-                
+
                 return testPlan;
-                
+
+            } catch (java.util.concurrent.CancellationException e) {
+                LOG.info("Test planning cancelled by user");
+                sendToUI("\n🚫 Test planning cancelled by user.\n");
+                throw e; // Re-throw to propagate cancellation
             } catch (Exception e) {
                 LOG.error("Failed to plan tests", e);
                 sendToUI("\n❌ Test planning failed: " + e.getMessage() + "\n");
@@ -306,7 +313,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             prompt.append("\nNo context analysis available - analyze the provided code to determine if scenarios need UNIT or INTEGRATION types\n");
         }
         
-        prompt.append("\nGenerate 2-5 comprehensive test scenarios covering all aspects of the SELECTED METHODS ONLY.");
+        prompt.append("\nGenerate 2-5 comprehensive tests scenarios/methods covering all aspects of the SELECTED METHODS ONLY.");
         prompt.append("\nDo NOT create scenarios for any methods that are not in the 'SELECTED METHODS TO TEST' list above.");
         prompt.append("\nUse the addTestScenarios tool to add all scenarios at once for the selected methods.");
         

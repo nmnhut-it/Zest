@@ -32,7 +32,31 @@ public class RipgrepCodeTool {
     private final Set<String> relatedFiles;
     private final List<String> usagePatterns;
     private static final int MAX_RESULTS = 20;
-    
+
+    /**
+     * 💡 Character Class Escaping Guide:
+     *
+     * PROBLEM: Patterns with `[^"]` (negated character class) require special attention
+     *
+     * ✅ CORRECT for matching quoted strings:
+     * - Pattern: "getUserById\\([^)]*\\)"  (matches getUserById() with any args)
+     * - Pattern: "\\\"[^\\\"]+\\\""  (matches quoted strings - note triple backslashes for quote)
+     *
+     * ❌ COMMON MISTAKES:
+     * - "\"[^\"]+\""  (may fail - quotes not properly escaped for JSON + regex)
+     * - "[^]+"  (invalid - empty character class)
+     *
+     * ESCAPING LEVELS:
+     * 1. JSON level: Use \\ for backslash, \" for quote
+     * 2. Regex level: Use \ for special chars like ( ) [ ]
+     *
+     * EXAMPLES:
+     * - Literal parens in regex: "methodName\\(\\)"
+     * - Character class: "[a-z]+" (no extra escaping needed)
+     * - Negated class: "[^a-z]+" (no extra escaping needed)
+     * - Quote in class: "[^\\\"]+" (triple backslash + quote for JSON)
+     */
+
     // Ripgrep binary detection cache
     private static String ripgrepPath = null;
     private static boolean ripgrepSearched = false;
@@ -94,6 +118,11 @@ public class RipgrepCodeTool {
         }
         if (afterLines == null) {
             return "Error: afterLines parameter cannot be null";
+        }
+
+        String validationError = validateRegexPattern(query);
+        if (validationError != null) {
+            return validationError;
         }
 
         beforeLines = Math.max(0, Math.min(10, beforeLines));
@@ -819,6 +848,30 @@ public class RipgrepCodeTool {
         return result.toString();
     }
     
+    /**
+     * Validate regex pattern for common issues before sending to ripgrep.
+     */
+    private String validateRegexPattern(String pattern) {
+        if (pattern.contains("[^]")) {
+            return "Error: Invalid character class '[^]' detected in pattern.\n\n" +
+                   "💡 Fix: Character classes cannot be empty.\n" +
+                   "- If matching 'anything except quotes': use \"[^\\\"]\" (escaped quote inside class)\n" +
+                   "- If matching 'anything except )': use \"[^)]\" (no escaping needed for ')' inside class)\n" +
+                   "- Remember JSON escaping: backslash in JSON becomes \"\\\\\" \n\n" +
+                   "Your pattern: '" + pattern + "'";
+        }
+
+        if (pattern.matches(".*\\[\\^[^\\]]*$")) {
+            return "Error: Unclosed character class '[^...' detected in pattern.\n\n" +
+                   "💡 Fix: Every '[' needs a matching ']'\n" +
+                   "- Example: \"[^a-z]\" (matches anything except lowercase letters)\n" +
+                   "- Example: \"[^\\\"]+\" (matches anything except quotes - requires \\\" in JSON)\n\n" +
+                   "Your pattern: '" + pattern + "'";
+        }
+
+        return null;
+    }
+
     /**
      * Ripgrep match result with context lines
      */

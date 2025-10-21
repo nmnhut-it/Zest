@@ -176,7 +176,16 @@ public class TestPlanningHandler extends AbstractStateHandler {
     public boolean isSkippable() {
         return true; // Test planning can be skipped if user provides manual test plan
     }
-    
+
+    @Override
+    public void cancel() {
+        super.cancel();
+        if (coordinatorAgent != null) {
+            coordinatorAgent.cancel();
+            LOG.info("Cancelled CoordinatorAgent");
+        }
+    }
+
     /**
      * Get the coordinator agent (direct access instead of session data)
      */

@@ -93,15 +93,27 @@ public class GitService {
                     try {
                         // Show status message
                         GitUINotificationHelper.showCommitInProgress(project);
-                        
+
                         // Check if there are any actual changes to commit
                         boolean hasChanges = false;
-                        
+
+                        // Get ignored files once using JGit (much faster than checking each file)
+                        java.util.Set<String> ignoredFiles = new java.util.HashSet<>();
+                        try {
+                            if (GitServiceHelper.isUseJGit()) {
+                                JGitService.GitStatusResult status = JGitService.getStatus(projectPath);
+                                ignoredFiles = status.ignored;
+                                LOG.info("JGit found " + ignoredFiles.size() + " ignored files");
+                            }
+                        } catch (Exception e) {
+                            LOG.warn("Failed to get ignored files from JGit, will check individually: " + e.getMessage());
+                        }
+
                         // Stage each selected file
                         for (GitCommitContext.SelectedFile file : selectedFiles) {
                             String cleanPath = GitServiceHelper.cleanFilePath(file.getPath(), project.getName());
                             String command;
-                            
+
                             // Special handling for deleted files
                             if ("D".equals(file.getStatus())) {
                                 // Use 'git rm' with the --ignore-unmatch flag to prevent errors for already deleted files
@@ -111,10 +123,10 @@ public class GitService {
                                 command = "git add -- " + GitCommandExecutor.escapeFilePath(cleanPath);
                                 LOG.info("Staging file: " + cleanPath);
                             }
-                            
-                            // Pre-check if file is ignored to avoid git command failures
-                            if (GitServiceHelper.isFileIgnored(projectPath, cleanPath)) {
-                                LOG.info("Skipping ignored file (pre-filtered): " + cleanPath);
+
+                            // Pre-check if file is ignored using cached JGit result
+                            if (ignoredFiles.contains(cleanPath)) {
+                                LOG.info("Skipping ignored file (JGit pre-filtered): " + cleanPath);
                                 continue;
                             }
 
@@ -473,42 +485,70 @@ public String handleGitPush() {
     
     /**
      * Gets the diff content for a specific file (internal use).
+     * Uses JGit when available for better performance.
      */
     String getFileDiffContent(String filePath, String status) {
         String projectPath = project.getBasePath();
         if (projectPath == null) return "";
-        
+
         String cleanedPath = GitServiceHelper.cleanFilePath(filePath, project.getName());
         LOG.debug("Getting diff for: " + cleanedPath + " (status: " + status + ")");
-        
+
+        // Try JGit first for better performance
+        if (GitServiceHelper.isUseJGit()) {
+            try {
+                String diff = JGitService.getFileDiff(projectPath, cleanedPath, status);
+                LOG.debug("Got diff from JGit for: " + cleanedPath);
+                return diff;
+            } catch (Exception e) {
+                LOG.warn("JGit diff failed for " + cleanedPath + ", falling back to CLI: " + e.getMessage());
+                // Fall through to CLI git
+            }
+        }
+
+        // Fallback to CLI git commands
         try {
             switch (status) {
                 case "A": // Added/New file
-                    if (GitServiceHelper.isNewFile(projectPath, cleanedPath)) {
+                    if (isNewFileUsingCLI(projectPath, cleanedPath)) {
                         return GitDiffHelper.getNewFileDiff(projectPath, cleanedPath);
                     } else {
                         return executeGitCommand(projectPath, "git diff --cached -- " + GitCommandExecutor.escapeFilePath(cleanedPath));
                     }
-                    
+
                 case "M": // Modified
                     String diff = executeGitCommand(projectPath, "git diff -- " + GitCommandExecutor.escapeFilePath(cleanedPath));
                     if (diff.trim().isEmpty()) {
                         diff = executeGitCommand(projectPath, "git diff --cached -- " + GitCommandExecutor.escapeFilePath(cleanedPath));
                     }
                     return diff;
-                    
+
                 case "D": // Deleted
                     return getDeletedFileDiffWithFallback(projectPath, cleanedPath);
-                    
+
                 case "R": // Renamed
                     return executeGitCommand(projectPath, "git diff --cached -- " + GitCommandExecutor.escapeFilePath(cleanedPath));
-                    
+
                 default:
                     return executeGitCommand(projectPath, "git diff -- " + GitCommandExecutor.escapeFilePath(cleanedPath));
             }
         } catch (Exception e) {
             LOG.error("Error getting diff for file: " + filePath, e);
             return "Error getting diff: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Checks if a file is new/untracked using CLI git (fallback method).
+     */
+    private boolean isNewFileUsingCLI(String projectPath, String filePath) {
+        try {
+            String result = executeGitCommand(projectPath,
+                    "git ls-files -- " + GitCommandExecutor.escapeFilePath(filePath));
+            return result.trim().isEmpty();
+        } catch (Exception e) {
+            LOG.warn("Error checking if file is new: " + e.getMessage());
+            return false;
         }
     }
     
@@ -549,7 +589,8 @@ public String handleGitPush() {
 
 
     /**
-     * Gets the current git status for quick commit
+     * Gets the current git status for quick commit.
+     * Uses JGit directly for best performance with automatic CLI fallback.
      */
     public String getGitStatus() {
         LOG.info("Getting git status for quick commit");
@@ -562,15 +603,40 @@ public String handleGitPush() {
 
         try {
             String projectPath = GitServiceHelper.getProjectPath(project);
+            String changedFiles;
+            int fileCount;
 
-            GitStatusCollector collector = new GitStatusCollector(projectPath);
-            GitStatusCollector.StatusSummary summary = collector.getStatusSummary();
+            // Try JGit first for best performance
+            if (GitServiceHelper.isUseJGit()) {
+                try {
+                    LOG.debug("Using JGit for status collection");
+                    JGitService.GitStatusResult status = JGitService.getStatus(projectPath);
+                    changedFiles = status.toNameStatusFormat();
+                    fileCount = status.getTotalFileCount();
 
-            LOG.info("Git status collected: " +
-                (summary.hasChanges() ? summary.fileCount + " files" : "No changes"));
+                    LOG.info("JGit status collected: " +
+                            (status.hasChanges() ? fileCount + " files in " : "No changes"));
+                } catch (Exception e) {
+                    LOG.warn("JGit status failed, falling back to GitStatusCollector: " + e.getMessage());
+                    // Fallback to GitStatusCollector
+                    GitStatusCollector collector = new GitStatusCollector(projectPath);
+                    GitStatusCollector.StatusSummary summary = collector.getStatusSummary();
+                    changedFiles = summary.changedFiles;
+                    fileCount = summary.fileCount;
+                }
+            } else {
+                // JGit disabled, use GitStatusCollector (which uses CLI git)
+                LOG.debug("JGit disabled, using GitStatusCollector with CLI git");
+                GitStatusCollector collector = new GitStatusCollector(projectPath);
+                GitStatusCollector.StatusSummary summary = collector.getStatusSummary();
+                changedFiles = summary.changedFiles;
+                fileCount = summary.fileCount;
+            }
+
+            LOG.info("Git status collected: " + (fileCount > 0 ? fileCount + " files" : "No changes"));
 
             JsonObject response = GitServiceHelper.createSuccessResponse();
-            response.addProperty("changedFiles", summary.changedFiles);
+            response.addProperty("changedFiles", changedFiles);
             String result = GitServiceHelper.toJson(response);
 
             cachedGitStatus = result;

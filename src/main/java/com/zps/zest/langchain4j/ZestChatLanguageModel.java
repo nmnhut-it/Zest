@@ -39,32 +39,41 @@ public class ZestChatLanguageModel implements ChatModel {
     private final NaiveLLMService naiveLlmService; // Keep for backward compatibility if needed
     private final ChatboxUtilities.EnumUsage usage;
     private final ConfigurationManager config;
+    private final com.zps.zest.langchain4j.http.CancellableJdkHttpClient cancellableHttpClient;
 //    private final TokenUsageTracker tokenTracker;
-    
+
     // Rate limiting configuration - now configurable via environment variables
     private static final long DEFAULT_MIN_DELAY_MS = 3000; // Default 3 seconds between requests (more conservative)
     private static final long DEFAULT_REQUEST_DELAY_MS = 5000; // Default 5 second delay for rate limiting
     private static final long TPM_LIMIT = 150000; // Tokens per minute limit (adjust based on your tier)
-    
+
     // Configurable delays
     private final long minDelayMs;
     private final long requestDelayMs;
-    
+
     // Track last request time for rate limiting
     private final AtomicLong lastRequestTime = new AtomicLong(0);
+
+    // Cancellation flag
+    private volatile boolean cancelled = false;
     
     /**
      * Apply rate limiting with configurable delays to prevent hitting API limits
      */
     private void applyRateLimit() {
+        // Check cancellation before rate limiting
+        if (cancelled) {
+            throw new java.util.concurrent.CancellationException("Operation cancelled");
+        }
+
         long currentTime = System.currentTimeMillis();
         long lastTime = lastRequestTime.get();
-        
+
         // Always apply the configured request delay for conservative rate limiting
         if (lastTime > 0) {
             long timeSinceLastRequest = currentTime - lastTime;
             long requiredDelay = Math.max(minDelayMs, requestDelayMs);
-            
+
             if (timeSinceLastRequest < requiredDelay) {
                 long delayMs = requiredDelay - timeSinceLastRequest;
                 LOG.info("Rate limiting: Delaying request by " + delayMs + "ms (total delay: " + requiredDelay + "ms)");
@@ -73,10 +82,16 @@ public class ZestChatLanguageModel implements ChatModel {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     LOG.warn("Rate limiting delay was interrupted", e);
+                    throw new java.util.concurrent.CancellationException("Operation interrupted during rate limiting");
                 }
             }
         }
-        
+
+        // Check cancellation after rate limiting sleep
+        if (cancelled) {
+            throw new java.util.concurrent.CancellationException("Operation cancelled");
+        }
+
         lastRequestTime.set(System.currentTimeMillis());
     }
     
@@ -121,15 +136,22 @@ public class ZestChatLanguageModel implements ChatModel {
         this.naiveLlmService = naiveLlmService;
         this.usage = usage;
         this.config = ConfigurationManager.getInstance(naiveLlmService.getProject());
-        
+
+        // Create cancellable HTTP client first
+        com.zps.zest.langchain4j.http.CancellableJdkHttpClientBuilder builder =
+            com.zps.zest.langchain4j.http.CancellableJdkHttpClientBuilder.builder()
+                .connectTimeout(Duration.ofSeconds(30))
+                .readTimeout(Duration.ofSeconds(300));
+        this.cancellableHttpClient = builder.getClient();
+
         // Load configurable delays from environment variables
         this.minDelayMs = loadDelayFromEnv("OPENAI_MIN_DELAY_MS", DEFAULT_MIN_DELAY_MS);
         this.requestDelayMs = loadDelayFromEnv("OPENAI_REQUEST_DELAY_MS", DEFAULT_REQUEST_DELAY_MS);
-        
+
         LOG.info("Rate limiting configured - Min delay: " + minDelayMs + "ms, Request delay: " + requestDelayMs + "ms");
-        
-        this.delegateModel = createOpenAiModel(naiveLlmService.getProject(), selectedModel);
-        
+
+        this.delegateModel = createOpenAiModel(naiveLlmService.getProject(), selectedModel, builder);
+
         // Trigger username fetch
         NaiveLLMService.fetchAndStoreUsername(naiveLlmService.getProject());
     }
@@ -156,10 +178,15 @@ public class ZestChatLanguageModel implements ChatModel {
     private OpenAiChatModel createOpenAiModel(NaiveLLMService naiveLlmService) {
         // Get configuration from the LLMService's project
         Project project = naiveLlmService.getProject();
-        return createOpenAiModel(project, null);
+        com.zps.zest.langchain4j.http.CancellableJdkHttpClientBuilder builder =
+            com.zps.zest.langchain4j.http.CancellableJdkHttpClientBuilder.builder()
+                .connectTimeout(Duration.ofSeconds(30))
+                .readTimeout(Duration.ofSeconds(300));
+        return createOpenAiModel(project, null, builder);
     }
 
-    private OpenAiChatModel createOpenAiModel(@NotNull Project project, String selectedModel) {
+    private OpenAiChatModel createOpenAiModel(@NotNull Project project, String selectedModel,
+                                             com.zps.zest.langchain4j.http.CancellableJdkHttpClientBuilder httpClientBuilder) {
         ConfigurationManager config = ConfigurationManager.getInstance(project);
 
         // Load environment variables from .env file
@@ -257,7 +284,8 @@ public class ZestChatLanguageModel implements ChatModel {
                 .user(username != null && !username.isEmpty() ? username : null)
                 .logRequests(true)
                 .logResponses(true)
-                .timeout(Duration.ofSeconds(1200));
+                .timeout(Duration.ofSeconds(1200))
+                .httpClientBuilder(httpClientBuilder);
 
             // Add metadata for chat.zingplay/talk.zingplay APIs
             if (finalApiUrl.contains("chat.zingplay") || finalApiUrl.contains("talk.zingplay")) {
@@ -400,5 +428,26 @@ public class ZestChatLanguageModel implements ChatModel {
         }
         
         return 0;
+    }
+
+    /**
+     * Cancel all active HTTP connections
+     */
+    public void cancelAll() {
+        this.cancelled = true;
+        if (cancellableHttpClient != null) {
+            cancellableHttpClient.cancelAll();
+            LOG.info("Cancelled all active requests");
+        }
+    }
+
+    /**
+     * Reset for new session
+     */
+    public void reset() {
+        this.cancelled = false;
+        if (cancellableHttpClient != null) {
+            cancellableHttpClient.reset();
+        }
     }
 }

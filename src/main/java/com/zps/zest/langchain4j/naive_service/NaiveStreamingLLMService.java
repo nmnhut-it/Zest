@@ -7,6 +7,7 @@ import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
+import com.zps.zest.util.EnvLoader;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;
@@ -50,10 +51,15 @@ public final class NaiveStreamingLLMService {
         this.project = project;
         this.config = ConfigurationManager.getInstance(project);
         LOG.info("Initialized StreamingLLMService for project: " + project.getName());
-        
+
+        // Load environment variables from .env file
+        if (project.getBasePath() != null) {
+            EnvLoader.loadEnv(project.getBasePath());
+        }
+
         // Fetch username on service initialization
         NaiveLLMService.fetchAndStoreUsername(project);
-        
+
         // Ensure log directory exists
         ensureLogDirectoryExists();
     }
@@ -240,12 +246,29 @@ public final class NaiveStreamingLLMService {
     /**
      * Executes the streaming query.
      */
-    private String executeStreamingQuery(String prompt, String model, Consumer<String> chunkConsumer) 
+    private String executeStreamingQuery(String prompt, String model, Consumer<String> chunkConsumer)
             throws IOException {
-        
-        String apiUrl = config.getApiUrl();
-        String authToken = config.getAuthToken();
-        
+
+        // Check for OpenAI configuration in .env file first
+        String envApiKey = EnvLoader.getEnv("OPENAI_API_KEY", null);
+        String envModel = EnvLoader.getEnv("OPENAI_MODEL", model);
+        String envBaseUrl = EnvLoader.getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1");
+
+        String apiUrl, authToken, finalModel;
+
+        if (envApiKey != null && !envApiKey.isEmpty()) {
+            // Use OpenAI configuration from .env - no office hours logic applied
+            apiUrl = envBaseUrl;
+            authToken = envApiKey;
+            finalModel = envModel;
+            LOG.info("Using OpenAI configuration from .env file - Model: " + finalModel);
+        } else {
+            // Fallback to ConfigurationManager
+            apiUrl = config.getApiUrl();
+            authToken = config.getAuthToken();
+            finalModel = model;
+        }
+
         if (apiUrl == null || apiUrl.isEmpty()) {
             throw new IllegalStateException("LLM API URL not configured");
         }
@@ -257,29 +280,29 @@ public final class NaiveStreamingLLMService {
         try {
             // Setup connection
             setupConnection(connection, authToken);
-            
+
             // Prepare and send request
-            String requestBody = createStreamingRequestBody(apiUrl, model, prompt);
-            
+            String requestBody = createStreamingRequestBody(apiUrl, finalModel, prompt);
+
             // Log the request
-            logRequest(requestBody, model);
-            
+            logRequest(requestBody, finalModel);
+
             sendRequest(connection, requestBody);
-            
+
             // Check response
             int responseCode = connection.getResponseCode();
             if (responseCode != HttpURLConnection.HTTP_OK) {
                 String error = readErrorResponse(connection);
-                logError(error, model, responseCode);
+                logError(error, finalModel, responseCode);
                 throw new IOException("API returned error code " + responseCode + ": " + error);
             }
-            
+
             // Process streaming response
             String response = processStreamingResponse(connection, apiUrl, chunkConsumer);
-            
+
             // Log the response
             long duration = System.currentTimeMillis() - startTime;
-            logResponse(response, model, duration);
+            logResponse(response, finalModel, duration);
             
             return response;
             

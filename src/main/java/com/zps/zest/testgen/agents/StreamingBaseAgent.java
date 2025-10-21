@@ -29,11 +29,14 @@ public abstract class StreamingBaseAgent {
     protected final NaiveLLMService naiveLlmService;
     protected final String agentName;
     protected ChatModel chatModel;
-    
+
     // Consumer for UI updates (sends complete responses)
     public Consumer<String> streamingConsumer;
     // Event listener for structured UI updates
     protected StreamingEventListener eventListener;
+
+    // Cancellation flag
+    private volatile boolean cancelled = false;
     
     protected StreamingBaseAgent(@NotNull Project project,
                                 @NotNull ZestLangChain4jService langChainService,
@@ -222,26 +225,71 @@ public abstract class StreamingBaseAgent {
      */
     protected String queryLLM(String prompt, int maxTokens) {
         try {
+            // Check cancellation before making LLM call
+            checkCancellation();
+
             var messages = new java.util.ArrayList<dev.langchain4j.data.message.ChatMessage>();
             messages.add(dev.langchain4j.data.message.UserMessage.from(prompt));
-            
+
             var request = dev.langchain4j.model.chat.request.ChatRequest.builder()
                 .messages(messages)
                 .build();
-            
+
             var response = chatModel.chat(request);
-            
+
             if (response != null && response.aiMessage() != null) {
                 String content = response.aiMessage().text();
                 // Send to UI
                 sendToUI(content);
                 return content;
             }
-            
+
             return "";
+        } catch (java.util.concurrent.CancellationException e) {
+            LOG.warn("[" + agentName + "] LLM query cancelled");
+            throw e;
         } catch (Exception e) {
             LOG.error("[" + agentName + "] LLM query failed", e);
             return "";
+        }
+    }
+
+    /**
+     * Cancel this agent's operations
+     */
+    public void cancel() {
+        LOG.info("[" + agentName + "] Cancelling agent operations");
+        this.cancelled = true;
+
+        // Cancel the underlying chat model if it's ZestChatLanguageModel
+        if (chatModel instanceof com.zps.zest.langchain4j.ZestChatLanguageModel) {
+            ((com.zps.zest.langchain4j.ZestChatLanguageModel) chatModel).cancelAll();
+        }
+    }
+
+    /**
+     * Check if this agent has been cancelled
+     */
+    public boolean isCancelled() {
+        return cancelled;
+    }
+
+    /**
+     * Reset cancellation state for new session
+     */
+    public void reset() {
+        this.cancelled = false;
+        if (chatModel instanceof com.zps.zest.langchain4j.ZestChatLanguageModel) {
+            ((com.zps.zest.langchain4j.ZestChatLanguageModel) chatModel).reset();
+        }
+    }
+
+    /**
+     * Check cancellation and throw exception if cancelled
+     */
+    protected void checkCancellation() {
+        if (cancelled) {
+            throw new java.util.concurrent.CancellationException(agentName + " operation cancelled");
         }
     }
 }

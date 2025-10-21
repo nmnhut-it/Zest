@@ -87,7 +87,9 @@ public class EnvLoader {
         if (value != null) {
             return value;
         }
-        
+        value = System.getProperty(key);
+        if (value != null) return value;
+
         // Fallback to system environment
         value = System.getenv(key);
         return value != null ? value : defaultValue;

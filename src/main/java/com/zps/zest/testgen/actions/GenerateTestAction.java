@@ -14,10 +14,10 @@ import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.zps.zest.completion.metrics.ActionMetricsHelper;
 import com.zps.zest.completion.metrics.FeatureType;
+import com.zps.zest.testgen.model.TestGenerationConfig;
 import com.zps.zest.testgen.model.TestGenerationRequest;
-import com.zps.zest.testgen.ui.MethodSelectionDialog;
 import com.zps.zest.testgen.ui.TestGenerationVirtualFile;
-import com.zps.zest.testgen.ui.UserContextDialog;
+import com.zps.zest.testgen.ui.UnifiedTestGenerationDialog;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -184,14 +184,19 @@ public class GenerateTestAction extends AnAction {
     private void showMethodSelectionDialog(@NotNull Project project,
                                           @NotNull PsiFile psiFile,
                                           @NotNull List<PsiMethod> methods) {
-        // Use the existing MethodSelectionDialog with its signature
-        MethodSelectionDialog dialog = new MethodSelectionDialog(project, psiFile, 
-                                                                 methods.isEmpty() ? null : methods.get(0));
+        // Use the new unified dialog
+        PsiElement preselectedElement = methods.isEmpty() ? null : methods.get(0);
+        UnifiedTestGenerationDialog dialog = new UnifiedTestGenerationDialog(project, psiFile, preselectedElement);
         if (dialog.showAndGet()) {
             List<PsiMethod> selectedMethods = dialog.getSelectedMethods();
             if (!selectedMethods.isEmpty()) {
-                // Create request for selected methods
-                createTestGenerationRequest(project, psiFile, null, selectedMethods);
+                // Get configuration from dialog
+                TestGenerationConfig config = dialog.getConfiguration();
+                List<String> userFiles = dialog.getSelectedFiles();
+                String userCode = dialog.getProvidedCode();
+
+                // Create request with configuration
+                createTestGenerationRequestWithConfig(project, psiFile, null, selectedMethods, userFiles, userCode, config);
             }
         }
     }
@@ -231,18 +236,29 @@ public class GenerateTestAction extends AnAction {
                                             @NotNull PsiFile psiFile,
                                             @Nullable String selectedCode,
                                             @NotNull List<PsiMethod> targetMethods) {
-        try {
-            // Show user context dialog
-            List<String> userFiles = null;
-            String userCode = null;
+        // Delegate to unified dialog which will handle all the context and configuration
+        PsiElement preselectedElement = targetMethods.isEmpty() ? null : targetMethods.get(0);
+        UnifiedTestGenerationDialog dialog = new UnifiedTestGenerationDialog(project, psiFile, preselectedElement);
+        if (dialog.showAndGet()) {
+            List<PsiMethod> selectedMethods = dialog.getSelectedMethods();
+            if (!selectedMethods.isEmpty()) {
+                TestGenerationConfig config = dialog.getConfiguration();
+                List<String> userFiles = dialog.getSelectedFiles();
+                String userCode = dialog.getProvidedCode();
 
-            UserContextDialog contextDialog = new UserContextDialog(project);
-            if (contextDialog.showAndGet()) {
-                userFiles = contextDialog.getSelectedFiles();
-                userCode = contextDialog.getProvidedCode();
+                createTestGenerationRequestWithConfig(project, psiFile, selectedCode, selectedMethods, userFiles, userCode, config);
             }
+        }
+    }
 
-            // Create test generation request with user context
+    private void createTestGenerationRequestWithConfig(@NotNull Project project,
+                                                       @NotNull PsiFile psiFile,
+                                                       @Nullable String selectedCode,
+                                                       @NotNull List<PsiMethod> targetMethods,
+                                                       @Nullable List<String> userFiles,
+                                                       @Nullable String userCode,
+                                                       @NotNull TestGenerationConfig config) {
+        try {
             TestGenerationRequest.TestType testType = TestGenerationRequest.TestType.UNIT_TESTS;
 
             TestGenerationRequest request = new TestGenerationRequest(
@@ -252,7 +268,8 @@ public class GenerateTestAction extends AnAction {
                 testType,
                 null, // Additional context
                 userFiles,
-                userCode
+                userCode,
+                config
             );
 
             // Create virtual file for the editor
@@ -263,10 +280,11 @@ public class GenerateTestAction extends AnAction {
 
             // Open in editor - test generation will auto-start
             FileEditorManager.getInstance(project).openFile(virtualFile, true);
-            
-            LOG.info("Test generation request created for " + 
-                    (targetMethods.isEmpty() ? "selected code" : targetMethods.size() + " method(s)"));
-            
+
+            LOG.info("Test generation request created for " +
+                    (targetMethods.isEmpty() ? "selected code" : targetMethods.size() + " method(s)") +
+                    " with config: " + config);
+
         } catch (Exception ex) {
             LOG.error("Failed to create test generation request", ex);
             Messages.showErrorDialog(

@@ -13,8 +13,8 @@ import java.util.concurrent.TimeUnit;
  */
 public class ChunkedMessageHandler {
     private static final Logger LOG = Logger.getInstance(ChunkedMessageHandler.class);
-    private static final long CHUNK_EXPIRY_TIME_MS = 60000; // 60 seconds
-    
+    private static final long CHUNK_EXPIRY_TIME_MS = 300000; // 300 seconds (5 minutes) - allows for large messages and slow networks
+
     private final ConcurrentMap<String, ChunkedMessage> pendingMessages = new ConcurrentHashMap<>();
     private final ScheduledExecutorService cleanupExecutor = Executors.newSingleThreadScheduledExecutor();
     

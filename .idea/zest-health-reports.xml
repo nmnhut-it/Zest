@@ -224,6 +224,122 @@
             </SerializableHealthReport>
           </value>
         </entry>
+        <entry key="2025-10-22">
+          <value>
+            <SerializableHealthReport>
+              <option name="date" value="2025-10-22" />
+              <option name="results">
+                <list>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.git.GitCommitMessageService.getPreviewProgress" />
+                    <option name="healthScore" value="85" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Removes session from previewSessions only after returning response, risking race condition if another request accesses the same session concurrently." />
+                          <option name="impact" value="Could return stale or inconsistent progress data if multiple clients poll the same session simultaneously during cleanup phase." />
+                          <option name="issueCategory" value="Concurrency" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Remove session from previewSessions before building the response to ensure atomic cleanup, or use synchronized access to the session map." />
+                          <option name="title" value="Inconsistent state cleanup on completion" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Gets current progress of ongoing preview generation" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.git.GitCommitMessageService.streamCommitMessage" />
+                    <option name="healthScore" value="82" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Accesses and modifies CommitMessageSession state (started, completed) without synchronization, risking inconsistent state across threads." />
+                          <option name="impact" value="Could lead to duplicate streaming starts, incorrect completion status, or missed chunks due to concurrent access from UI and background threads." />
+                          <option name="issueCategory" value="Concurrency" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add synchronization (synchronized blocks or atomic variables) around shared state modifications in CommitMessageSession, particularly isStarted() and start()." />
+                          <option name="title" value="Race condition on session state" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Streams commit message generation response in chunks" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.git.GitCommitMessageService.previewFileGroups" />
+                    <option name="healthScore" value="80" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.88" />
+                          <option name="description" value="Processes all files in memory without pagination or streaming, risking OOM for very large repositories or hundreds of files." />
+                          <option name="impact" value="Application may crash with OutOfMemoryError when processing large changesets, making the feature unusable for enterprise-sized projects." />
+                          <option name="issueCategory" value="Performance" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Implement pagination or streaming for file processing, or add a hard limit on maximum files processed (e.g., first 500 files) with user notification." />
+                          <option name="title" value="Unbounded memory growth from large file lists" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Generates preview of file grouping for hierarchical generation" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.git.GitCommitMessageService.generateCommitMessage" />
+                    <option name="healthScore" value="78" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="Calls gitService.getFileDiffContent() directly in generateCommitMessage without background threading, risking UI freeze for large diffs." />
+                          <option name="impact" value="UI may freeze during commit message generation, especially with large files or many changes, degrading user experience." />
+                          <option name="issueCategory" value="Performance" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Move gitService.getFileDiffContent() calls to background thread using ApplicationManager.getApplication().executeOnPooledThread() to prevent UI blocking." />
+                          <option name="title" value="Blocking Git operations in UI thread" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Generates commit message from file diffs with streaming support" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.git.GitCommitMessageService.startPreviewFileGroups" />
+                    <option name="healthScore" value="75" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="Background thread doesn't remove PreviewSession from previewSessions on error, causing memory leak and stale session references." />
+                          <option name="impact" value="Memory leaks accumulate over time, potentially exhausting heap space after multiple failed preview generations, impacting application stability." />
+                          <option name="issueCategory" value="Resource" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add previewSessions.remove(sessionId) in the catch block after setting session.status = ERROR to ensure cleanup of failed sessions." />
+                          <option name="title" value="No cleanup for failed background sessions" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Starts preview file groups generation asynchronously" />
+                  </SerializableMethodResult>
+                </list>
+              </option>
+            </SerializableHealthReport>
+          </value>
+        </entry>
       </map>
     </option>
   </component>

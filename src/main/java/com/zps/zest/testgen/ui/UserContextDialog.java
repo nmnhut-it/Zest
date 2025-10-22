@@ -22,7 +22,9 @@ import java.util.List;
 /**
  * Dialog for users to provide additional context for test generation.
  * Allows selection of related files and pasting of code snippets.
+ * @deprecated Use UnifiedTestGenerationDialog instead which combines method selection, context, and configuration
  */
+@Deprecated
 public class UserContextDialog extends DialogWrapper {
     private static final int DIALOG_WIDTH = 800;
     private static final int DIALOG_HEIGHT = 600;

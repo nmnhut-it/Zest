@@ -417,6 +417,327 @@
             color: #9ca3af;
         }
 
+        /* Hierarchical Generation Styles */
+        .hierarchical-preview {
+            background: #fef3c7;
+            border: 1px solid #fbbf24;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .dark .hierarchical-preview {
+            background: #78350f;
+            border-color: #f59e0b;
+        }
+
+        .group-list {
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 12px 0;
+        }
+
+        .group-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .dark .group-item {
+            background: #1f2937;
+            border-color: #374151;
+        }
+
+        .group-number {
+            min-width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: #3b82f6;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .group-info {
+            flex: 1;
+        }
+
+        .group-title {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .group-meta {
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .file-preview {
+            font-size: 11px;
+            color: #9ca3af;
+            margin-top: 4px;
+        }
+
+        /* Progress Display */
+        .progress-container {
+            background: #eff6ff;
+            border: 1px solid #3b82f6;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .dark .progress-container {
+            background: #1e3a5f;
+            border-color: #3b82f6;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 8px 0 12px 0;
+        }
+
+        .dark .progress-bar {
+            background: #374151;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6 0%, #10b981 100%);
+            transition: width 0.3s ease;
+            border-radius: 4px;
+        }
+
+        .current-group-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            margin-bottom: 12px;
+        }
+
+        .dark .current-group-info {
+            background: #1f2937;
+            border-color: #374151;
+        }
+
+        .group-icon {
+            font-size: 24px;
+            line-height: 1;
+        }
+
+        .group-details {
+            flex: 1;
+        }
+
+        .group-name {
+            font-weight: 500;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+
+        .group-description {
+            font-size: 12px;
+            color: #6b7280;
+        }
+
+        .group-status {
+            font-size: 13px;
+            font-weight: 600;
+            color: #3b82f6;
+        }
+
+        .completed-groups {
+            margin-top: 8px;
+        }
+
+        .completed-groups ul {
+            color: #059669;
+            font-size: 12px;
+        }
+
+        .dark .completed-groups ul {
+            color: #10b981;
+        }
+
+        /* Hierarchical Explanation Card */
+        .hierarchical-explanation {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border: 2px solid #f59e0b;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .dark .hierarchical-explanation {
+            background: linear-gradient(135deg, #78350f 0%, #92400e 100%);
+            border-color: #f59e0b;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .explanation-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .explanation-header h4 {
+            margin: 0;
+            color: #92400e;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .dark .explanation-header h4 {
+            color: #fbbf24;
+        }
+
+        .close-btn {
+            background: transparent;
+            border: none;
+            font-size: 20px;
+            color: #6b7280;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            line-height: 1;
+        }
+
+        .close-btn:hover {
+            color: #374151;
+        }
+
+        .explanation-content {
+            font-size: 14px;
+        }
+
+        .size-info {
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 6px;
+            margin-bottom: 12px;
+        }
+
+        .dark .size-info {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .size-limit {
+            color: #6b7280;
+            font-size: 13px;
+            margin-left: 8px;
+        }
+
+        .explanation-box {
+            background: rgba(255, 255, 255, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 12px 0;
+        }
+
+        .dark .explanation-box {
+            background: rgba(0, 0, 0, 0.3);
+            color: #f3f4f6;
+        }
+
+        .explanation-box h5 {
+            margin: 0 0 10px 0;
+            font-size: 15px;
+            color: #1f2937;
+        }
+
+        .dark .explanation-box h5 {
+            color: #fbbf24;
+        }
+
+        .explanation-box ul {
+            margin: 8px 0 0 20px;
+            padding: 0;
+            line-height: 1.8;
+        }
+
+        .explanation-box li {
+            margin-bottom: 6px;
+        }
+
+        .why-box {
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 3px solid #3b82f6;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 12px 0;
+            font-size: 13px;
+        }
+
+        .dark .why-box {
+            background: rgba(59, 130, 246, 0.2);
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 15px;
+        }
+
+        .action-buttons .btn {
+            flex: 1;
+        }
+
+        .hierarchical-explanation.error-state {
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+            border-color: #ef4444;
+        }
+
+        .dark .hierarchical-explanation.error-state {
+            background: linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%);
+            border-color: #ef4444;
+        }
+
+        .error-message {
+            padding: 12px;
+            background: rgba(239, 68, 68, 0.1);
+            border-left: 3px solid #ef4444;
+            border-radius: 4px;
+            margin-bottom: 12px;
+            font-size: 14px;
+            color: #991b1b;
+        }
+
+        .dark .error-message {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+        }
+
         /* Responsive design */
         @media (max-width: 768px) {
             .git-content {
@@ -533,6 +854,55 @@
                 
                 <div id="size-warning" style="display: none; padding: 8px 12px; background: #fef3c7; color: #92400e; border-radius: 6px; margin-bottom: 10px; font-size: 13px;">
                     <span id="size-warning-text"></span>
+                </div>
+
+                <!-- Hierarchical Generation Preview -->
+                <div id="group-preview" style="display: none;" class="hierarchical-preview">
+                    <div class="preview-header">
+                        <h4 style="margin: 0 0 8px 0; color: #f59e0b;">⚠️ Large Changeset Detected</h4>
+                        <p style="margin: 0; font-size: 14px;">
+                            <span id="preview-file-count"></span> files will be processed in
+                            <strong><span id="preview-group-count"></span> groups</strong>
+                        </p>
+                    </div>
+                    <div id="group-list" class="group-list">
+                        <!-- Dynamically populated -->
+                    </div>
+                    <div class="preview-actions" style="display: flex; gap: 10px; margin-top: 12px;">
+                        <button onclick="GitUI.startHierarchicalGeneration()" class="btn btn-primary">
+                            Start Generation
+                        </button>
+                        <button onclick="GitUI.cancelGroupPreview()" class="btn btn-secondary">
+                            Select Fewer Files
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Progress Display -->
+                <div id="generation-progress" style="display: none;" class="progress-container">
+                    <div class="progress-header" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span id="progress-text" style="font-weight: 500;">Generating commit message...</span>
+                        <span id="progress-percentage" style="font-weight: 600; color: #10b981;">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="current-group-info">
+                        <div class="group-icon">📁</div>
+                        <div class="group-details">
+                            <div class="group-name" id="current-group-name"></div>
+                            <div class="group-description" id="current-group-description"></div>
+                        </div>
+                        <div class="group-status">
+                            <span id="group-index">0</span> / <span id="total-groups">0</span>
+                        </div>
+                    </div>
+                    <div class="completed-groups">
+                        <h5 style="margin: 0 0 8px 0; font-size: 13px; color: #6b7280;">Completed:</h5>
+                        <ul id="completed-list" style="margin: 0; padding-left: 20px; font-size: 13px;">
+                            <!-- Dynamically populated -->
+                        </ul>
+                    </div>
                 </div>
 
                 <div style="display: flex; gap: 10px; align-items: center;">
@@ -713,7 +1083,7 @@
                                 <div style="font-size: 14px;">Please click Refresh to try again</div>
                             </div>
                         `;
-                    }, 5000); // 5 second timeout
+                    }, 60000); // 60 second timeout - allows for large repos and JGit processing
                     
                     // Store timeout for cleanup
                     container._loadTimeout = timeoutId;
@@ -956,29 +1326,36 @@
                     console.log('Generate already in progress, ignoring duplicate call');
                     return;
                 }
-                
+
                 const selectedFiles = this.getSelectedFiles();
                 if (selectedFiles.length === 0) {
                     this.showMessage('Please select files first', 'error');
                     return;
                 }
-                
+
                 // Set flag and disable button immediately
                 this.isGenerating = true;
                 document.getElementById('generate-btn').disabled = true;
-                
+
                 this.showMessage('Generating commit message...', 'info');
                 const summaryInput = document.getElementById('commit-summary');
                 const descriptionTextarea = document.getElementById('commit-description');
                 summaryInput.value = ''; // Clear existing summary
                 descriptionTextarea.value = ''; // Clear existing description
-                
+
                 // Start streaming session
                 if (window.intellijBridge && window.intellijBridge.callIDE) {
                     window.intellijBridge.callIDE('generateCommitMessage', {
                         files: selectedFiles
                     }).then(response => {
                         if (response && response.success) {
+                            // Check if hierarchical generation is required
+                            if (response.requiresHierarchical) {
+                                // Show explanation FIRST before proceeding
+                                this.showHierarchicalExplanation(selectedFiles, response);
+                                return;
+                            }
+
                             const analyzed = response.filesAnalyzed || selectedFiles.length;
                             const binarySkipped = response.binaryFilesSkipped || 0;
                             const isLarge = response.isLargeChangeset || false;
@@ -1006,6 +1383,403 @@
                     });
                 }
             },
+
+            showGroupPreview: function(selectedFiles, initialResponse) {
+                this.showMessage(`⚠️ Large changeset (${initialResponse.promptSizeKB}KB) - analyzing files for grouping...`, 'info');
+
+                const generateBtn = document.getElementById('generate-btn');
+                const originalBtnText = generateBtn.innerHTML;
+                generateBtn.innerHTML = '<span class="spinner"></span> Starting analysis...';
+                generateBtn.disabled = true;
+
+                // Start async preview generation (returns immediately with sessionId)
+                window.intellijBridge.callIDE('startPreviewFileGroups', {
+                    files: selectedFiles
+                }).then(response => {
+                    if (response && response.success && response.sessionId) {
+                        // Start polling for progress with real-time updates
+                        this.pollPreviewProgress(response.sessionId, selectedFiles.length, originalBtnText, selectedFiles);
+                    } else {
+                        generateBtn.innerHTML = originalBtnText;
+                        generateBtn.disabled = false;
+                        this.showMessage('❌ Failed to start preview: ' + (response.error || 'Unknown error'), 'error');
+                        this.isGenerating = false;
+                    }
+                }).catch(error => {
+                    generateBtn.innerHTML = originalBtnText;
+                    generateBtn.disabled = false;
+                    this.showMessage('❌ Error starting preview: ' + error.message, 'error');
+                    this.isGenerating = false;
+                });
+            },
+
+            pollPreviewProgress: function(sessionId, totalFiles, originalBtnText, selectedFiles) {
+                const generateBtn = document.getElementById('generate-btn');
+                const startTime = Date.now();
+                const maxPollTime = 180000; // 180 second (3 minute) timeout - allows for 300+ file analysis
+
+                const poll = () => {
+                    // Check timeout
+                    if (Date.now() - startTime > maxPollTime) {
+                        generateBtn.innerHTML = originalBtnText;
+                        generateBtn.disabled = false;
+                        this.showMessage('⏱️ Preview generation timed out (>3 minutes). Try selecting fewer files.', 'error');
+                        this.isGenerating = false;
+                        return;
+                    }
+
+                    window.intellijBridge.callIDE('pollPreviewProgress', {
+                        sessionId: sessionId
+                    }).then(response => {
+                        if (response && response.success) {
+                            const status = response.status;
+
+                            if (status === 'complete' && response.groups) {
+                                // Preview complete! Show groups
+                                generateBtn.innerHTML = originalBtnText;
+                                generateBtn.disabled = false;
+
+                                document.getElementById('group-preview').style.display = 'block';
+                                document.getElementById('preview-file-count').textContent = response.totalFiles || totalFiles;
+                                document.getElementById('preview-group-count').textContent = response.totalGroups;
+
+                                this.showMessage(`✅ Files grouped into ${response.totalGroups} groups`, 'success');
+
+                                // Populate group list
+                                const groupList = document.getElementById('group-list');
+                                groupList.innerHTML = response.groups.map((group, index) => `
+                                    <div class="group-item">
+                                        <div class="group-number">${index + 1}</div>
+                                        <div class="group-info">
+                                            <div class="group-title">${group.name}</div>
+                                            <div class="group-meta">${group.description} • ${group.sizeKB}KB</div>
+                                            <div class="file-preview">
+                                                ${group.files.slice(0, 3).join(', ')}${group.files.length > 3 ? ` +${group.files.length - 3} more` : ''}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('');
+
+                                // Store selected files for later use
+                                this._pendingHierarchicalFiles = selectedFiles;
+
+                            } else if (status === 'error') {
+                                // Error occurred - show detailed explanation
+                                generateBtn.innerHTML = originalBtnText;
+                                generateBtn.disabled = false;
+                                this.isGenerating = false;
+
+                                this.showMessage('❌ Preview generation failed', 'error');
+
+                                // Show detailed error in explanation card
+                                const errorDetailsHtml = `
+                                    <div id="hierarchical-explanation" class="hierarchical-explanation error-state">
+                                        <div class="explanation-header">
+                                            <h4>❌ Preview Generation Failed</h4>
+                                            <button class="close-btn" onclick="document.getElementById('hierarchical-explanation')?.remove()">✕</button>
+                                        </div>
+
+                                        <div class="explanation-content">
+                                            <div class="error-message">
+                                                <strong>Error:</strong> ${response.error || 'Unknown error occurred'}
+                                            </div>
+
+                                            <div class="explanation-box">
+                                                <h5>💡 What You Can Do:</h5>
+                                                <ul>
+                                                    <li><strong>Select fewer files:</strong> Try committing 20-50 files at a time</li>
+                                                    <li><strong>Group by directory:</strong> Commit each module/folder separately</li>
+                                                    <li><strong>Write manual message:</strong> Type your own commit message below</li>
+                                                    <li><strong>Check git status:</strong> Ensure you're in a valid git repository</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+
+                                // Insert error details
+                                const commitPanel = document.querySelector('.commit-panel');
+                                document.getElementById('hierarchical-explanation')?.remove();
+
+                                const tempDiv = document.createElement('div');
+                                tempDiv.innerHTML = errorDetailsHtml;
+                                commitPanel.insertBefore(tempDiv.firstElementChild, commitPanel.querySelector('.commit-message-area'));
+
+                            } else if (status === 'processing') {
+                                // Still processing - update progress with live counter
+                                const filesProcessed = response.filesProcessed || 0;
+                                const percentage = Math.round((filesProcessed / totalFiles) * 100);
+
+                                // Update button with real-time file-by-file progress
+                                generateBtn.innerHTML = `<span class="spinner"></span> Analyzing ${filesProcessed}/${totalFiles} (${percentage}%)`;
+
+                                // Continue polling every 100ms for smooth updates
+                                setTimeout(poll, 100);
+                            }
+                        } else {
+                            generateBtn.innerHTML = originalBtnText;
+                            generateBtn.disabled = false;
+                            this.showMessage('❌ Preview failed: ' + (response.error || 'Unknown error'), 'error');
+                            this.isGenerating = false;
+                        }
+                    }).catch(error => {
+                        generateBtn.innerHTML = originalBtnText;
+                        generateBtn.disabled = false;
+                        this.showMessage('❌ Error polling progress: ' + error.message, 'error');
+                        this.isGenerating = false;
+                    });
+                };
+
+                // Start polling
+                poll();
+            },
+
+            showHierarchicalExplanation: function(selectedFiles, response) {
+                console.log('=== showHierarchicalExplanation CALLED ===');
+                console.log('Response:', response);
+                console.log('Selected files count:', selectedFiles.length);
+
+                // Reset state
+                this.isGenerating = false;
+                document.getElementById('generate-btn').disabled = false;
+
+                // Show the backend message prominently
+                this.showMessage('⚠️ ' + (response.message || 'Large changeset detected - switching to hierarchical mode'), 'warning');
+
+                // Create explanation card with explicit display style
+                const explanationHtml = `
+                    <div id="hierarchical-explanation" class="hierarchical-explanation" style="display: block !important; visibility: visible !important;">
+                        <div class="explanation-header">
+                            <h4>🔀 Hierarchical Generation Mode Activated</h4>
+                            <button class="close-btn" onclick="GitUI.cancelHierarchical()">✕</button>
+                        </div>
+
+                        <div class="explanation-content">
+                            <div class="size-info">
+                                <strong>Changeset size:</strong> ${response.promptSizeKB}KB
+                                <span class="size-limit">(exceeds ${100}KB single-pass limit)</span>
+                            </div>
+
+                            <div class="explanation-box">
+                                <h5>📚 How Hierarchical Generation Works:</h5>
+                                <ul>
+                                    <li><strong>Automatic grouping:</strong> Your ${response.filesAnalyzed} files will be grouped by directory</li>
+                                    <li><strong>Focused analysis:</strong> Each group gets dedicated AI analysis (better quality)</li>
+                                    <li><strong>Smart combining:</strong> Individual analyses are merged into one coherent message</li>
+                                    <li><strong>Progress tracking:</strong> You'll see real-time progress for each group</li>
+                                </ul>
+                            </div>
+
+                            <div class="why-box">
+                                <p><strong>Why?</strong> Large changesets exceed AI model limits. Hierarchical processing ensures high-quality commit messages for any changeset size.</p>
+                            </div>
+                        </div>
+
+                        <div class="action-buttons">
+                            <button onclick="GitUI.proceedWithHierarchical()" class="btn btn-primary">
+                                ▶ Continue with Hierarchical Generation
+                            </button>
+                            <button onclick="GitUI.cancelHierarchical()" class="btn btn-secondary">
+                                ← Select Fewer Files
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                // Remove any existing explanation first
+                const existing = document.getElementById('hierarchical-explanation');
+                if (existing) {
+                    console.log('Removing existing explanation');
+                    existing.remove();
+                }
+
+                // SAFER: Use insertAdjacentHTML with known element
+                const sizeWarning = document.getElementById('size-warning');
+                console.log('size-warning element:', sizeWarning);
+
+                if (sizeWarning) {
+                    // Insert BEFORE size-warning
+                    sizeWarning.insertAdjacentHTML('beforebegin', explanationHtml);
+                    console.log('Inserted using size-warning as anchor');
+                } else {
+                    console.warn('size-warning not found, trying commit-panel');
+                    // Fallback: insert at top of commit-panel
+                    const commitPanel = document.querySelector('.commit-panel');
+                    console.log('commitPanel:', commitPanel);
+
+                    if (commitPanel) {
+                        const h3 = commitPanel.querySelector('h3');
+                        if (h3) {
+                            h3.insertAdjacentHTML('afterend', explanationHtml);
+                            console.log('Inserted after h3');
+                        } else {
+                            commitPanel.insertAdjacentHTML('afterbegin', explanationHtml);
+                            console.log('Inserted at beginning of commitPanel');
+                        }
+                    } else {
+                        console.error('=== CRITICAL: commitPanel not found! ===');
+                    }
+                }
+
+                // Verify insertion
+                const inserted = document.getElementById('hierarchical-explanation');
+                if (inserted) {
+                    console.log('✅ Element inserted successfully');
+                    console.log('Element offsetHeight:', inserted.offsetHeight);
+                    console.log('Element display:', window.getComputedStyle(inserted).display);
+                    console.log('Element visibility:', window.getComputedStyle(inserted).visibility);
+                } else {
+                    console.error('❌ Element NOT in DOM after insertion!');
+                }
+
+                // Store data for later
+                this._hierarchicalData = {selectedFiles, response};
+                console.log('=== showHierarchicalExplanation COMPLETE ===');
+            },
+
+            proceedWithHierarchical: function() {
+                const data = this._hierarchicalData;
+                if (!data) {
+                    this.showMessage('No hierarchical data available', 'error');
+                    return;
+                }
+
+                // Hide explanation
+                document.getElementById('hierarchical-explanation')?.remove();
+
+                // Set generating state
+                this.isGenerating = true;
+
+                // Now proceed with preview generation
+                this.showGroupPreview(data.selectedFiles, data.response);
+            },
+
+            cancelHierarchical: function() {
+                // Remove explanation
+                document.getElementById('hierarchical-explanation')?.remove();
+
+                // Reset state
+                this.isGenerating = false;
+                document.getElementById('generate-btn').disabled = false;
+                this._hierarchicalData = null;
+
+                this.showMessage('Hierarchical generation cancelled. Please select fewer files.', 'info');
+            },
+
+            startHierarchicalGeneration: function() {
+                if (!this._pendingHierarchicalFiles) {
+                    this.showMessage('No files selected for hierarchical generation', 'error');
+                    return;
+                }
+
+                // Hide preview, show progress
+                document.getElementById('group-preview').style.display = 'none';
+                document.getElementById('generation-progress').style.display = 'block';
+
+                // Set generating state
+                this.isGenerating = true;
+                document.getElementById('generate-btn').disabled = true;
+
+                // NOTE: Backend doesn't support true hierarchical generation yet
+                // This is a placeholder that uses the existing generation with progress display
+                this.showMessage('🤖 Starting hierarchical generation...', 'info');
+
+                // Use existing generation but with progress display
+                window.intellijBridge.callIDE('generateCommitMessage', {
+                    files: this._pendingHierarchicalFiles
+                }).then(response => {
+                    if (response && response.success && response.sessionId) {
+                        this.streamCommitMessageWithProgress(response.sessionId);
+                    }
+                }).catch(error => {
+                    this.showMessage('Error: ' + error.message, 'error');
+                    this.isGenerating = false;
+                    document.getElementById('generate-btn').disabled = false;
+                    document.getElementById('generation-progress').style.display = 'none';
+                });
+            },
+
+            streamCommitMessageWithProgress: function(sessionId) {
+                const poll = () => {
+                    // Poll for progress updates
+                    window.intellijBridge.callIDE('getGenerationProgress', {
+                        sessionId: sessionId
+                    }).then(progressResponse => {
+                        if (progressResponse.success && progressResponse.isHierarchical) {
+                            this.updateProgressUI(progressResponse);
+                        }
+                    }).catch(err => console.warn('Progress update failed:', err));
+
+                    // Poll for message chunks
+                    window.intellijBridge.callIDE('streamCommitMessage', {
+                        sessionId: sessionId
+                    }).then(response => {
+                        if (response.done) {
+                            // Complete!
+                            document.getElementById('generation-progress').style.display = 'none';
+                            this.showMessage('✅ Commit message generated successfully', 'success');
+
+                            // Set the message
+                            this.setGeneratedMessage(response.fullMessage);
+
+                            this.isGenerating = false;
+                            document.getElementById('generate-btn').disabled = false;
+                        } else if (response.chunk) {
+                            // Append chunk
+                            this.appendCommitChunk(response.chunk);
+                            // Continue polling
+                            setTimeout(poll, 100);
+                        } else {
+                            // Still waiting
+                            setTimeout(poll, 100);
+                        }
+                    }).catch(error => {
+                        this.showMessage('Error: ' + error.message, 'error');
+                        this.isGenerating = false;
+                        document.getElementById('generate-btn').disabled = false;
+                        document.getElementById('generation-progress').style.display = 'none';
+                    });
+                };
+
+                poll();
+            },
+
+            updateProgressUI: function(progress) {
+                document.getElementById('progress-percentage').textContent = progress.percentage + '%';
+                document.getElementById('progress-fill').style.width = progress.percentage + '%';
+                document.getElementById('current-group-name').textContent = progress.currentGroup || '';
+                document.getElementById('current-group-description').textContent = progress.currentGroupDescription || '';
+                document.getElementById('group-index').textContent = (progress.groupIndex || 0) + 1;
+                document.getElementById('total-groups').textContent = progress.totalGroups || 0;
+
+                // Update completed list
+                const completedList = document.getElementById('completed-list');
+                completedList.innerHTML = (progress.completedGroups || []).map(group =>
+                    `<li>✓ ${group}</li>`
+                ).join('');
+            },
+
+            cancelGroupPreview: function() {
+                document.getElementById('group-preview').style.display = 'none';
+                this._pendingHierarchicalFiles = null;
+                this.showMessage('Please select fewer files or proceed with hierarchical generation', 'info');
+            },
+
+            setGeneratedMessage: function(fullMessage) {
+                const lines = fullMessage.split('\n');
+                const summary = lines[0] || '';
+                let description = lines.slice(1).join('\n').trim();
+
+                document.getElementById('commit-summary').value = summary;
+                document.getElementById('commit-description').value = description;
+
+                this.updateSelection();
+            },
+
+            appendCommitChunk: function(chunk) {
+                const descriptionTextarea = document.getElementById('commit-description');
+                descriptionTextarea.value += chunk;
+            },
             
             streamCommitMessage: function(sessionId, filesAnalyzed, binarySkipped) {
                 const summaryInput = document.getElementById('commit-summary');
@@ -1013,7 +1787,7 @@
                 const generateBtn = document.getElementById('generate-btn');
                 let streamingText = '';
                 const startTime = Date.now();
-                const maxPollTime = 120000;
+                const maxPollTime = 600000; // 600 second (10 minute) timeout - LLM can be very slow, hierarchical generation needs time
                 filesAnalyzed = filesAnalyzed || 0;
                 binarySkipped = binarySkipped || 0;
 

@@ -9,6 +9,7 @@ import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.langchain4j.naive_service.NaiveStreamingLLMService;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,6 +34,7 @@ public class GitCommitMessageService {
     private final Project project;
     private final GitService gitService;
     private final Map<String, CommitMessageSession> sessions = new ConcurrentHashMap<>();
+    private final Map<String, PreviewSession> previewSessions = new ConcurrentHashMap<>();
 
     private boolean isBinaryFile(String filePath) {
         int lastDot = filePath.lastIndexOf('.');
@@ -97,17 +99,18 @@ public class GitCommitMessageService {
             LOG.info("Commit message generation: " + filesAnalyzed + " files analyzed, " +
                      binaryFilesSkipped + " binary files skipped, prompt size: " + promptSize + " chars");
 
-            // Check if prompt exceeds reasonable size
+            // Check if prompt exceeds reasonable size - switch to hierarchical generation
             if (promptSize > MAX_PROMPT_SIZE) {
-                LOG.warn("Prompt size (" + promptSize + ") exceeds maximum (" + MAX_PROMPT_SIZE + ")");
-                JsonObject errorResponse = GitServiceHelper.createErrorResponse(
-                    "Changes are too large (" + (promptSize / 1000) + "KB). " +
-                    "Maximum supported size is " + (MAX_PROMPT_SIZE / 1000) + "KB. " +
-                    "Please select fewer files or files with smaller changes."
-                );
-                errorResponse.addProperty("promptSize", promptSize);
-                errorResponse.addProperty("maxSize", MAX_PROMPT_SIZE);
-                return GitServiceHelper.toJson(errorResponse);
+                LOG.warn("Prompt size (" + promptSize + ") exceeds maximum (" + MAX_PROMPT_SIZE + "), switching to hierarchical generation");
+
+                JsonObject response = GitServiceHelper.createSuccessResponse();
+                response.addProperty("requiresHierarchical", true);
+                response.addProperty("promptSize", promptSize);
+                response.addProperty("promptSizeKB", promptSize / 1000);
+                response.addProperty("filesAnalyzed", filesAnalyzed);
+                response.addProperty("binaryFilesSkipped", binaryFilesSkipped);
+                response.addProperty("message", "Changeset is too large for single generation. Use hierarchical generation.");
+                return GitServiceHelper.toJson(response);
             }
 
             // Log warning if approaching limit
@@ -227,17 +230,340 @@ public class GitCommitMessageService {
     }
 
     /**
+     * Gets the current progress of a hierarchical generation session.
+     */
+    public String getGenerationProgress(JsonObject data) {
+        try {
+            String sessionId = data.get("sessionId").getAsString();
+            CommitMessageSession session = sessions.get(sessionId);
+
+            if (session == null) {
+                return GitServiceHelper.toJson(
+                        GitServiceHelper.createErrorResponse("Session not found")
+                );
+            }
+
+            GenerationProgress progress = session.getProgress();
+            if (progress != null) {
+                JsonObject response = GitServiceHelper.createSuccessResponse();
+                response.addProperty("currentGroup", progress.currentGroupName);
+                response.addProperty("currentGroupDescription", progress.currentGroupDescription);
+                response.addProperty("groupIndex", progress.currentGroupIndex);
+                response.addProperty("totalGroups", progress.totalGroups);
+                response.addProperty("percentage", progress.getPercentage());
+                response.addProperty("isHierarchical", progress.isHierarchical);
+
+                JsonArray completedArray = new JsonArray();
+                progress.completedGroups.forEach(completedArray::add);
+                response.add("completedGroups", completedArray);
+
+                return GitServiceHelper.toJson(response);
+            }
+
+            return GitServiceHelper.toJson(GitServiceHelper.createSuccessResponse());
+
+        } catch (Exception e) {
+            return GitServiceHelper.toJson(GitServiceHelper.createErrorResponse(e));
+        }
+    }
+
+    /**
+     * Generates preview of how files will be grouped for hierarchical generation.
+     * Uses fast file size estimation instead of full diff generation for performance.
+     * For 150 files: ~2 seconds (fast estimation) vs ~60 seconds (full diffs).
+     */
+    public String previewFileGroups(JsonObject data) {
+        try {
+            JsonArray filesArray = data.getAsJsonArray("files");
+            LOG.info("Generating group preview for " + filesArray.size() + " files (fast mode)");
+
+            long startTime = System.currentTimeMillis();
+            String projectPath = project.getBasePath();
+
+            // Collect file information with ESTIMATED sizes (no full diffs!)
+            List<FileGroup.FileInfo> fileInfos = new java.util.ArrayList<>();
+            for (JsonElement fileElement : filesArray) {
+                JsonObject fileObj = fileElement.getAsJsonObject();
+                String filePath = fileObj.get("path").getAsString();
+                String status = fileObj.get("status").getAsString();
+
+                if (isBinaryFile(filePath)) {
+                    continue;
+                }
+
+                // Fast: estimate size from file stats instead of getting full diff
+                int estimatedSize = estimateFileDiffSize(projectPath, filePath, status);
+                fileInfos.add(new FileGroup.FileInfo(filePath, status, estimatedSize));
+            }
+
+            // Group files using directory-based strategy
+            FileGroupStrategy strategy = new DirectoryBasedGrouping();
+            List<FileGroup> groups = strategy.groupFiles(fileInfos);
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            LOG.info("Group preview generated in " + elapsed + "ms for " +
+                    fileInfos.size() + " files into " + groups.size() + " groups");
+
+            // Build response
+            JsonObject response = GitServiceHelper.createSuccessResponse();
+            response.addProperty("totalGroups", groups.size());
+            response.addProperty("totalFiles", fileInfos.size());
+            response.addProperty("strategy", strategy.getStrategyName());
+            response.addProperty("previewTimeMs", elapsed);
+
+            JsonArray groupsArray = new JsonArray();
+            for (FileGroup group : groups) {
+                JsonObject groupObj = new JsonObject();
+                groupObj.addProperty("name", group.getName());
+                groupObj.addProperty("description", group.getDescription());
+                groupObj.addProperty("fileCount", group.getFileCount());
+                groupObj.addProperty("sizeKB", group.getEstimatedSizeKB());
+
+                JsonArray filesInGroup = new JsonArray();
+                group.getFiles().forEach(f -> filesInGroup.add(f.getPath()));
+                groupObj.add("files", filesInGroup);
+
+                groupsArray.add(groupObj);
+            }
+            response.add("groups", groupsArray);
+
+            return GitServiceHelper.toJson(response);
+
+        } catch (Exception e) {
+            LOG.error("Error generating group preview", e);
+            return GitServiceHelper.toJson(GitServiceHelper.createErrorResponse(e));
+        }
+    }
+
+    /**
+     * Quickly estimates diff size without getting the full diff.
+     * Uses file size for new files or git diff --stat for changed files.
+     * Much faster than getFileDiffContent: ~10ms vs ~500ms per file.
+     */
+    private int estimateFileDiffSize(String projectPath, String filePath, String status) {
+        try {
+            if ("A".equals(status)) {
+                // New file - use actual file size
+                java.io.File file = new java.io.File(projectPath, filePath);
+                if (file.exists()) {
+                    return (int) file.length();
+                }
+                return 1000; // Default estimate
+            } else if ("D".equals(status)) {
+                // Deleted file - estimate from git show
+                return estimateSizeFromGitStat(projectPath, filePath);
+            } else {
+                // Modified file - use git diff --stat (fast!)
+                return estimateSizeFromGitStat(projectPath, filePath);
+            }
+
+        } catch (Exception e) {
+            LOG.debug("Error estimating file size for " + filePath + ": " + e.getMessage());
+            return 2000; // Conservative default estimate
+        }
+    }
+
+    /**
+     * Gets quick size estimate from git diff --stat (one-line output).
+     * Example output: " src/Main.java | 25 +++++++++++-"
+     */
+    private int estimateSizeFromGitStat(String projectPath, String filePath) {
+        try {
+            // --stat gives quick summary: " file | 25 ++++--"
+            String statOutput = GitServiceHelper.executeGitCommand(projectPath,
+                    "git diff --stat -- " + com.zps.zest.browser.utils.GitCommandExecutor.escapeFilePath(filePath));
+
+            // Parse number of changes from stat output
+            int changes = parseChangesFromStat(statOutput);
+            return changes * 50; // Estimate ~50 bytes per changed line
+
+        } catch (Exception e) {
+            LOG.debug("Stat estimation failed for " + filePath + ", using default");
+            return 2000; // Default estimate on error
+        }
+    }
+
+    /**
+     * Parses insertion/deletion count from git diff --stat output.
+     * Example: " src/Main.java | 25 +++++++++++-" → returns 25
+     */
+    private int parseChangesFromStat(String statOutput) {
+        try {
+            // Format: " file.java | 25 +++++++++++-"
+            String[] parts = statOutput.split("\\|");
+            if (parts.length > 1) {
+                String changesPart = parts[1].trim();
+                // Extract first number (total changes)
+                String[] tokens = changesPart.split("\\s+");
+                if (tokens.length > 0) {
+                    return Integer.parseInt(tokens[0]);
+                }
+            }
+        } catch (Exception e) {
+            LOG.debug("Failed to parse stat output: " + statOutput);
+        }
+        return 40; // Default estimate: ~40 changed lines
+    }
+
+    /**
+     * Starts preview file groups generation asynchronously with progress tracking.
+     * Returns immediately with a session ID that can be polled for progress.
+     */
+    public String startPreviewFileGroups(JsonObject data) {
+        try {
+            JsonArray filesArray = data.getAsJsonArray("files");
+            String sessionId = "preview-" + System.currentTimeMillis();
+
+            LOG.info("Starting preview generation for " + filesArray.size() + " files, session: " + sessionId);
+
+            // Create session
+            PreviewSession session = new PreviewSession(sessionId, filesArray.size());
+            previewSessions.put(sessionId, session);
+
+            // Process files in background thread
+            ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                try {
+                    String projectPath = project.getBasePath();
+                    List<FileGroup.FileInfo> fileInfos = new java.util.ArrayList<>();
+
+                    for (int i = 0; i < filesArray.size(); i++) {
+                        JsonObject fileObj = filesArray.get(i).getAsJsonObject();
+                        String filePath = fileObj.get("path").getAsString();
+                        String status = fileObj.get("status").getAsString();
+
+                        // Update progress
+                        session.filesProcessed = i + 1;
+                        session.currentFile = filePath;
+
+                        if (isBinaryFile(filePath)) {
+                            continue;
+                        }
+
+                        // Fast estimation
+                        int estimatedSize = estimateFileDiffSize(projectPath, filePath, status);
+                        fileInfos.add(new FileGroup.FileInfo(filePath, status, estimatedSize));
+                    }
+
+                    // Group files
+                    FileGroupStrategy strategy = new DirectoryBasedGrouping();
+                    List<FileGroup> groups = strategy.groupFiles(fileInfos);
+
+                    // Mark as complete
+                    session.groups = groups;
+                    session.status = PreviewSessionStatus.COMPLETE;
+
+                    LOG.info("Preview generation complete for session " + sessionId +
+                            ": " + groups.size() + " groups from " + fileInfos.size() + " files");
+
+                } catch (Exception e) {
+                    LOG.error("Preview generation failed for session " + sessionId, e);
+                    session.status = PreviewSessionStatus.ERROR;
+                    session.error = e.getMessage();
+                }
+            });
+
+            // Return session info immediately
+            JsonObject response = GitServiceHelper.createSuccessResponse();
+            response.addProperty("sessionId", sessionId);
+            response.addProperty("status", "started");
+            response.addProperty("totalFiles", filesArray.size());
+
+            return GitServiceHelper.toJson(response);
+
+        } catch (Exception e) {
+            LOG.error("Error starting preview generation", e);
+            return GitServiceHelper.toJson(GitServiceHelper.createErrorResponse(e));
+        }
+    }
+
+    /**
+     * Gets the current progress of an ongoing preview generation.
+     */
+    public String getPreviewProgress(JsonObject data) {
+        try {
+            String sessionId = data.get("sessionId").getAsString();
+            PreviewSession session = previewSessions.get(sessionId);
+
+            if (session == null) {
+                return GitServiceHelper.toJson(
+                        GitServiceHelper.createErrorResponse("Preview session not found")
+                );
+            }
+
+            JsonObject response = GitServiceHelper.createSuccessResponse();
+            response.addProperty("sessionId", sessionId);
+            response.addProperty("status", session.status.toString().toLowerCase());
+            response.addProperty("filesProcessed", session.filesProcessed);
+            response.addProperty("totalFiles", session.totalFiles);
+            response.addProperty("currentFile", session.currentFile);
+
+            if (session.status == PreviewSessionStatus.COMPLETE && session.groups != null) {
+                // Include groups in response
+                response.addProperty("totalGroups", session.groups.size());
+
+                JsonArray groupsArray = new JsonArray();
+                for (FileGroup group : session.groups) {
+                    JsonObject groupObj = new JsonObject();
+                    groupObj.addProperty("name", group.getName());
+                    groupObj.addProperty("description", group.getDescription());
+                    groupObj.addProperty("fileCount", group.getFileCount());
+                    groupObj.addProperty("sizeKB", group.getEstimatedSizeKB());
+
+                    JsonArray filesInGroup = new JsonArray();
+                    group.getFiles().forEach(f -> filesInGroup.add(f.getPath()));
+                    groupObj.add("files", filesInGroup);
+
+                    groupsArray.add(groupObj);
+                }
+                response.add("groups", groupsArray);
+
+                // Clean up session after returning results
+                previewSessions.remove(sessionId);
+
+            } else if (session.status == PreviewSessionStatus.ERROR) {
+                response.addProperty("error", session.error);
+                // Clean up failed session
+                previewSessions.remove(sessionId);
+            }
+
+            return GitServiceHelper.toJson(response);
+
+        } catch (Exception e) {
+            LOG.error("Error getting preview progress", e);
+            return GitServiceHelper.toJson(GitServiceHelper.createErrorResponse(e));
+        }
+    }
+
+    /**
      * Cleans up all sessions.
      */
     public void dispose() {
         sessions.clear();
+        previewSessions.clear();
+    }
+
+    /**
+     * Tracks progress of hierarchical commit message generation.
+     */
+    private static class GenerationProgress {
+        String currentGroupName;
+        String currentGroupDescription;
+        int currentGroupIndex;
+        int totalGroups;
+        boolean isHierarchical;
+        List<String> completedGroups = new java.util.ArrayList<>();
+
+        int getPercentage() {
+            if (totalGroups == 0) return 0;
+            return (completedGroups.size() * 100) / totalGroups;
+        }
     }
     
     /**
      * Inner class to manage commit message streaming sessions.
      */
     private static class CommitMessageSession {
-        private static final long TIMEOUT_MS = 120000; // 2 minutes timeout
+        private static final long TIMEOUT_MS = 600000; // 10 minutes timeout - matches frontend, allows for slow LLM and hierarchical generation
 
         private final String sessionId;
         private final String prompt;
@@ -248,11 +574,13 @@ public class GitCommitMessageService {
         private volatile boolean completed = false;
         private final long createdAt = System.currentTimeMillis();
         private volatile long lastActivityAt = System.currentTimeMillis();
+        private volatile GenerationProgress progress;
 
         CommitMessageSession(String sessionId, String prompt, Project project) {
             this.sessionId = sessionId;
             this.prompt = prompt;
             this.project = project;
+            this.progress = null;
         }
 
         boolean isStarted() {
@@ -261,6 +589,14 @@ public class GitCommitMessageService {
 
         boolean isTimedOut() {
             return (System.currentTimeMillis() - lastActivityAt) > TIMEOUT_MS;
+        }
+
+        GenerationProgress getProgress() {
+            return progress;
+        }
+
+        void setProgress(GenerationProgress progress) {
+            this.progress = progress;
         }
         
         void start() {
@@ -361,5 +697,38 @@ public class GitCommitMessageService {
         String getFullMessage() {
             return fullMessage.toString();
         }
+    }
+
+    /**
+     * Session for tracking preview generation progress.
+     */
+    private static class PreviewSession {
+        final String sessionId;
+        final int totalFiles;
+        volatile int filesProcessed = 0;
+        volatile String currentFile = "";
+        volatile PreviewSessionStatus status = PreviewSessionStatus.PROCESSING;
+        volatile List<FileGroup> groups = null;
+        volatile String error = null;
+        final long createdAt = System.currentTimeMillis();
+
+        PreviewSession(String sessionId, int totalFiles) {
+            this.sessionId = sessionId;
+            this.totalFiles = totalFiles;
+        }
+
+        int getPercentage() {
+            if (totalFiles == 0) return 0;
+            return (filesProcessed * 100) / totalFiles;
+        }
+    }
+
+    /**
+     * Status enum for preview generation sessions.
+     */
+    private enum PreviewSessionStatus {
+        PROCESSING,
+        COMPLETE,
+        ERROR
     }
 }

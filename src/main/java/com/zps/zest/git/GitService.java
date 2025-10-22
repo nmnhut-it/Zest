@@ -1053,6 +1053,47 @@ public String handleGitPush() {
     }
 
     /**
+     * Gets the current progress of a hierarchical generation session.
+     */
+    public String getGenerationProgress(JsonObject data) {
+        return commitMessageService.getGenerationProgress(data);
+    }
+
+    /**
+     * Generates preview of how files will be grouped for hierarchical generation.
+     * Now optimized to use fast file size estimation (~2s for 150 files).
+     * @deprecated Use startPreviewFileGroups + pollPreviewProgress for streaming progress
+     */
+    public String previewFileGroups(JsonObject data) {
+        LOG.info("Preview file groups request received");
+        try {
+            return commitMessageService.previewFileGroups(data);
+        } catch (Exception e) {
+            LOG.error("Error in previewFileGroups", e);
+            return GitServiceHelper.toJson(
+                    GitServiceHelper.createErrorResponse("Preview failed: " + e.getMessage())
+            );
+        }
+    }
+
+    /**
+     * Starts preview generation asynchronously with real-time progress tracking.
+     * Returns immediately with session ID for polling progress.
+     */
+    public String startPreviewFileGroups(JsonObject data) {
+        LOG.info("Starting async preview generation");
+        return commitMessageService.startPreviewFileGroups(data);
+    }
+
+    /**
+     * Gets the current progress of preview generation.
+     * Polls this to get file-by-file progress: "Analyzing 45/150..."
+     */
+    public String pollPreviewProgress(JsonObject data) {
+        return commitMessageService.getPreviewProgress(data);
+    }
+
+    /**
      * Disposes of any resources and clears active contexts.
      */
     public void dispose() {

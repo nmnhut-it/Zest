@@ -269,6 +269,18 @@ public class JavaScriptBridgeActions {
                 case "estimateChangesSize":
                     return gitService.estimateChangesSize(data);
 
+                case "getGenerationProgress":
+                    return gitService.getGenerationProgress(data);
+
+                case "previewFileGroups":
+                    return gitService.previewFileGroups(data);
+
+                case "startPreviewFileGroups":
+                    return gitService.startPreviewFileGroups(data);
+
+                case "pollPreviewProgress":
+                    return gitService.pollPreviewProgress(data);
+
                 // Content update handling (marks page as loaded)
                 case "contentUpdated":
                     return handleContentUpdated(data);

@@ -14,7 +14,12 @@ import javax.swing.border.EmptyBorder
 
 /**
  * Dialog for selecting which methods to generate tests for
+ * @deprecated Use UnifiedTestGenerationDialog instead which combines method selection, context, and configuration
  */
+@Deprecated(
+    message = "Use UnifiedTestGenerationDialog instead",
+    replaceWith = ReplaceWith("UnifiedTestGenerationDialog(project, psiFile, preselectedElement)")
+)
 class MethodSelectionDialog(
     project: Project,
     private val psiFile: PsiFile,

@@ -134,7 +134,8 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
         Remember: Quality over quantity. Five well-thought-out tests are better than twenty random ones. Each test should have a clear purpose and test one specific scenario.
 
-        You will respond using tools only. Generate multiple scenarios in a single addTestScenarios call for the selected methods only, stop when you find it is enough, or you have exceed 10 test cases per selected method.
+        You will respond using tools only. Generate multiple scenarios in a single addTestScenarios call for the selected methods only.
+        The number of test scenarios to generate will be specified in the user's request - follow that guideline.
         """)
         @dev.langchain4j.agentic.Agent
         String planTests(String request);
@@ -237,15 +238,21 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
 
         prompt.append("Create a comprehensive test plan for the following code.\n\n");
-        
+
         // File information
         prompt.append("File: ").append(request.getTargetFile().getName()).append("\n");
-        
+
         // Explicitly list the selected methods to test
         prompt.append("SELECTED METHODS TO TEST (generate scenarios ONLY for these methods):\n");
         for (var method : request.getTargetMethods()) {
             prompt.append("- ").append(method.getName()).append("()\n");
         }
+        prompt.append("\n");
+
+        // Add configuration
+        TestGenerationConfig config = request.getConfig();
+        prompt.append("=== TEST GENERATION CONFIGURATION ===\n");
+        prompt.append(config.toPromptDescription());
         prompt.append("\n");
         
         // Skip adding raw code here since it's already included in analyzed class implementations below
@@ -312,11 +319,39 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         } else {
             prompt.append("\nNo context analysis available - analyze the provided code to determine if scenarios need UNIT or INTEGRATION types\n");
         }
-        
-        prompt.append("\nGenerate 2-5 comprehensive tests scenarios/methods covering all aspects of the SELECTED METHODS ONLY.");
+
+        // Use the config variable already declared at the beginning of the method
+        prompt.append("\nGenerate test scenarios according to the configuration above.");
+        prompt.append("\nIMPORTANT: Target " + config.getTestsPerMethod() + " test scenarios per method.");
         prompt.append("\nDo NOT create scenarios for any methods that are not in the 'SELECTED METHODS TO TEST' list above.");
         prompt.append("\nUse the addTestScenarios tool to add all scenarios at once for the selected methods.");
-        
+
+        // Add filter instructions if applicable
+        if (!config.getTestTypeFilters().isEmpty()) {
+            prompt.append("\nTest Type Focus: ");
+            config.getTestTypeFilters().forEach(type ->
+                prompt.append(type.getDisplayName()).append(", ")
+            );
+            prompt.setLength(prompt.length() - 2);
+        }
+
+        if (!config.getPriorityFilters().isEmpty()) {
+            prompt.append("\nPriority Filter: Include only ");
+            config.getPriorityFilters().forEach(priority ->
+                prompt.append(priority.getDisplayName()).append(", ")
+            );
+            prompt.setLength(prompt.length() - 2);
+            prompt.append(" scenarios");
+        }
+
+        if (!config.getCoverageTargets().isEmpty()) {
+            prompt.append("\nCoverage Focus: ");
+            config.getCoverageTargets().forEach(target ->
+                prompt.append(target.getDisplayName()).append(", ")
+            );
+            prompt.setLength(prompt.length() - 2);
+        }
+
         return prompt.toString();
     }
     

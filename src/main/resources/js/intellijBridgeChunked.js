@@ -11,7 +11,7 @@ window.intellijBridge = {
   config: {
     maxChunkSize: 1400,  // Maximum size per chunk (under 1.4KB limit)
     chunkPrefix: '__CHUNK__',
-    sessionTimeout: 600000  // 60 seconds timeout for chunked sessions
+    sessionTimeout: 900000  // 900 seconds (15 minutes) - allows for very large responses and slow networks
   },
   
   // Active chunked message sessions
@@ -26,24 +26,48 @@ window.intellijBridge = {
   callIDE: function(action, data) {
     return new Promise((resolve, reject) => {
       try {
+        const startTime = performance.now();
+
         // Create the request
         const request = JSON.stringify({
           action: action,
           data: data || {}
         });
-        
-        console.log('Sending request to IDE:', action, 'Size:', request.length);
-        
+
+        console.log(`[Bridge] → ${action} (${request.length}b)`);
+
+        // Wrap resolve to add timing
+        const timedResolve = (response) => {
+          const elapsed = performance.now() - startTime;
+          console.log(`[Bridge] ← ${action} completed (${elapsed.toFixed(0)}ms)`);
+
+          // Warn on slow operations
+          if (elapsed > 5000) {
+            console.warn(`[Bridge] ⚠️ Slow operation: ${action} took ${(elapsed/1000).toFixed(1)}s`);
+          }
+
+          // Validate response
+          if (response) {
+            console.log(`[Bridge] Response:`, {
+              success: response.success,
+              hasError: !!response.error,
+              keys: Object.keys(response).slice(0, 5)
+            });
+          }
+
+          resolve(response);
+        };
+
         // Check if message needs chunking
         if (request.length > this.config.maxChunkSize) {
-          console.log('Message size exceeds limit, using chunked messaging');
-          this.sendChunkedMessage(request, resolve, reject);
+          const chunks = this.splitIntoChunks(request);
+          console.log(`[Bridge] Using chunking for ${action} (${chunks.length} chunks)`);
+          this.sendChunkedMessage(request, timedResolve, reject);
         } else {
-          console.log('Sending single message');
-          this.sendSingleMessage(request, resolve, reject);
+          this.sendSingleMessage(request, timedResolve, reject);
         }
       } catch(e) {
-        console.error('Error calling IDE:', e);
+        console.error(`[Bridge] ❌ Error in ${action}:`, e);
         reject(e);
       }
     });
@@ -71,9 +95,7 @@ window.intellijBridge = {
       const sessionId = this.generateSessionId();
       const chunks = this.splitIntoChunks(request);
       const totalChunks = chunks.length;
-      
-      console.log(`Starting chunked session ${sessionId} with ${totalChunks} chunks`);
-      
+
       // Store session info
       this.activeSessions.set(sessionId, {
         resolve: resolve,
@@ -82,22 +104,22 @@ window.intellijBridge = {
         totalChunks: totalChunks,
         sentChunks: 0
       });
-      
+
       // Send chunks sequentially
       this.sendNextChunk(sessionId, chunks, 0);
-      
+
       // Set timeout for session cleanup
       setTimeout(() => {
         if (this.activeSessions.has(sessionId)) {
-          console.warn(`Chunked session ${sessionId} timed out`);
+          console.warn(`[Bridge] ⏱️ Chunk session timeout: ${sessionId} (${totalChunks} chunks)`);
           const session = this.activeSessions.get(sessionId);
           session.reject(new Error('Chunked message session timed out'));
           this.activeSessions.delete(sessionId);
         }
       }, this.config.sessionTimeout);
-      
+
     } catch(e) {
-      console.error('Error in chunked messaging:', e);
+      console.error('[Bridge] ❌ Chunking error:', e);
       reject(e);
     }
   },
@@ -107,21 +129,18 @@ window.intellijBridge = {
    */
   sendNextChunk: function(sessionId, chunks, chunkIndex) {
     if (chunkIndex >= chunks.length) {
-      console.log(`All chunks sent for session ${sessionId}`);
       return;
     }
-    
+
     const session = this.activeSessions.get(sessionId);
     if (!session) {
-      console.warn(`Session ${sessionId} not found`);
+      console.warn(`[Bridge] ⚠️ Session not found: ${sessionId}`);
       return;
     }
-    
+
     // Format: __CHUNK__sessionId|chunkIndex|totalChunks|data
     const chunkRequest = `${this.config.chunkPrefix}${sessionId}|${chunkIndex}|${chunks.length}|${chunks[chunkIndex]}`;
-    
-    console.log(`Sending chunk ${chunkIndex + 1}/${chunks.length} for session ${sessionId}`);
-    
+
     try {
       // Send this chunk using a Promise-based approach to match JCEF pattern
       new Promise((resolve, reject) => {
@@ -142,13 +161,13 @@ window.intellijBridge = {
           this.sendNextChunk(sessionId, chunks, chunkIndex + 1);
         }, 10);
       }).catch((error) => {
-        console.error(`Error sending chunk ${chunkIndex} for session ${sessionId}:`, error);
+        console.error(`[Bridge] ❌ Chunk ${chunkIndex + 1}/${chunks.length} failed:`, error.message);
         session.reject(error);
         this.activeSessions.delete(sessionId);
       });
-      
+
     } catch(e) {
-      console.error(`Error sending chunk ${chunkIndex} for session ${sessionId}:`, e);
+      console.error(`[Bridge] ❌ Chunk send error:`, e);
       session.reject(e);
       this.activeSessions.delete(sessionId);
     }
@@ -181,7 +200,6 @@ window.intellijBridge = {
   handleChunkedResponse: function(sessionId, response) {
     const session = this.activeSessions.get(sessionId);
     if (session) {
-      console.log(`Chunked session ${sessionId} completed successfully`);
       session.resolve(response);
       this.activeSessions.delete(sessionId);
     }
@@ -268,12 +286,16 @@ window.intellijBridge = {
    */
   cleanupExpiredSessions: function() {
     const now = Date.now();
+    let cleaned = 0;
     for (const [sessionId, session] of this.activeSessions.entries()) {
       if (now - session.startTime > this.config.sessionTimeout) {
-        console.warn(`Cleaning up expired session ${sessionId}`);
         session.reject(new Error('Session expired'));
         this.activeSessions.delete(sessionId);
+        cleaned++;
       }
+    }
+    if (cleaned > 0) {
+      console.log(`[Bridge] 🧹 Cleaned ${cleaned} expired session(s)`);
     }
   }
 };
@@ -320,7 +342,6 @@ setInterval(() => {
     const authCookie = _getAuthTokenFromCookie();
     if (authCookie && window.intellijBridge) {
       window.intellijBridge.callIDE('auth', {token: authCookie});
-      console.log("send auth to intelij")
       return true;
     }
     return false;
@@ -339,5 +360,24 @@ setInterval(() => {
     }, 3000);
   }
 })();
-console.log('IntelliJ Bridge initialized with chunked messaging support');
-console.log('Chunking configuration:', window.intellijBridge.config);
+
+// Initialize with debug info
+console.log('✅ intellijBridge initialized');
+console.log('[Bridge] Configuration:', {
+  maxChunkSize: window.intellijBridge.config.maxChunkSize + 'b',
+  sessionTimeout: (window.intellijBridge.config.sessionTimeout / 1000) + 's'
+});
+
+// Test bridge availability (non-blocking)
+setTimeout(() => {
+  if (window.intellijBridge && window.intellijBridge.callIDE) {
+    console.log('[Bridge] Testing connection...');
+    window.intellijBridge.callIDE('ping', {test: true})
+      .then(response => {
+        console.log('[Bridge] ✅ Connection test successful');
+      })
+      .catch(error => {
+        console.warn('[Bridge] ⚠️ Connection test failed (might be normal for Git UI):', error.message);
+      });
+  }
+}, 500);

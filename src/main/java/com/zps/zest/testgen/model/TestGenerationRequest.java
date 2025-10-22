@@ -11,7 +11,7 @@ import java.util.Map;
 
 /**
  * Request model for test generation.
- * Updated to support method selection and improved workflow.
+ * Updated to support method selection, improved workflow, and configuration.
  */
 public class TestGenerationRequest {
     private final PsiFile targetFile;
@@ -21,6 +21,7 @@ public class TestGenerationRequest {
     private final Map<String, String> additionalContext;
     private final List<String> userProvidedFiles; // User-selected related files
     private final String userProvidedCode; // User-provided code snippets
+    private final TestGenerationConfig config; // Test generation configuration
     
     public enum TestType {
         UNIT_TESTS("Generate unit tests"),
@@ -47,11 +48,11 @@ public class TestGenerationRequest {
                                 @Nullable String selectedCode,
                                 @NotNull TestType testType,
                                 @Nullable Map<String, String> additionalContext) {
-        this(targetFile, targetMethods, selectedCode, testType, additionalContext, null, null);
+        this(targetFile, targetMethods, selectedCode, testType, additionalContext, null, null, null);
     }
 
     /**
-     * Full constructor with user-provided context support.
+     * Constructor with user-provided context support.
      */
     public TestGenerationRequest(@NotNull PsiFile targetFile,
                                  @NotNull List<PsiMethod> targetMethods,
@@ -60,6 +61,20 @@ public class TestGenerationRequest {
                                 @Nullable Map<String, String> additionalContext,
                                 @Nullable List<String> userProvidedFiles,
                                 @Nullable String userProvidedCode) {
+        this(targetFile, targetMethods, selectedCode, testType, additionalContext, userProvidedFiles, userProvidedCode, null);
+    }
+
+    /**
+     * Full constructor with user-provided context and configuration support.
+     */
+    public TestGenerationRequest(@NotNull PsiFile targetFile,
+                                 @NotNull List<PsiMethod> targetMethods,
+                                @Nullable String selectedCode,
+                                @NotNull TestType testType,
+                                @Nullable Map<String, String> additionalContext,
+                                @Nullable List<String> userProvidedFiles,
+                                @Nullable String userProvidedCode,
+                                @Nullable TestGenerationConfig config) {
         this.targetFile = targetFile;
         this.targetMethods = targetMethods != null ? new ArrayList<>(targetMethods) : new ArrayList<>();
         this.selectedCode = selectedCode;
@@ -67,6 +82,7 @@ public class TestGenerationRequest {
         this.additionalContext = additionalContext != null ? additionalContext : Map.of();
         this.userProvidedFiles = userProvidedFiles != null ? new ArrayList<>(userProvidedFiles) : new ArrayList<>();
         this.userProvidedCode = userProvidedCode;
+        this.config = config != null ? config : new TestGenerationConfig();
     }
     
     @NotNull
@@ -122,7 +138,12 @@ public class TestGenerationRequest {
         String value = additionalContext.get(key);
         return value != null ? Boolean.parseBoolean(value) : defaultValue;
     }
-    
+
+    @NotNull
+    public TestGenerationConfig getConfig() {
+        return config;
+    }
+
     @Override
     public String toString() {
         return "TestGenerationRequest{" +
@@ -130,6 +151,7 @@ public class TestGenerationRequest {
                ", targetMethods=" + targetMethods.size() +
                ", hasSelection=" + hasSelection() +
                ", type=" + testType +
+               ", config=" + config +
                '}';
     }
 }

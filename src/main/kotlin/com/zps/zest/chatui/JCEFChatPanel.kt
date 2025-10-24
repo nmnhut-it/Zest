@@ -14,7 +14,7 @@ import javax.swing.JPanel
  */
 class JCEFChatPanel(
     private val project: Project,
-    private var chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory = dev.langchain4j.memory.chat.MessageWindowChatMemory.withMaxMessages(100)
+    private var chatMemory: dev.langchain4j.memory.ChatMemory = dev.langchain4j.memory.chat.MessageWindowChatMemory.withMaxMessages(100)
 ) : JPanel(BorderLayout()) {
 
     companion object {
@@ -36,7 +36,7 @@ class JCEFChatPanel(
     /**
      * Set the chat memory to render messages from
      */
-    fun setChatMemory(memory: dev.langchain4j.memory.chat.MessageWindowChatMemory) {
+    fun setChatMemory(memory: dev.langchain4j.memory.ChatMemory) {
         this.chatMemory = memory
         updateChatDisplay()
     }

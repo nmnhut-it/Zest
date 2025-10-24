@@ -209,22 +209,24 @@ class MergedTestPreviewDialog(
      * Find the best test source root from project modules
      */
     private fun findBestTestSourceRoot(): String {
-        // Try to find test roots from project modules
+        // Try to find test roots from project modules using content entries
         val moduleManager = ModuleManager.getInstance(project)
         for (module in moduleManager.modules) {
             val rootManager = ModuleRootManager.getInstance(module)
-            // Get test source roots (true = test roots only)
-            val testRoots = rootManager.getSourceRoots(true)
-            for (testRoot in testRoots) {
-                if (testRoot.path.contains("test")) {
-                    return testRoot.path
+            // Iterate through content entries to find test source folders
+            for (contentEntry in rootManager.contentEntries) {
+                for (sourceFolder in contentEntry.sourceFolders) {
+                    // Check if this is a test source root
+                    if (sourceFolder.isTestSource) {
+                        return sourceFolder.file?.path ?: continue
+                    }
                 }
             }
         }
-        
+
         // Fallback to conventional paths
         val basePath = project.basePath ?: return "src/test/java"
-        
+
         // Check common test directories
         return when {
             java.io.File("$basePath/src/test/java").exists() -> "$basePath/src/test/java"

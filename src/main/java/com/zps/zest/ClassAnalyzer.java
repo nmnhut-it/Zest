@@ -872,12 +872,179 @@ public class ClassAnalyzer {
         public final Map<String, String> methodBodies;
         public final Map<String, String> classContents;
         
-        public FileAnalysisResult(Set<String> allMethods, Set<String> allClasses, 
+        public FileAnalysisResult(Set<String> allMethods, Set<String> allClasses,
                                 Map<String, String> methodBodies, Map<String, String> classContents) {
             this.allMethods = allMethods;
             this.allClasses = allClasses;
             this.methodBodies = methodBodies;
             this.classContents = classContents;
         }
+    }
+
+    /**
+     * Detect external dependencies used by a class.
+     * Helps determine if tests should be UNIT or INTEGRATION tests.
+     *
+     * @param targetClass The class to analyze for dependencies
+     * @return Set of detected dependency types (JPA, HTTP, Kafka, etc.)
+     */
+    @NotNull
+    public static Set<String> detectExternalDependencies(@NotNull PsiClass targetClass) {
+        return ApplicationManager.getApplication().runReadAction((Computable<Set<String>>) () -> {
+            Set<String> dependencies = new HashSet<>();
+
+            // Check class-level annotations
+            PsiModifierList classModifiers = targetClass.getModifierList();
+            if (classModifiers != null) {
+                // Database dependencies
+                if (hasAnnotation(classModifiers, "Repository", "Entity", "Table")) {
+                    dependencies.add("DATABASE_JPA");
+                }
+                if (hasAnnotation(classModifiers, "Transactional")) {
+                    dependencies.add("DATABASE_TRANSACTION");
+                }
+
+                // HTTP/REST dependencies
+                if (hasAnnotation(classModifiers, "RestController", "Controller")) {
+                    dependencies.add("HTTP_CONTROLLER");
+                }
+                if (hasAnnotation(classModifiers, "FeignClient")) {
+                    dependencies.add("HTTP_FEIGN_CLIENT");
+                }
+
+                // Messaging dependencies
+                if (hasAnnotation(classModifiers, "KafkaListener")) {
+                    dependencies.add("MESSAGING_KAFKA");
+                }
+                if (hasAnnotation(classModifiers, "RabbitListener")) {
+                    dependencies.add("MESSAGING_RABBITMQ");
+                }
+
+                // Caching
+                if (hasAnnotation(classModifiers, "Cacheable", "CacheEvict", "CachePut")) {
+                    dependencies.add("CACHE");
+                }
+            }
+
+            // Check method-level annotations
+            for (PsiMethod method : targetClass.getMethods()) {
+                PsiModifierList methodModifiers = method.getModifierList();
+
+                if (hasAnnotation(methodModifiers, "Transactional")) {
+                    dependencies.add("DATABASE_TRANSACTION");
+                }
+                if (hasAnnotation(methodModifiers, "Cacheable", "CacheEvict", "CachePut")) {
+                    dependencies.add("CACHE");
+                }
+                if (hasAnnotation(methodModifiers, "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "RequestMapping")) {
+                    dependencies.add("HTTP_ENDPOINT");
+                }
+                if (hasAnnotation(methodModifiers, "Scheduled")) {
+                    dependencies.add("SCHEDULED_JOB");
+                }
+                if (hasAnnotation(methodModifiers, "Async")) {
+                    dependencies.add("ASYNC_EXECUTION");
+                }
+            }
+
+            // Check field types for injected dependencies
+            for (PsiField field : targetClass.getFields()) {
+                PsiType fieldType = field.getType();
+                String typeName = fieldType.getPresentableText();
+
+                // Database types
+                if (typeName.contains("Repository") || typeName.contains("EntityManager") ||
+                    typeName.contains("JdbcTemplate") || typeName.contains("DataSource")) {
+                    dependencies.add("DATABASE_JPA");
+                }
+
+                // HTTP client types
+                if (typeName.contains("RestTemplate") || typeName.contains("WebClient") ||
+                    typeName.contains("HttpClient")) {
+                    dependencies.add("HTTP_CLIENT");
+                }
+
+                // Messaging types
+                if (typeName.contains("KafkaTemplate") || typeName.contains("KafkaProducer")) {
+                    dependencies.add("MESSAGING_KAFKA");
+                }
+                if (typeName.contains("RabbitTemplate") || typeName.contains("AmqpTemplate")) {
+                    dependencies.add("MESSAGING_RABBITMQ");
+                }
+
+                // Cache types
+                if (typeName.contains("CacheManager") || typeName.contains("RedisTemplate")) {
+                    dependencies.add("CACHE");
+                }
+            }
+
+            return dependencies;
+        });
+    }
+
+    /**
+     * Check if a modifier list has any of the specified annotations.
+     */
+    private static boolean hasAnnotation(@NotNull PsiModifierList modifiers, String... annotationNames) {
+        for (String annotationName : annotationNames) {
+            PsiAnnotation[] annotations = modifiers.getAnnotations();
+            for (PsiAnnotation annotation : annotations) {
+                String qualifiedName = annotation.getQualifiedName();
+                if (qualifiedName != null &&
+                    (qualifiedName.endsWith("." + annotationName) || qualifiedName.equals(annotationName))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Format dependency information for test generation context.
+     */
+    @NotNull
+    public static String formatDependenciesForTests(@NotNull Set<String> dependencies) {
+        if (dependencies.isEmpty()) {
+            return "No external dependencies detected → UNIT TEST recommended";
+        }
+
+        StringBuilder formatted = new StringBuilder();
+        formatted.append("DETECTED DEPENDENCIES:\n");
+
+        for (String dep : dependencies) {
+            formatted.append("- ").append(dep);
+            switch (dep) {
+                case "DATABASE_JPA":
+                case "DATABASE_TRANSACTION":
+                    formatted.append(" → Use @DataJpaTest or TestContainers with database");
+                    break;
+                case "HTTP_CLIENT":
+                    formatted.append(" → Use WireMock or MockWebServer");
+                    break;
+                case "HTTP_ENDPOINT":
+                case "HTTP_CONTROLLER":
+                    formatted.append(" → Use @WebMvcTest with MockMvc");
+                    break;
+                case "MESSAGING_KAFKA":
+                    formatted.append(" → Use TestContainers with Kafka");
+                    break;
+                case "MESSAGING_RABBITMQ":
+                    formatted.append(" → Use TestContainers with RabbitMQ");
+                    break;
+                case "CACHE":
+                    formatted.append(" → Use @CacheConfig or TestContainers with Redis");
+                    break;
+                case "ASYNC_EXECUTION":
+                    formatted.append(" → Test async behavior with await/verify");
+                    break;
+                case "SCHEDULED_JOB":
+                    formatted.append(" → Test scheduled execution logic");
+                    break;
+            }
+            formatted.append("\n");
+        }
+
+        formatted.append("\nRECOMMENDATION: INTEGRATION TEST");
+        return formatted.toString();
     }
 }

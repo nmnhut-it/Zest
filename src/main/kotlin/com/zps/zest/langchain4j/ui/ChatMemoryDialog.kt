@@ -8,6 +8,7 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.langchain4j.data.message.*
+import dev.langchain4j.memory.ChatMemory
 import dev.langchain4j.memory.chat.MessageWindowChatMemory
 import java.awt.*
 import java.awt.datatransfer.StringSelection
@@ -28,7 +29,7 @@ import javax.swing.tree.DefaultTreeModel
  */
 class ChatMemoryDialog(
     private val project: Project,
-    private val chatMemory: MessageWindowChatMemory?,
+    private val chatMemory: ChatMemory?,
     private val agentName: String = "Agent"
 ) : DialogWrapper(project) {
 
@@ -353,7 +354,7 @@ public class MessageDetailDialog(
     private val project: Project,
     private val message: ChatMessage,
     agentName: String,
-    private val chatMemory: MessageWindowChatMemory? = null
+    private val chatMemory: ChatMemory? = null
 ) : DialogWrapper(project) {
 
     init {
@@ -531,7 +532,7 @@ private class MessageTreeCellRenderer : DefaultTreeCellRenderer() {
  */
 class ChatMemoryPanel(
     private val project: Project,
-    private var chatMemory: MessageWindowChatMemory?,
+    private var chatMemory: ChatMemory?,
     private val agentName: String = "Agent"
 ) : JPanel(BorderLayout()) {
 
@@ -656,7 +657,7 @@ class ChatMemoryPanel(
         add(footerPanel, BorderLayout.SOUTH)
     }
 
-    fun setChatMemory(memory: MessageWindowChatMemory?) {
+    fun setChatMemory(memory: ChatMemory?) {
         this.chatMemory = memory
         refresh()
     }

@@ -262,7 +262,14 @@
                 description="View comprehensive test generation documentation / Xem tài liệu chi tiết về tạo test">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateTests"/>
         </action>
-        
+
+        <action id="Zest.TestContextSummarization"
+                class="com.zps.zest.testgen.actions.TestContextSummarizationAction"
+                text="🧪 Test Context Summarization"
+                description="Test the context summarization system with real classes">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
         <!-- Code Health Group -->
         <group id="Zest.CodeHealth" text="Code Health / Sức khỏe code" popup="true">
             <add-to-group group-id="ZestGroup" anchor="last"/>

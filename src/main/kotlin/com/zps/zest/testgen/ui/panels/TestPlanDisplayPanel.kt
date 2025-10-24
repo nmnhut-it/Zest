@@ -28,7 +28,7 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
     private val headerLabel = JBLabel("Test plans are not available yet")
     private val summaryLabel = JBLabel("")
     private var selectionListener: ((Set<String>) -> Unit)? = null
-    private var planningAgentMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
+    private var planningAgentMemory: dev.langchain4j.memory.ChatMemory? = null
     private var planningAgentName: String = "Planning Agent"
 
     // Selection mode fields
@@ -575,7 +575,7 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
     /**
      * Set chat memory for the planning agent
      */
-    fun setChatMemory(chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory?, agentName: String = "Planning Agent") {
+    fun setChatMemory(chatMemory: dev.langchain4j.memory.ChatMemory?, agentName: String = "Planning Agent") {
         this.planningAgentMemory = chatMemory
         this.planningAgentName = agentName
     }

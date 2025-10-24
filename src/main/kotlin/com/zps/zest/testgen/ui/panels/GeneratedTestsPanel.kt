@@ -42,7 +42,7 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
     private val statusLabel = JBLabel("No tests generated yet")
 
     // Chat memory for debugging
-    private var testWriterMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
+    private var testWriterMemory: dev.langchain4j.memory.ChatMemory? = null
     private var testWriterAgentName: String = "TestWriter Agent"
 
     init {
@@ -430,7 +430,7 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
     /**
      * Set chat memory for the test writer agent
      */
-    fun setChatMemory(chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory?, agentName: String = "TestWriter Agent") {
+    fun setChatMemory(chatMemory: dev.langchain4j.memory.ChatMemory?, agentName: String = "TestWriter Agent") {
         this.testWriterMemory = chatMemory
         this.testWriterAgentName = agentName
     }

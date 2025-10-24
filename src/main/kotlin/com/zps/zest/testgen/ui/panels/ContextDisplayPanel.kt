@@ -18,7 +18,7 @@ import javax.swing.border.EmptyBorder
  */
 class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout()) {
 
-    private var contextAgentMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory? = null
+    private var contextAgentMemory: dev.langchain4j.memory.ChatMemory? = null
     private var chatMemoryPanel: ChatMemoryPanel? = null
     private val updateTimer = Timer(1000) { checkForUpdates() }
 
@@ -64,7 +64,7 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
     /**
      * Set chat memory for the context agent
      */
-    fun setChatMemory(chatMemory: dev.langchain4j.memory.chat.MessageWindowChatMemory?) {
+    fun setChatMemory(chatMemory: dev.langchain4j.memory.ChatMemory?) {
         SwingUtilities.invokeLater {
             this.contextAgentMemory = chatMemory
 

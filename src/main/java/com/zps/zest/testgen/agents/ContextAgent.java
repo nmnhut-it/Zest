@@ -2,8 +2,11 @@ package com.zps.zest.testgen.agents;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.psi.PsiMethod;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.tools.CodeExplorationToolRegistry;
+import com.zps.zest.testgen.analysis.UsageAnalyzer;
+import com.zps.zest.testgen.analysis.UsageContext;
 import com.zps.zest.testgen.tools.AnalyzeClassTool;
 import com.zps.zest.testgen.tools.ListFilesTool;
 import com.zps.zest.testgen.tools.TakeNoteTool;
@@ -147,14 +150,72 @@ Do not read a file because you think it might exist - you need to prove that it 
 YOUR TASK: Find context needed to understand the code under test:
 - IMPORTANT: Find where and how other classes call or depend on the method(s) being tested.
 - External APIs, services or script called dynamically. This should be noted via takeNote tools.
-- Usage of methods under test throughout the project. You can do this by searching for method calls or instance creation. You also need to pay attention to the class's imports so as not to be confused by similar names in different packages. 
+- Usage of methods under test throughout the project. You can do this by searching for method calls or instance creation. You also need to pay attention to the class's imports so as not to be confused by similar names in different packages.
 - Unknown function/method implementation that is crucial to code understanding or writing correct test code.
 - Configuration files (JSON, XML, YAML, properties) referenced by string literals
 - Resource files loaded at runtime
 - Database schemas or migration files
 - Message formats or protocol definitions
 - Existing test classes of the code under test, if such classes exist.
-- Read *.iml (Intelij project file), pom (maven), gradle or ./lib(s) folders to understand what frameworks are being used and takeNote accordingly. 
+- Read *.iml (Intelij project file), pom (maven), gradle or ./lib(s) folders to understand what frameworks are being used and takeNote accordingly.
+
+FINDING USAGES IN SPECIFIC FILES (Critical for Token Efficiency):
+
+🎯 When you know a file uses the method, DON'T read the entire file! Use targeted searches.
+
+EFFICIENT PATTERN:
+1. You found that "UserController.java" likely calls createUser()
+2. ❌ DON'T: readFile("path/to/UserController.java") // Wastes thousands of tokens on 800-line file!
+3. ✅ DO: searchCode("createUser\\(", "UserController.java", null, 3, 8)
+   → Shows ONLY the lines where createUser is called (not entire file!)
+   → Includes 3 lines before + 8 lines after for context
+   → Reveals: how it's called, arguments, error handling, return value usage
+   → 97% token savings: ~300 tokens instead of ~14,000 tokens!
+
+CONCRETE EXAMPLES:
+
+Example 1: Finding how a method is called in a specific file
+❌ BAD:  readFile("src/service/UserController.java")  // 800 lines = 14,000 tokens
+✅ GOOD: searchCode("createUser\\(", "UserController.java", null, 3, 8)  // 3 results × 11 lines = 300 tokens
+
+Example 2: Finding exception handling in a specific file
+❌ BAD:  readFile("src/service/AdminService.java")
+✅ GOOD: searchCode("catch.*ValidationException", "AdminService.java", null, 2, 5)
+         → Shows ONLY the catch blocks, not the whole file!
+
+Example 3: Finding how a class is instantiated
+❌ BAD:  readFile("src/config/AppConfig.java")
+✅ GOOD: searchCode("new UserService\\(", "AppConfig.java", null, 1, 5)
+         → Shows ONLY the instantiation, reveals dependencies injected
+
+Example 4: Finding method implementation in a specific class
+❌ BAD:  readFile("src/service/UserService.java")  // Just to see one method!
+✅ GOOD: searchCode("public.*validateEmail", "UserService.java", null, 0, 15)
+         → Shows method signature + first 15 lines of implementation
+
+HOW TO DECIDE CONTEXT LINES:
+- For method calls: beforeLines=2-3, afterLines=5-8 (see args + error handling)
+- For method definitions: beforeLines=0-1, afterLines=10-20 (see implementation)
+- For exception handling: beforeLines=2, afterLines=3-5 (see what triggers it)
+- For test data: beforeLines=0, afterLines=5-10 (see full setup)
+
+RECOMMENDED WORKFLOW:
+Step 1: Identify which files likely use the method
+  - searchCode("methodName\\(", "*.java", null, 0, 0) to find files
+
+Step 2: For each relevant file, search WITHIN that specific file
+  - searchCode("methodName\\(", "SpecificFile.java", null, 3, 8)
+  - Extract: call context, arguments, error handling
+
+Step 3: Record findings via takeNote()
+
+WHEN TO READ FULL FILES (rare cases only):
+✅ Small configuration files: application.properties, config.yml (< 100 lines)
+✅ SQL/migration files: schema.sql, migrations/*.sql
+✅ Small resource files: templates, message bundles
+❌ NEVER read full Java/Kotlin/source files - always search instead!
+
+KEY INSIGHT: searchCode(pattern, "SpecificFilename.java", ...) gives you SURGICAL PRECISION. You get exactly what you need (the method usage) without wasting tokens on the entire file. 
 
 AVOID:
 - Classes already in the static dependency graph
@@ -394,6 +455,7 @@ Stop when you can test the code without making assumptions about external resour
         private final Map<String, String> analyzedClasses = new ConcurrentHashMap<>();
         private final List<String> contextNotes = Collections.synchronizedList(new ArrayList<>());
         private final Map<String, String> readFiles = new ConcurrentHashMap<>();
+        private final Map<String, UsageContext> methodUsages = new ConcurrentHashMap<>(); // NEW: Usage context per method
         private String frameworkInfo = "";
         private String projectDependencies = "";  // Structured dependency information from build files
         private volatile boolean contextCollectionDone = false;
@@ -406,6 +468,7 @@ Stop when you can test the code without making assumptions about external resour
         private final ReadFileTool readFileTool;
         private final com.zps.zest.testgen.tools.LookupMethodTool lookupMethodTool;
         private final com.zps.zest.testgen.tools.LookupClassTool lookupClassTool;
+        private final UsageAnalyzer usageAnalyzer; // NEW: Analyzer for method usage patterns
 
         public ContextGatheringTools(@NotNull Project project,
                                     @NotNull CodeExplorationToolRegistry toolRegistry,
@@ -424,12 +487,14 @@ Stop when you can test the code without making assumptions about external resour
             this.readFileTool = new ReadFileTool(project);
             this.lookupMethodTool = new com.zps.zest.testgen.tools.LookupMethodTool(project);
             this.lookupClassTool = new com.zps.zest.testgen.tools.LookupClassTool(project);
+            this.usageAnalyzer = new UsageAnalyzer(project);
         }
 
         public void reset() {
             analyzedClasses.clear();
             contextNotes.clear();
             readFiles.clear();
+            methodUsages.clear();
             frameworkInfo = "";
             projectDependencies = "";
             contextCollectionDone = false;
@@ -475,6 +540,71 @@ Stop when you can test the code without making assumptions about external resour
 
         public String getProjectDependencies() {
             return projectDependencies;
+        }
+
+        /**
+         * Get usage context for methods.
+         * Returns map of method signature -> usage context.
+         */
+        @NotNull
+        public Map<String, UsageContext> getMethodUsages() {
+            return new HashMap<>(methodUsages);
+        }
+
+        /**
+         * Analyze usage patterns for target methods.
+         * This should be called after initial context gathering is complete.
+         *
+         * @param targetMethods The methods to analyze usage for
+         */
+        public void analyzeMethodUsages(@NotNull List<PsiMethod> targetMethods) {
+            LOG.info("Analyzing usage patterns for " + targetMethods.size() + " target methods");
+
+            for (PsiMethod method : targetMethods) {
+                try {
+                    String methodKey = getMethodKey(method);
+                    UsageContext usageContext = usageAnalyzer.analyzeMethod(method);
+                    methodUsages.put(methodKey, usageContext);
+
+                    LOG.info("Usage analysis for " + methodKey + ": " +
+                            usageContext.getTotalUsages() + " call sites, " +
+                            usageContext.getDiscoveredEdgeCases().size() + " edge cases");
+
+                } catch (Exception e) {
+                    LOG.warn("Failed to analyze usage for method: " + e.getMessage(), e);
+                }
+            }
+        }
+
+        /**
+         * Get or analyze usage context for a specific method.
+         */
+        @Nullable
+        public UsageContext getUsageContext(@NotNull PsiMethod method) {
+            String methodKey = getMethodKey(method);
+            UsageContext existing = methodUsages.get(methodKey);
+
+            if (existing == null) {
+                // Analyze on-demand if not already cached
+                try {
+                    existing = usageAnalyzer.analyzeMethod(method);
+                    methodUsages.put(methodKey, existing);
+                } catch (Exception e) {
+                    LOG.warn("Failed to get usage context for method: " + e.getMessage());
+                }
+            }
+
+            return existing;
+        }
+
+        /**
+         * Generate a unique key for a method.
+         */
+        @NotNull
+        private String getMethodKey(@NotNull PsiMethod method) {
+            String className = method.getContainingClass() != null ?
+                    method.getContainingClass().getQualifiedName() : "Unknown";
+            return className + "#" + method.getName();
         }
 
         /**

@@ -9,7 +9,10 @@ import com.zps.zest.testgen.ui.model.TestPlanDisplayData;
 import com.zps.zest.testgen.ui.model.ScenarioDisplayData;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.AgenticServices;
+import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.memory.chat.TokenWindowChatMemory;
+import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -28,11 +31,16 @@ import javax.swing.SwingUtilities;
  * Generates all test scenarios in a single response - no loops needed.
  */
 public class CoordinatorAgent extends StreamingBaseAgent {
+    private static final int MAX_TOKENS = 80000; // Max tokens for this agent's memory
+    private static final double TOKEN_THRESHOLD = 0.7; // Trigger summarization at 70%
+
     private final TestPlanningTools planningTools;
     private final TestPlanningAssistant assistant;
-    private final MessageWindowChatMemory chatMemory;
+    private final ChatMemory chatMemory;
     private final ContextAgent.ContextGatheringTools contextTools;
-    
+    private final OpenAiTokenCountEstimator tokenizer;
+    private final ContextSummarizationService summarizationService;
+
     public CoordinatorAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
                           @NotNull NaiveLLMService naiveLlmService,
@@ -40,9 +48,11 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         super(project, langChainService, naiveLlmService, "CoordinatorAgent");
         this.contextTools = contextTools;
         this.planningTools = new TestPlanningTools(this);
-        
-        // Build the agent with streaming support
-        this.chatMemory = MessageWindowChatMemory.withMaxMessages(100);
+        this.tokenizer = new OpenAiTokenCountEstimator("gpt-4o");
+        this.summarizationService = new ContextSummarizationService(project, naiveLlmService);
+
+        // Build the agent with token-aware memory
+        this.chatMemory = TokenWindowChatMemory.withMaxTokens(MAX_TOKENS, tokenizer);
         this.assistant = AgenticServices
                 .agentBuilder(TestPlanningAssistant.class)
                 .chatModel(getChatModelWithStreaming()) // Use wrapped model for streaming
@@ -179,6 +189,12 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                     planningTools.addTargetMethod(name);
                 }
 
+                // NEW: Analyze usage patterns for target methods
+                if (contextTools != null) {
+                    sendToUI("\n🔍 Analyzing how target methods are used throughout the project...\n");
+                    contextTools.analyzeMethodUsages(request.getTargetMethods());
+                    sendToUI("✅ Usage analysis complete\n\n");
+                }
 
                 // Build the planning request
                 String planRequest = buildPlanningRequest(request);
@@ -275,45 +291,121 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             prompt.append("- Testing Framework: JUnit 5 (default)\n");
         }
 
-        // Include full context analysis using direct tool access
+        // Include context analysis with token-aware summarization
         if (contextTools != null) {
-                // Add detailed context notes
+                // Add context notes (with deduplication)
                 List<String> contextNotes = contextTools.getContextNotes();
                 if (!contextNotes.isEmpty()) {
                     prompt.append("\n=== DETAILED CONTEXT ANALYSIS ===\n");
                     prompt.append("Context Agent Findings (use this for test planning decisions):\n");
+
+                    // Condense notes to avoid token bloat
+                    List<String> condensedNotes = summarizationService.condenseNotes(contextNotes, 20);
                     int noteNum = 1;
-                    for (String note : contextNotes) {
+                    for (String note : condensedNotes) {
                         prompt.append(String.format("%d. %s\n\n", noteNum++, note));
                     }
                 }
-                
-                // Add dependency analysis based on analyzed classes
+
+                // Add analyzed classes with token-aware summarization
                 Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
                 if (!analyzedClasses.isEmpty()) {
                     prompt.append("\n=== DEPENDENCY ANALYSIS FOR TEST TYPE DECISIONS ===\n");
-                    boolean hasExternalDeps = false;
                     prompt.append("→ GUIDANCE: Create INTEGRATION scenarios for code paths using external dependencies\n");
                     prompt.append("→ GUIDANCE: Create UNIT scenarios for pure business logic that doesn't use external dependencies\n");
 
+                    // Check token usage and conditionally summarize
+                    int classTokens = summarizationService.estimateClassTokens(analyzedClasses);
+                    int currentPromptTokens = summarizationService.estimateTokens(prompt.toString());
+                    int availableTokens = (int) (MAX_TOKENS * TOKEN_THRESHOLD) - currentPromptTokens;
+
                     prompt.append("\n=== ANALYZED CLASS IMPLEMENTATIONS ===\n");
-                    for (var entry : analyzedClasses.entrySet()) {
-                        prompt.append(String.format("Class: %s\n", entry.getKey()));
-                        String implementation = entry.getValue();
-                        // Include full implementation context without truncation
-                        prompt.append(implementation).append("\n\n");
+
+                    if (classTokens > availableTokens) {
+                        // Need to summarize - get target method class names
+                        List<String> targetClassNames = request.getTargetMethods().stream()
+                                .map(method -> method.getContainingClass() != null ?
+                                        method.getContainingClass().getQualifiedName() : "Unknown")
+                                .distinct()
+                                .toList();
+
+                        LOG.info("Context too large (" + classTokens + " tokens), summarizing with " + availableTokens + " token budget");
+                        prompt.append("(Context automatically summarized to fit token limits)\n\n");
+
+                        try {
+                            Map<String, String> summarized = summarizationService.summarizeClasses(
+                                    analyzedClasses,
+                                    targetClassNames,
+                                    availableTokens
+                            ).get();
+
+                            for (var entry : summarized.entrySet()) {
+                                prompt.append(String.format("Class: %s\n", entry.getKey()));
+                                prompt.append(entry.getValue()).append("\n\n");
+                            }
+                        } catch (Exception e) {
+                            LOG.warn("Summarization failed, using truncated content: " + e.getMessage());
+                            // Fallback: include only target classes in full
+                            for (String targetClass : targetClassNames) {
+                                if (analyzedClasses.containsKey(targetClass)) {
+                                    prompt.append(String.format("Class: %s\n", targetClass));
+                                    prompt.append(analyzedClasses.get(targetClass)).append("\n\n");
+                                }
+                            }
+                        }
+                    } else {
+                        // Token budget OK, include full implementations
+                        for (var entry : analyzedClasses.entrySet()) {
+                            prompt.append(String.format("Class: %s\n", entry.getKey()));
+                            prompt.append(entry.getValue()).append("\n\n");
+                        }
                     }
                 }
-                
-                // Add file contents that were read
+
+                // Add file contents with token-aware summarization
                 Map<String, String> readFiles = contextTools.getReadFiles();
                 if (!readFiles.isEmpty()) {
+                    int currentPromptTokens = summarizationService.estimateTokens(prompt.toString());
+                    int availableTokens = (int) (MAX_TOKENS * TOKEN_THRESHOLD) - currentPromptTokens;
+
                     prompt.append("\n=== RELATED FILES READ ===\n");
-                    for (var entry : readFiles.entrySet()) {
-                        prompt.append(String.format("File: %s\n", entry.getKey()));
-                        String content = entry.getValue();
-                        // Include full file content context without truncation
-                        prompt.append(content).append("\n\n");
+
+                    // Estimate file tokens
+                    int fileTokens = 0;
+                    for (String content : readFiles.values()) {
+                        fileTokens += summarizationService.estimateTokens(content);
+                    }
+
+                    if (fileTokens > availableTokens) {
+                        LOG.info("File context too large (" + fileTokens + " tokens), summarizing with " + availableTokens + " token budget");
+                        prompt.append("(File contents automatically summarized to fit token limits)\n\n");
+
+                        try {
+                            Map<String, String> summarized = summarizationService.summarizeFiles(
+                                    readFiles,
+                                    availableTokens
+                            ).get();
+
+                            for (var entry : summarized.entrySet()) {
+                                prompt.append(String.format("File: %s\n", entry.getKey()));
+                                prompt.append(entry.getValue()).append("\n\n");
+                            }
+                        } catch (Exception e) {
+                            LOG.warn("File summarization failed, using truncated content: " + e.getMessage());
+                            // Fallback: truncate each file
+                            for (var entry : readFiles.entrySet()) {
+                                String content = entry.getValue();
+                                String truncated = content.substring(0, Math.min(500, content.length()));
+                                prompt.append(String.format("File: %s\n", entry.getKey()));
+                                prompt.append(truncated).append("\n... (truncated)\n\n");
+                            }
+                        }
+                    } else {
+                        // Token budget OK, include full files
+                        for (var entry : readFiles.entrySet()) {
+                            prompt.append(String.format("File: %s\n", entry.getKey()));
+                            prompt.append(entry.getValue()).append("\n\n");
+                        }
                     }
                 }
         } else {
@@ -649,7 +741,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
     }
     
     @NotNull
-    public MessageWindowChatMemory getChatMemory() {
+    public ChatMemory getChatMemory() {
         return chatMemory;
     }
 }

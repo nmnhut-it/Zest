@@ -8,6 +8,7 @@ import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData;
 import com.zps.zest.chatui.ChatUIService;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -24,7 +25,12 @@ import java.util.stream.Collectors;
  * Uses ChatUIService.sendMessageStreaming for proper streaming display.
  */
 public class TestWriterAgent extends StreamingBaseAgent {
+    private static final int MAX_TOKENS = 40000; // Max tokens for test writer context
+    private static final double TOKEN_THRESHOLD = 0.7; // Trigger summarization at 70%
+
     private ChatUIService chatService;
+    private final OpenAiTokenCountEstimator tokenizer;
+    private final ContextSummarizationService summarizationService;
 
     private static final String TEST_GENERATION_SYSTEM_PROMPT = """
         You are a test writing assistant that generates complete, high-quality Java test classes.
@@ -86,6 +92,8 @@ public class TestWriterAgent extends StreamingBaseAgent {
 
         // Get ChatUIService for streaming
         this.chatService = project.getService(ChatUIService.class);
+        this.tokenizer = new OpenAiTokenCountEstimator("gpt-4o");
+        this.summarizationService = new ContextSummarizationService(project, naiveLlmService);
     }
 
     /**
@@ -770,33 +778,158 @@ public class TestWriterAgent extends StreamingBaseAgent {
             info.append(projectDeps).append("\n");
         }
 
-        // Add context notes with insights
+        // Add context notes with deduplication
         List<String> contextNotes = contextTools.getContextNotes();
         if (!contextNotes.isEmpty()) {
             info.append("=== CONTEXT INSIGHTS ===\n");
-            for (String note : contextNotes) {
+            List<String> condensedNotes = summarizationService.condenseNotes(contextNotes, 20);
+            for (String note : condensedNotes) {
                 info.append("- ").append(note).append("\n");
             }
             info.append("\n");
         }
-        
-        // Add analyzed class implementations
+
+        // Add analyzed class implementations with USAGE-AWARE summarization
         Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
         if (!analyzedClasses.isEmpty()) {
-            info.append("=== ALL ANALYZED CLASSES ===\n");
-            for (Map.Entry<String, String> entry : analyzedClasses.entrySet()) {
-                info.append("From ").append(entry.getKey()).append(":\n");
-                info.append(entry.getValue()).append("\n\n");
+            // Check token usage
+            int classTokens = summarizationService.estimateClassTokens(analyzedClasses);
+            int currentInfoTokens = summarizationService.estimateTokens(info.toString());
+            int availableTokens = (int) (MAX_TOKENS * TOKEN_THRESHOLD) - currentInfoTokens;
+
+            info.append("=== ALL ANALYZED CLASSES (WITH USAGE CONTEXT) ===\n");
+
+            if (classTokens > availableTokens) {
+                // Need to summarize - use ENHANCED summarization with usage context
+                LOG.info("TestWriter context too large (" + classTokens + " tokens), using enhanced summarization with " + availableTokens + " token budget");
+                info.append("(Context automatically summarized with usage analysis to fit token limits)\n\n");
+
+                try {
+                    // Use enhanced summarization with usage context
+                    for (Map.Entry<String, String> entry : analyzedClasses.entrySet()) {
+                        String className = entry.getKey();
+                        String implementation = entry.getValue();
+                        boolean isTargetClass = className.equals(testPlan.getTargetClass());
+
+                        // Get usage context if available
+                        com.zps.zest.testgen.analysis.UsageContext usageContext = null;
+                        // Note: Usage context is per-method, we'll use it at method level
+                        // For class-level summary, we pass null for now
+
+                        // Determine detail level
+                        ContextSummarizationService.DetailLevel level = isTargetClass ?
+                                ContextSummarizationService.DetailLevel.DETAILED :
+                                ContextSummarizationService.DetailLevel.MODERATE;
+
+                        // Use enhanced summarization (PsiClass is null since we only have string)
+                        String summary = summarizationService.summarizeWithUsageContext(
+                                className,
+                                implementation,
+                                usageContext,  // Will be null for now, method-specific usage added in prompt
+                                null,          // PsiClass lookup could be added here
+                                level,
+                                isTargetClass
+                        );
+
+                        info.append("From ").append(className).append(":\n");
+                        info.append(summary).append("\n\n");
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Enhanced summarization failed, falling back to simple: " + e.getMessage());
+                    // Fallback: include only target class
+                    if (analyzedClasses.containsKey(testPlan.getTargetClass())) {
+                        info.append("From ").append(testPlan.getTargetClass()).append(":\n");
+                        info.append(analyzedClasses.get(testPlan.getTargetClass())).append("\n\n");
+                    }
+                }
+            } else {
+                // Token budget OK, still use enhanced summarization for better quality
+                LOG.info("Token budget OK, using enhanced summarization for quality improvement");
+                for (Map.Entry<String, String> entry : analyzedClasses.entrySet()) {
+                    String className = entry.getKey();
+                    String implementation = entry.getValue();
+                    boolean isTargetClass = className.equals(testPlan.getTargetClass());
+
+                    try {
+                        // Use enhanced summarization even when space permits (for quality)
+                        String summary = summarizationService.summarizeWithUsageContext(
+                                className,
+                                implementation,
+                                null,  // Usage context
+                                null,  // PsiClass
+                                ContextSummarizationService.DetailLevel.FULL,  // Keep full detail when space permits
+                                isTargetClass
+                        );
+                        info.append("From ").append(className).append(":\n");
+                        info.append(summary).append("\n\n");
+                    } catch (Exception e) {
+                        // Fallback to original content
+                        info.append("From ").append(className).append(":\n");
+                        info.append(implementation).append("\n\n");
+                    }
+                }
             }
         }
-        
-        // Add related files
+
+        // NEW: Add usage context for target methods
+        Map<String, com.zps.zest.testgen.analysis.UsageContext> methodUsages = contextTools.getMethodUsages();
+        if (!methodUsages.isEmpty()) {
+            info.append("=== METHOD USAGE PATTERNS (HOW CODE IS ACTUALLY USED) ===\n");
+            info.append("The following shows how target methods are called throughout the project.\n");
+            info.append("Use this to write realistic tests based on actual usage patterns.\n\n");
+
+            for (Map.Entry<String, com.zps.zest.testgen.analysis.UsageContext> entry : methodUsages.entrySet()) {
+                com.zps.zest.testgen.analysis.UsageContext usageContext = entry.getValue();
+                if (!usageContext.isEmpty()) {
+                    info.append(usageContext.formatForLLM()).append("\n");
+                }
+            }
+        }
+
+        // Add related files with token-aware summarization
         Map<String, String> readFiles = contextTools.getReadFiles();
         if (!readFiles.isEmpty()) {
+            int currentInfoTokens = summarizationService.estimateTokens(info.toString());
+            int availableTokens = (int) (MAX_TOKENS * TOKEN_THRESHOLD) - currentInfoTokens;
+
+            // Estimate file tokens
+            int fileTokens = 0;
+            for (String content : readFiles.values()) {
+                fileTokens += summarizationService.estimateTokens(content);
+            }
+
             info.append("=== RELATED FILES ===\n");
-            for (Map.Entry<String, String> entry : readFiles.entrySet()) {
-                info.append("File: ").append(entry.getKey()).append("\n");
-                info.append("```\n").append(entry.getValue()).append("\n```\n\n");
+
+            if (fileTokens > availableTokens) {
+                LOG.info("TestWriter file context too large (" + fileTokens + " tokens), summarizing with " + availableTokens + " token budget");
+                info.append("(File contents automatically summarized to fit token limits)\n\n");
+
+                try {
+                    Map<String, String> summarized = summarizationService.summarizeFiles(
+                            readFiles,
+                            availableTokens
+                    ).get();
+
+                    for (Map.Entry<String, String> entry : summarized.entrySet()) {
+                        info.append("File: ").append(entry.getKey()).append("\n");
+                        info.append("```\n").append(entry.getValue()).append("\n```\n\n");
+                    }
+                } catch (Exception e) {
+                    LOG.warn("File summarization failed, using truncated content: " + e.getMessage());
+                    // Fallback: truncate files
+                    for (Map.Entry<String, String> entry : readFiles.entrySet()) {
+                        String content = entry.getValue();
+                        String truncated = content.substring(0, Math.min(500, content.length()));
+                        info.append("File: ").append(entry.getKey()).append("\n");
+                        info.append("```\n").append(truncated).append("\n... (truncated)\n```\n\n");
+                    }
+                }
+            } else {
+                // Token budget OK, include full files
+                for (Map.Entry<String, String> entry : readFiles.entrySet()) {
+                    info.append("File: ").append(entry.getKey()).append("\n");
+                    info.append("```\n").append(entry.getValue()).append("\n```\n\n");
+                }
             }
         }
         

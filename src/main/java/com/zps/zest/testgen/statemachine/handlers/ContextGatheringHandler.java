@@ -67,6 +67,9 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             // Analyze target class and store in session data for later use in context prompt
             analyzeAndStoreTargetClass(stateMachine);
 
+            // PRE-COMPUTE deterministic operations before AI starts
+            preComputeContext(stateMachine, contextAgent, request);
+
             // Set up UI event listener for real-time context tab updates
             if (uiEventListener != null) {
                 contextAgent.setEventListener(uiEventListener);
@@ -396,6 +399,84 @@ public class ContextGatheringHandler extends AbstractStateHandler {
 
         } catch (Exception e) {
             LOG.warn("Error triggering context UI updates", e);
+        }
+    }
+
+    /**
+     * Pre-compute deterministic operations before AI exploration starts.
+     * This saves AI tool calls and provides richer initial context.
+     */
+    private void preComputeContext(@NotNull TestGenerationStateMachine stateMachine,
+                                   @NotNull ContextAgent contextAgent,
+                                   @NotNull TestGenerationRequest request) {
+        try {
+            LOG.info("Pre-computing context data (dependencies, usage analysis, framework)");
+
+            com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = contextAgent.getContextTools();
+
+            // 1. Find and analyze project dependencies (was AI tool findProjectDependencies())
+            if (streamingCallback != null) {
+                streamingCallback.accept("📦 Analyzing project dependencies...\n");
+            }
+
+            String projectDeps = preComputeDependencies(contextTools);
+
+            if (projectDeps != null && !projectDeps.isEmpty()) {
+                contextTools.takeNote("[DEPENDENCY_ANALYSIS] " + projectDeps);
+                LOG.info("Pre-computed project dependencies: " + projectDeps.length() + " characters");
+
+                if (streamingCallback != null) {
+                    streamingCallback.accept("✅ Project dependencies analyzed\n");
+                }
+            }
+
+            // 2. Analyze target method usages (moved from CoordinatorAgent line 267)
+            if (streamingCallback != null) {
+                streamingCallback.accept("🔍 Analyzing target method usage patterns...\n");
+            }
+
+            contextTools.analyzeMethodUsages(request.getTargetMethods());
+
+            LOG.info("Pre-computed usage analysis for " + request.getTargetMethods().size() + " target methods");
+
+            if (streamingCallback != null) {
+                streamingCallback.accept("✅ Usage analysis complete\n");
+            }
+
+            // 3. Detect framework (now has enough data: target class + dependencies)
+            contextTools.detectFramework();
+            String framework = contextTools.getFrameworkInfo();
+            if (framework != null && !framework.equals("Unknown")) {
+                LOG.info("Pre-detected framework: " + framework);
+
+                if (streamingCallback != null) {
+                    streamingCallback.accept("🔧 Detected framework: " + framework + "\n");
+                }
+            }
+
+            LOG.info("Pre-computation complete - AI will have rich initial context");
+
+        } catch (Exception e) {
+            LOG.warn("Error during pre-computation, continuing with AI exploration", e);
+            if (streamingCallback != null) {
+                streamingCallback.accept("⚠️ Pre-computation partially failed: " + e.getMessage() + "\n");
+            }
+        }
+    }
+
+    /**
+     * Pre-compute project dependencies by finding and reading build files.
+     * This is deterministic file I/O that doesn't require AI.
+     */
+    private String preComputeDependencies(com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools) {
+        try {
+            // Use contextTools.findProjectDependencies() directly (it's the tool implementation)
+            // Pass dummy params as it doesn't use them
+            return contextTools.findProjectDependencies("");
+
+        } catch (Exception e) {
+            LOG.warn("Failed to pre-compute dependencies", e);
+            return null;
         }
     }
 }

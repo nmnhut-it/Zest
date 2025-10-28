@@ -212,39 +212,72 @@ public class TestMergingHandler extends AbstractStateHandler {
                 testClassName
         );
 
+        java.util.List<String> compilationErrors = validation.compiles() ?
+                java.util.Collections.emptyList() : validation.getErrors();
+
         if (streamingCallback != null) {
             streamingCallback.accept(validation.compiles() ?
-                    "✅ Validation passed - no errors\n" :
-                    "❌ Validation failed: " + validation.getErrorCount() + " errors\n");
+                    "✅ Validation passed - no compilation errors\n" :
+                    "❌ Validation failed: " + validation.getErrorCount() + " compilation errors\n");
         }
 
-        // ============ PHASE 5: Fix Errors (AI with Chain-of-Thought) ============
-        if (!validation.compiles() && validation.getErrors() != null && !validation.getErrors().isEmpty()) {
+        // ============ PHASE 5: Review Logic (Read-only AI via NaiveLLMService) ============
+        java.util.List<String> logicIssues = java.util.Collections.emptyList();
+
+        if (validation.compiles()) {  // Only review if it compiles
             if (shouldCancel(stateMachine)) {
-                throw new InterruptedException("Merging cancelled during validation");
+                throw new InterruptedException("Merging cancelled before logic review");
             }
 
-            logToolActivity(stateMachine, "Phase5", "Fixing validation errors");
+            logToolActivity(stateMachine, "Phase5", "Logic review");
             if (streamingCallback != null) {
-                streamingCallback.accept("\n**PHASE 5: Fix Errors (AI chain-of-thought + exploration)**\n");
+                streamingCallback.accept("\n**PHASE 5: Logic Review (Read-only AI)**\n");
+            }
+
+            logicIssues = aiMerger.reviewTestLogic(mergedCode, testClassName);
+
+            if (streamingCallback != null) {
+                if (!logicIssues.isEmpty()) {
+                    streamingCallback.accept("⚠️ Found " + logicIssues.size() + " logic issue(s)\n");
+                } else {
+                    streamingCallback.accept("✅ No logic issues found\n");
+                }
+            }
+        } else {
+            if (streamingCallback != null) {
+                streamingCallback.accept("\n⏭️ Skipping Phase 5 (has compilation errors)\n");
+            }
+        }
+
+        // ============ PHASE 6: Fix ALL Issues (AI - ONE TIME) ============
+        if (!compilationErrors.isEmpty() || !logicIssues.isEmpty()) {
+            if (shouldCancel(stateMachine)) {
+                throw new InterruptedException("Merging cancelled before fixing");
+            }
+
+            logToolActivity(stateMachine, "Phase6", "Fixing all issues");
+            if (streamingCallback != null) {
+                streamingCallback.accept("\n**PHASE 6: Fix All Issues (AI - ONE TIME)**\n");
+                streamingCallback.accept("Fixing: " + compilationErrors.size() +
+                        " compilation + " + logicIssues.size() + " logic issues\n");
             }
 
             int maxFixAttempts = 3;
-            mergedCode = aiMerger.fixUsingTools(testClassName, validation.getErrors(), contextTools, maxFixAttempts);
+            mergedCode = aiMerger.fixUsingTools(testClassName, compilationErrors, logicIssues, contextTools, maxFixAttempts);
         } else {
             if (streamingCallback != null) {
-                streamingCallback.accept("\n⏭️ Skipping Phase 5 (no errors to fix)\n");
+                streamingCallback.accept("\n⏭️ Skipping Phase 6 (no issues to fix)\n");
             }
         }
 
         if (shouldCancel(stateMachine)) {
-            throw new InterruptedException("Merging cancelled during Phase 5");
+            throw new InterruptedException("Merging cancelled during Phase 6");
         }
 
-        // ============ PHASE 6: Final Validation (Java) ============
-        logToolActivity(stateMachine, "Phase6", "Final validation");
+        // ============ PHASE 7: Final Validation (Java) ============
+        logToolActivity(stateMachine, "Phase7", "Final validation");
         if (streamingCallback != null) {
-            streamingCallback.accept("\n**PHASE 6: Final Validation (Java)**\n");
+            streamingCallback.accept("\n**PHASE 7: Final Validation (Java)**\n");
         }
 
         validation = TestCodeValidator.validate(getProject(stateMachine), mergedCode, testClassName);
@@ -255,24 +288,6 @@ public class TestMergingHandler extends AbstractStateHandler {
                     "⚠️ Still has " + validation.getErrorCount() + " errors\n");
         }
 
-        // ============ PHASE 7: Logic Bug Review (AI with Self-Questioning) ============
-        if (validation.compiles()) {
-            if (shouldCancel(stateMachine)) {
-                throw new InterruptedException("Merging cancelled before logic review");
-            }
-
-            logToolActivity(stateMachine, "Phase7", "Logic bug review");
-            if (streamingCallback != null) {
-                streamingCallback.accept("\n**PHASE 7: Logic Review (AI self-questioning + exploration)**\n");
-            }
-
-            mergedCode = aiMerger.reviewLogicUsingTools(testClassName, contextTools);
-        } else {
-            if (streamingCallback != null) {
-                streamingCallback.accept("\n⏭️ Skipping Phase 7 (validation failed)\n");
-            }
-        }
-
         // ============ Create Final Result ============
         logToolActivity(stateMachine, "Finalizing", "Creating merged test class");
         if (streamingCallback != null) {
@@ -281,7 +296,7 @@ public class TestMergingHandler extends AbstractStateHandler {
 
         String outputPath = existingTest != null ?
                 existingTest.getFilePath() :
-                determineOutputPath(testClassName, result.getPackageName());
+                determineOutputPath(testClassName, result.getPackageName(), stateMachine);
 
         int methodCount = countTestMethods(mergedCode);
 
@@ -316,9 +331,9 @@ public class TestMergingHandler extends AbstractStateHandler {
         return count;
     }
 
-    private String determineOutputPath(String className, String packageName) {
+    private String determineOutputPath(String className, String packageName, TestGenerationStateMachine stateMachine) {
         // Find test source root
-        String basePath = getProject(null).getBasePath();
+        String basePath = getProject(stateMachine).getBasePath();
         if (basePath == null) {
             return className + ".java";
         }

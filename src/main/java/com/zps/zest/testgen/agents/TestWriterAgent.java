@@ -626,21 +626,24 @@ public class TestWriterAgent extends StreamingBaseAgent {
     
     /**
      * Build the test writing request with all necessary information.
+     * Follows LLM best practices: pre-computed analysis first, then scenarios and instructions.
      */
     private String buildTestWritingRequest(TestPlan testPlan, ContextAgent.ContextGatheringTools contextTools) {
         StringBuilder prompt = new StringBuilder();
+
+        // SECTION 1: Task Configuration
+        prompt.append("## Task Configuration\n\n");
         prompt.append("Generate a complete Java test class for the following requirements.\n\n");
+        prompt.append("**Target Class**: ").append(testPlan.getTargetClass()).append("\n");
+        prompt.append("**Target Method(s)**: ").append(testPlan.getTargetMethods().stream().collect(Collectors.joining(", "))).append("\n");
+        prompt.append("**Testing Framework**: ").append(contextTools.getFrameworkInfo()).append("\n\n");
+        prompt.append("---\n\n");
 
-        // Target information
-        prompt.append("**TARGET CLASS INFO**\n");
-        prompt.append("```\n");
-        prompt.append("Target Class: ").append(testPlan.getTargetClass()).append("\n");
-        prompt.append("Target Method(s): ").append(testPlan.getTargetMethods().stream().collect(Collectors.joining(", "))).append("\n");
-        prompt.append("Testing Framework: ").append(contextTools.getFrameworkInfo());
-        prompt.append("\n```\n\n");
+        // SECTION 2: Pre-Computed Analysis (MOST IMPORTANT - what we already know)
+        appendPreComputedAnalysis(prompt, contextTools, testPlan);
 
-        // Test scenarios to implement
-        prompt.append("**TEST SCENARIOS TO IMPLEMENT**\n");
+        // SECTION 3: Test scenarios to implement
+        prompt.append("## Test Scenarios to Implement\n\n");
         prompt.append("```\n");
         for (int i = 0; i < testPlan.getTestScenarios().size(); i++) {
             TestPlan.TestScenario scenario = testPlan.getTestScenarios().get(i);
@@ -689,16 +692,13 @@ public class TestWriterAgent extends StreamingBaseAgent {
             prompt.append("\n");
         }
         prompt.append("```\n\n");
+        prompt.append("---\n\n");
 
-        // Add context for code generation
-        prompt.append("**CODE CONTEXT**\n");
-        prompt.append("```\n");
-        String contextInfo = buildTestWriterContext(contextTools, testPlan);
-        prompt.append(contextInfo);
-        prompt.append("```\n\n");
+        // SECTION 4: Code Context (analyzed classes and related files)
+        appendCodeContext(prompt, contextTools);
 
-        // Instructions for complete test class
-        prompt.append("**INSTRUCTIONS**\n");
+        // SECTION 5: Instructions for complete test class
+        prompt.append("## Instructions\n\n");
         prompt.append("```\n");
         prompt.append("Generate a COMPLETE Java test class that:\n");
         prompt.append("1. Uses package name based on target class: ").append(inferPackageName(testPlan.getTargetClass())).append("\n");
@@ -709,18 +709,103 @@ public class TestWriterAgent extends StreamingBaseAgent {
         prompt.append("6. Each test method has complete implementation with assertions\n");
         prompt.append("7. Follows dependency-aware testing practices (unit vs integration)\n");
         prompt.append("```\n\n");
+        prompt.append("---\n\n");
 
-        // Testing approach from test plan (moved to end as final guidance)
+        // SECTION 6: Testing approach from test plan (final guidance)
         if (!testPlan.getTestingNotes().isEmpty()) {
-            prompt.append("**TESTING APPROACH (FINAL GUIDANCE)**\n");
+            prompt.append("## Testing Approach (Final Guidance)\n\n");
             prompt.append("```\n");
             prompt.append(testPlan.getTestingNotes());
             prompt.append("\n```\n\n");
         }
 
-        prompt.append("Return ONLY the complete Java test class code - no explanations needed.");
+        prompt.append("**Return ONLY the complete Java test class code - no explanations needed.**\n");
 
         return prompt.toString();
+    }
+
+    /**
+     * SECTION 2: Pre-Computed Analysis - the most valuable context.
+     * This section contains all the analysis done by ContextAgent that the AI should build upon.
+     */
+    private void appendPreComputedAnalysis(StringBuilder prompt, ContextAgent.ContextGatheringTools contextTools, TestPlan testPlan) {
+        prompt.append("## Pre-Computed Analysis\n\n");
+        prompt.append("*The following context has been pre-analyzed. Build on this foundation - don't rediscover what's already known.*\n\n");
+
+        // Method usage analysis (MOST CRITICAL)
+        Map<String, com.zps.zest.testgen.analysis.UsageContext> methodUsages = contextTools.getMethodUsages();
+        if (!methodUsages.isEmpty()) {
+            prompt.append("### Method Usage Patterns (MOST CRITICAL)\n\n");
+            prompt.append("*These show how target methods are actually used in the codebase. Use this to write realistic tests based on real usage patterns.*\n\n");
+            for (Map.Entry<String, com.zps.zest.testgen.analysis.UsageContext> entry : methodUsages.entrySet()) {
+                com.zps.zest.testgen.analysis.UsageContext usageContext = entry.getValue();
+                if (!usageContext.isEmpty()) {
+                    prompt.append(usageContext.formatForLLM()).append("\n");
+                }
+            }
+        }
+
+        // Framework detection
+        String framework = contextTools.getFrameworkInfo();
+        if (framework != null && !framework.isEmpty() && !framework.equals("Unknown")) {
+            prompt.append("### Detected Testing Framework\n\n");
+            prompt.append("**Framework**: ").append(framework).append("\n\n");
+        }
+
+        // Project dependencies (structured)
+        String dependencies = contextTools.getProjectDependencies();
+        if (dependencies != null && !dependencies.isEmpty()) {
+            prompt.append("### Project Dependencies\n\n");
+            prompt.append(dependencies);
+            prompt.append("\n");
+        }
+
+        // Context notes
+        List<String> contextNotes = contextTools.getContextNotes();
+        if (!contextNotes.isEmpty()) {
+            prompt.append("### Context Insights\n\n");
+            for (String note : contextNotes) {
+                prompt.append("- ").append(note).append("\n");
+            }
+            prompt.append("\n");
+        }
+
+        prompt.append("---\n\n");
+    }
+
+    /**
+     * SECTION 4: Code Context - analyzed classes and related files.
+     * Simplified version without method usage (moved to pre-computed section).
+     */
+    private void appendCodeContext(StringBuilder prompt, ContextAgent.ContextGatheringTools contextTools) {
+        prompt.append("## Code Context\n\n");
+
+        // Add analyzed class implementations
+        Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
+        if (!analyzedClasses.isEmpty()) {
+            prompt.append("### Analyzed Classes\n\n");
+            for (Map.Entry<String, String> entry : analyzedClasses.entrySet()) {
+                String className = entry.getKey();
+                String implementation = entry.getValue();
+
+                prompt.append("**").append(className).append("**:\n");
+                prompt.append("```java\n");
+                prompt.append(implementation);
+                prompt.append("\n```\n\n");
+            }
+        }
+
+        // Add related files
+        Map<String, String> readFiles = contextTools.getReadFiles();
+        if (!readFiles.isEmpty()) {
+            prompt.append("### Related Files\n\n");
+            for (Map.Entry<String, String> entry : readFiles.entrySet()) {
+                prompt.append("**File**: `").append(entry.getKey()).append("`\n\n");
+                prompt.append("```\n").append(entry.getValue()).append("\n```\n\n");
+            }
+        }
+
+        prompt.append("---\n\n");
     }
     
     /**
@@ -740,72 +825,6 @@ public class TestWriterAgent extends StreamingBaseAgent {
         return "com.example.test";
     }
     
-    /**
-     * Build test writer context using direct tool access
-     */
-    private String buildTestWriterContext(ContextAgent.ContextGatheringTools contextTools, TestPlan testPlan) {
-        StringBuilder info = new StringBuilder();
-
-        info.append("Test Generation Context:\n");
-        info.append("Target Class: ").append(testPlan.getTargetClass()).append("\n");
-        info.append("Target Methods: ").append(String.join(", ", testPlan.getTargetMethods())).append("\n");
-        info.append("Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n\n");
-
-        // Note: Project dependencies are extracted by CoordinatorAgent and included in testPlan.testingNotes
-        // No need to duplicate the full build files here - the test plan already contains the concise list
-
-        // Add context notes
-        List<String> contextNotes = contextTools.getContextNotes();
-        if (!contextNotes.isEmpty()) {
-            info.append("**CONTEXT INSIGHTS**\n");
-            for (String note : contextNotes) {
-                info.append("- ").append(note).append("\n");
-            }
-            info.append("\n");
-        }
-
-        // Add analyzed class implementations
-        Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
-        if (!analyzedClasses.isEmpty()) {
-            info.append("**ALL ANALYZED CLASSES**\n");
-
-            for (Map.Entry<String, String> entry : analyzedClasses.entrySet()) {
-                String className = entry.getKey();
-                String implementation = entry.getValue();
-
-                info.append("From ").append(className).append(":\n");
-                info.append(implementation).append("\n\n");
-            }
-        }
-
-        // NEW: Add usage context for target methods
-        Map<String, com.zps.zest.testgen.analysis.UsageContext> methodUsages = contextTools.getMethodUsages();
-        if (!methodUsages.isEmpty()) {
-            info.append("**METHOD USAGE PATTERNS (HOW CODE IS ACTUALLY USED)**\n");
-            info.append("The following shows how target methods are called throughout the project.\n");
-            info.append("Use this to write realistic tests based on actual usage patterns.\n\n");
-
-            for (Map.Entry<String, com.zps.zest.testgen.analysis.UsageContext> entry : methodUsages.entrySet()) {
-                com.zps.zest.testgen.analysis.UsageContext usageContext = entry.getValue();
-                if (!usageContext.isEmpty()) {
-                    info.append(usageContext.formatForLLM()).append("\n");
-                }
-            }
-        }
-
-        // Add related files
-        Map<String, String> readFiles = contextTools.getReadFiles();
-        if (!readFiles.isEmpty()) {
-            info.append("**RELATED FILES**\n");
-
-            for (Map.Entry<String, String> entry : readFiles.entrySet()) {
-                info.append("File: ").append(entry.getKey()).append("\n");
-                info.append("```\n").append(entry.getValue()).append("\n```\n\n");
-            }
-        }
-        
-        return info.toString();
-    }
     
     /**
      * Generate a 2-level file listing of the project for LLM analysis.

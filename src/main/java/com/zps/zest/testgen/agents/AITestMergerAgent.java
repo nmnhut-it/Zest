@@ -19,6 +19,7 @@ import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
@@ -450,18 +451,21 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     }
 
     /**
-     * PHASE 5: Fix validation errors using chain-of-thought reasoning + exploration tools.
+     * PHASE 6: Fix ALL errors (compilation + logic) using chain-of-thought reasoning + exploration tools.
      */
     @NotNull
     public String fixUsingTools(@NotNull String className,
-                               @NotNull java.util.List<String> errors,
+                               @NotNull java.util.List<String> compilationErrors,
+                               @NotNull java.util.List<String> logicIssues,
                                @Nullable ContextAgent.ContextGatheringTools contextTools,
                                int maxAttempts) {
         try {
-            sendToUI("\n🔧 Fixing validation errors with chain-of-thought reasoning...\n");
-            sendToUI("Errors to fix: " + errors.size() + "\n");
+            int totalIssues = compilationErrors.size() + logicIssues.size();
+            sendToUI("\n🔧 Fixing all issues with chain-of-thought reasoning...\n");
+            sendToUI("Issues to fix: " + compilationErrors.size() + " compilation + " +
+                    logicIssues.size() + " logic = " + totalIssues + " total\n");
 
-            String fixPrompt = buildChainOfThoughtFixPrompt(errors, contextTools);
+            String fixPrompt = buildChainOfThoughtFixPrompt(compilationErrors, logicIssues, contextTools);
 
             // AI investigates and fixes using tools
             assistant.mergeAndFixTestClass(wrapWithSystemPrompt(fixPrompt));
@@ -479,43 +483,128 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     }
 
     /**
-     * PHASE 7: Review for logic bugs using self-questioning + exploration.
+     * PHASE 5: Review test code for logic errors (read-only analysis via NaiveLLMService).
+     * Returns list of issues with line numbers for later fixing.
      */
     @NotNull
-    public String reviewLogicUsingTools(@NotNull String className,
-                                       @Nullable ContextAgent.ContextGatheringTools contextTools) {
+    public java.util.List<String> reviewTestLogic(@NotNull String testCode, @NotNull String testClassName) {
         try {
-            sendToUI("\n📋 Reviewing for logic bugs with self-questioning...\n");
+            sendToUI("\n📋 Reviewing test logic for assertion errors...\n");
 
-            String reviewPrompt = buildSelfQuestioningReviewPrompt(contextTools);
+            String reviewPrompt = buildLogicReviewPrompt(testCode, testClassName);
 
-            // AI asks/answers questions and fixes logic bugs
-            assistant.mergeAndFixTestClass(wrapWithSystemPrompt(reviewPrompt));
+            // Use NaiveLLMService directly (no tools, no agent framework)
+            String reviewResponse = naiveLlmService.query(reviewPrompt, ChatboxUtilities.EnumUsage.AGENT_TEST_MERGER);
 
-            String reviewedCode = mergingTools.getCurrentTestCode();
-            sendToUI("✅ Logic review complete\n");
+            // Parse response into list of issues
+            java.util.List<String> issues = parseReviewIssues(reviewResponse);
 
-            return reviewedCode;
+            if (issues.isEmpty()) {
+                sendToUI("✅ No logic issues found\n");
+            } else {
+                sendToUI("⚠️ Found " + issues.size() + " logic issue(s)\n");
+                for (String issue : issues) {
+                    sendToUI("  - " + issue + "\n");
+                }
+            }
+
+            return issues;
 
         } catch (Exception e) {
-            LOG.warn("Error in logic review, accepting current code", e);
+            LOG.warn("Error in logic review, skipping", e);
             sendToUI("⚠️ Logic review failed: " + e.getMessage() + "\n");
-            return mergingTools.getCurrentTestCode();
+            return java.util.Collections.emptyList();
         }
+    }
+
+    /**
+     * Build prompt for logic review (read-only, no tools)
+     */
+    private String buildLogicReviewPrompt(String testCode, String testClassName) {
+        return String.format("""
+            Analyze this test code for logic errors in assertions ONLY.
+
+            ## Check For:
+            1. Expected vs actual values swapped in assertions
+            2. Wrong assertion type (e.g., assertEquals when should use assertNotNull)
+            3. Incorrect test values or calculations
+            4. Missing critical assertions that would make test pass incorrectly
+
+            ## Output Format:
+            List each issue on a new line starting with "Line X:" where X is the line number.
+            Example:
+            Line 45: Expected and actual values are swapped in assertEquals
+            Line 67: Should use assertNotNull instead of assertEquals(null, ...)
+
+            If no issues found, output exactly: "No logic issues found"
+
+            Test Class: %s
+
+            ```java
+            %s
+            ```
+            """, testClassName, testCode);
+    }
+
+    /**
+     * Parse review response into list of issues with line numbers
+     */
+    private java.util.List<String> parseReviewIssues(String reviewResponse) {
+        java.util.List<String> issues = new java.util.ArrayList<>();
+
+        if (reviewResponse == null || reviewResponse.trim().isEmpty()) {
+            return issues;
+        }
+
+        // Check if response says no issues
+        if (reviewResponse.toLowerCase().contains("no logic issues found")) {
+            return issues;
+        }
+
+        // Parse lines that start with "Line X:"
+        String[] lines = reviewResponse.split("\n");
+        for (String line : lines) {
+            line = line.trim();
+            if (line.matches("^Line\\s+\\d+:.*")) {
+                issues.add(line);
+            }
+        }
+
+        return issues;
     }
 
     private String buildToolBasedMergePrompt(ExistingTestInfo existing, String newCode,
                                             String targetClass, ContextAgent.ContextGatheringTools contextTools) {
         StringBuilder prompt = new StringBuilder();
-        prompt.append("MERGE TASK: Merge new test methods into existing test.\n\n");
-        prompt.append("EXISTING TEST:\n```java\n").append(existing.getCode()).append("\n```\n\n");
-        prompt.append("NEW METHODS TO ADD:\n```java\n").append(newCode).append("\n```\n\n");
 
-        // Include context notes for informed merging
+        // SECTION 1: Pre-Computed Context
+        prompt.append("# PRE-COMPUTED CONTEXT\n\n");
+        prompt.append("*Use this to inform your merging decisions - understand what exists in the codebase.*\n\n");
+
         if (contextTools != null) {
+            // Method usage patterns
+            Map<String, com.zps.zest.testgen.analysis.UsageContext> methodUsages = contextTools.getMethodUsages();
+            if (!methodUsages.isEmpty()) {
+                prompt.append("## Method Usage Patterns\n\n");
+                prompt.append("*How methods are used in production code - helps decide what to test.*\n\n");
+                for (Map.Entry<String, com.zps.zest.testgen.analysis.UsageContext> entry : methodUsages.entrySet()) {
+                    com.zps.zest.testgen.analysis.UsageContext usageContext = entry.getValue();
+                    if (!usageContext.isEmpty()) {
+                        prompt.append(usageContext.formatForLLM()).append("\n");
+                    }
+                }
+            }
+
+            // Framework info
+            String framework = contextTools.getFrameworkInfo();
+            if (framework != null && !framework.isEmpty() && !framework.equals("Unknown")) {
+                prompt.append("## Testing Framework: ").append(framework).append("\n\n");
+            }
+
+            // Context notes
             java.util.List<String> notes = contextTools.getContextNotes();
             if (!notes.isEmpty()) {
-                prompt.append("CONTEXT NOTES:\n");
+                prompt.append("## Context Insights\n\n");
                 for (String note : notes) {
                     prompt.append("- ").append(note).append("\n");
                 }
@@ -523,261 +612,269 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             }
         }
 
-        prompt.append("INSTRUCTIONS:\n");
-        prompt.append("1. Use updateTestCode() to set the merged result\n");
+        prompt.append("---\n\n");
+
+        // SECTION 2: Merge Task
+        prompt.append("# MERGE TASK\n\n");
+        prompt.append("Merge new test methods into existing test class.\n\n");
+
+        prompt.append("## Existing Test\n\n");
+        prompt.append("```java\n").append(existing.getCode()).append("\n```\n\n");
+
+        prompt.append("## New Methods to Add\n\n");
+        prompt.append("```java\n").append(newCode).append("\n```\n\n");
+
+        prompt.append("---\n\n");
+
+        // SECTION 3: Instructions
+        prompt.append("# INSTRUCTIONS\n\n");
+        prompt.append("1. Use `updateTestCode()` to set the merged result\n");
         prompt.append("2. Preserve all existing test methods\n");
         prompt.append("3. Add only new tests that don't duplicate existing ones\n");
         prompt.append("4. Merge setup/teardown intelligently\n");
-        prompt.append("5. Call markMergingDone() when complete\n");
+        prompt.append("5. Use the framework specified in pre-computed context\n");
+        prompt.append("6. Call `markMergingDone()` when complete\n");
 
         return prompt.toString();
     }
 
-    private String buildChainOfThoughtFixPrompt(java.util.List<String> errors,
+    private String buildChainOfThoughtFixPrompt(java.util.List<String> compilationErrors,
+                                               java.util.List<String> logicIssues,
                                                ContextAgent.ContextGatheringTools contextTools) {
         StringBuilder prompt = new StringBuilder();
 
-        // FIRST: Show dependencies BEFORE errors - this is critical context!
+        // ============================================================================
+        // SECTION 1: PRE-COMPUTED ANALYSIS (Most Important Information First)
+        // ============================================================================
+
+        prompt.append("# PRE-COMPUTED ANALYSIS\n\n");
+        prompt.append("*Reference this to understand the codebase - don't make assumptions about what exists.*\n\n");
+
         if (contextTools != null) {
-            java.util.List<String> notes = contextTools.getContextNotes();
-            String depAnalysis = notes.stream()
-                    .filter(note -> note.contains("[DEPENDENCY_ANALYSIS]"))
-                    .findFirst()
-                    .orElse(null);
-
-            if (depAnalysis != null) {
-                prompt.append("**AVAILABLE PROJECT DEPENDENCIES**\n");
-                prompt.append("```\n");
-                // Remove the [DEPENDENCY_ANALYSIS] marker for cleaner display
-                String cleanAnalysis = depAnalysis.replace("[DEPENDENCY_ANALYSIS]", "").trim();
-                prompt.append(cleanAnalysis);
-                prompt.append("\n```\n\n");
-                prompt.append("⚠️ CRITICAL: Only use dependencies listed above! Do not invent or assume libraries.\n\n");
-            }
-        }
-
-        prompt.append("FIX VALIDATION ERRORS - Investigate and fix iteratively.\n\n");
-
-        prompt.append("CURRENT TEST CODE:\n");
-        prompt.append("```java\n");
-        prompt.append(mergingTools.getCurrentTestCode());
-        prompt.append("\n```\n\n");
-
-        prompt.append("ERRORS TO FIX:\n");
-        for (String error : errors) {
-            prompt.append("- ").append(error).append("\n");
-        }
-        prompt.append("\n");
-
-        prompt.append("CHAIN-OF-THOUGHT PROCESS (Include BOTH reasoning AND tool calls):\n\n");
-
-        prompt.append("For EACH error, follow this narrative flow:\n\n");
-
-        prompt.append("STEP 1 - Analyze:\n");
-        prompt.append("  Explain: I see error at line X: [description]\n");
-        prompt.append("  Explain: This is due to: [root cause - wrong signature/missing import/type mismatch]\n");
-        prompt.append("  Explain: I need to: [what needs to be verified or fixed]\n\n");
-
-        prompt.append("STEP 2 - Investigate (if something is unclear):\n");
-        prompt.append("  Explain: However, I don't know [specific thing - e.g., correct method signature]\n");
-        prompt.append("  Explain: I'll look up [what you need to find out] to verify\n");
-        prompt.append("  Action: State your intent naturally, the framework will invoke the tool\n\n");
-
-        prompt.append("STEP 3 - Interpret:\n");
-        prompt.append("  Explain: The lookup shows: [actual result]\n");
-        prompt.append("  Explain: This means: [what you learned and how it affects the fix]\n\n");
-
-        prompt.append("STEP 4 - Fix:\n");
-        prompt.append("  Explain: I'll fix this by: [describe the change you'll make]\n");
-        prompt.append("  ⚠️ IMPORTANT: Include line numbers from validation error (e.g., line 29)\n");
-        prompt.append("  Action: State your fix intent with line range naturally, the framework will apply it\n\n");
-
-        prompt.append("STEP 5 - Confirm:\n");
-        prompt.append("  Explain: Fix applied successfully. Moving to next error.\n\n");
-
-        prompt.append("EXAMPLE FULL WORKFLOW for one error:\n\n");
-        prompt.append("I see error at line 29: getInstance(ConnectionManager) cannot be applied\n");
-        prompt.append("This is due to wrong parameter type being passed to getInstance\n");
-        prompt.append("I need to verify what getInstance actually accepts\n\n");
-
-        prompt.append("However, I don't know the correct signature for getInstance\n");
-        prompt.append("I'll look up the method signature for getInstance in ProfileConnectionPool\n");
-        prompt.append("Checking the actual parameters it expects now\n\n");
-
-        prompt.append("The lookup shows: getInstance(ApplicationConfig config) - static method\n");
-        prompt.append("This means the method expects ApplicationConfig, not ConnectionManager\n\n");
-
-        prompt.append("I'll fix this by changing ConnectionManager to ApplicationConfig on line 29\n");
-        prompt.append("Applying fix with line range: applySimpleFix from line 29 to 29\n");
-        prompt.append("Replacing getInstance(connectionManager) with getInstance(applicationConfig) at line 29\n\n");
-
-        prompt.append("Fix applied successfully. Moving to next error.\n\n");
-
-        prompt.append("AVAILABLE TOOLS:\n");
-        prompt.append("Investigation: Look up methods/classes, read files, search code patterns\n");
-        prompt.append("Fixing: Add imports, apply exact/regex fixes, update full test code\n");
-        prompt.append("Validation: Validate current test code for errors\n\n");
-
-        prompt.append("REGEX FIX TIPS:\n");
-        prompt.append("Use applyRegexFix when whitespace might differ:\n");
-        prompt.append("- \\\\s+ for any whitespace (spaces/tabs/newlines)\n");
-        prompt.append("- \\\\s* for optional whitespace\n");
-        prompt.append("- Escape special chars: \\\\( \\\\) \\\\[ \\\\] \\\\{ \\\\}\n");
-        prompt.append("Example: 'getUserById\\\\(\\\\s*123\\\\s*\\\\)' → matches varied spacing\n\n");
-
-        prompt.append("🎯 LINE RANGE PARAMETERS (use to avoid non-unique errors):\n");
-        prompt.append("Both applySimpleFix and applyRegexFix accept optional startLine/endLine:\n");
-        prompt.append("- applySimpleFix(oldText, newText, startLine, endLine)\n");
-        prompt.append("- applyRegexFix(pattern, replacement, startLine, endLine)\n\n");
-        prompt.append("When to specify line ranges:\n");
-        prompt.append("✅ ALWAYS when validation error shows specific line number\n");
-        prompt.append("✅ When same pattern appears multiple times in test\n");
-        prompt.append("✅ When you get 'Multiple occurrences found' error\n\n");
-        prompt.append("Example: Error at line 45 → use applySimpleFix(..., ..., 45, 45)\n\n");
-
-        prompt.append("After fixing all errors:\n");
-        prompt.append("  Explain: All errors have been addressed, validating now\n");
-        prompt.append("  Action: Validate the current test code\n");
-        prompt.append("  If passed: Mark merging done with validation passed message\n");
-        prompt.append("  If failed: Continue fixing (max 3 attempts)\n\n");
-
-        prompt.append("KEY PRINCIPLE:\n");
-        prompt.append("✅ Include BOTH your reasoning (explain) AND actions (state intent)\n");
-        prompt.append("✅ Express intent naturally - framework handles tool invocation\n");
-        prompt.append("✅ Always explain what you learned and what it means\n");
-        prompt.append("✅ Maintain narrative flow: Explain → Act → Learn → Fix\n\n");
-
-        prompt.append("PREVENT INFINITE LOOPS:\n\n");
-        prompt.append("1. If you see 'Cannot resolve symbol SomeClass':\n");
-        prompt.append("   → FIRST: Use findImportForClass('SomeClass') to verify it exists\n");
-        prompt.append("   → If 'CLASS_NOT_FOUND': The class does NOT exist in this project\n");
-        prompt.append("   → Don't try to fix imports or keep using it - it won't work!\n");
-        prompt.append("   → Think: what similar classes exist? Look them up with findImportForClass()\n");
-        prompt.append("   → Only use classes that findImportForClass() confirms exist\n\n");
-
-        prompt.append("2. Max 2 attempts per unique error:\n");
-        prompt.append("   → If applyRegexFix fails: switch to applySimpleFix with EXACT text from line numbers\n");
-        prompt.append("   → If both fail twice: acknowledge limitation and move to next error\n");
-        prompt.append("   → Don't retry the same failed approach 3+ times\n\n");
-
-        prompt.append("3. When fix tools fail:\n");
-        prompt.append("   → Read the error message carefully - it shows actual code with line numbers\n");
-        prompt.append("   → Copy EXACT text from the numbered lines\n");
-        prompt.append("   → If pattern doesn't match, the code might be different than expected\n");
-
-        return prompt.toString();
-    }
-
-    private String buildSelfQuestioningReviewPrompt(ContextAgent.ContextGatheringTools contextTools) {
-        StringBuilder prompt = new StringBuilder();
-
-        // FIRST: Show dependencies prominently at the top!
-        if (contextTools != null) {
-            java.util.List<String> notes = contextTools.getContextNotes();
-            String depAnalysis = notes.stream()
-                    .filter(note -> note.contains("[DEPENDENCY_ANALYSIS]"))
-                    .findFirst()
-                    .orElse(null);
-
-            if (depAnalysis != null) {
-                prompt.append("**AVAILABLE PROJECT DEPENDENCIES**\n");
-                prompt.append("```\n");
-                String cleanAnalysis = depAnalysis.replace("[DEPENDENCY_ANALYSIS]", "").trim();
-                prompt.append(cleanAnalysis);
-                prompt.append("\n```\n\n");
-                prompt.append("⚠️ CRITICAL: Only use dependencies listed above! Do not invent libraries.\n\n");
-            }
-
-            // Show OTHER context notes separately (non-dependency notes)
-            java.util.List<String> otherNotes = notes.stream()
-                    .filter(note -> !note.contains("[DEPENDENCY_ANALYSIS]"))
-                    .toList();
-
-            if (!otherNotes.isEmpty()) {
-                prompt.append("📋 ADDITIONAL CONTEXT:\n");
-                for (String note : otherNotes) {
-                    prompt.append("- ").append(note).append("\n");
+            // Method usage patterns (MOST CRITICAL)
+            Map<String, com.zps.zest.testgen.analysis.UsageContext> methodUsages = contextTools.getMethodUsages();
+            if (!methodUsages.isEmpty()) {
+                prompt.append("## Method Usage Patterns\n\n");
+                prompt.append("*How target methods are actually used in the codebase. Use this to understand realistic usage.*\n\n");
+                for (Map.Entry<String, com.zps.zest.testgen.analysis.UsageContext> entry : methodUsages.entrySet()) {
+                    com.zps.zest.testgen.analysis.UsageContext usageContext = entry.getValue();
+                    if (!usageContext.isEmpty()) {
+                        prompt.append(usageContext.formatForLLM()).append("\n");
+                    }
                 }
+            }
+
+            // Framework detection
+            String framework = contextTools.getFrameworkInfo();
+            if (framework != null && !framework.isEmpty() && !framework.equals("Unknown")) {
+                prompt.append("## Testing Framework\n\n");
+                prompt.append("**Framework**: ").append(framework).append("\n\n");
+            }
+
+            // Project dependencies (structured access)
+            String dependencies = contextTools.getProjectDependencies();
+            if (dependencies != null && !dependencies.isEmpty()) {
+                prompt.append("## Project Dependencies\n\n");
+                prompt.append(dependencies);
                 prompt.append("\n");
             }
         }
 
-        prompt.append("LOGIC BUG REVIEW - Ask questions and investigate using tools.\n\n");
+        prompt.append("---\n\n");
 
-        prompt.append("LOGIC BUGS TO CHECK:\n");
-        prompt.append("1. Wrong assertions (expected vs actual swapped)\n");
-        prompt.append("2. Wrong framework/libraries (not actually in project)\n");
-        prompt.append("3. Miscalculations or wrong test values\n");
-        prompt.append("4. Incorrect mock behavior\n");
-        prompt.append("5. Wrong method signatures or annotations\n");
-        prompt.append("6. Classes that don't exist:\n");
-        prompt.append("   → If you see 'Cannot resolve symbol SomeClass' in validation:\n");
-        prompt.append("   → FIRST: Use findImportForClass('SomeClass') to check if it exists\n");
-        prompt.append("   → If not found: Think what similar classes might exist in project\n");
-        prompt.append("   → Look up alternatives with findImportForClass('AlternativeClass')\n");
-        prompt.append("   → DON'T keep trying to import or use a class that doesn't exist\n");
-        prompt.append("   → If truly no alternative: use different approach (mocks, stubs, or remove feature)\n\n");
+        // ============================================================================
+        // SECTION 2: CURRENT STATE
+        // ============================================================================
 
-        prompt.append("SELF-QUESTIONING PROCESS (Mix reasoning with tool usage):\n\n");
+        prompt.append("# CURRENT STATE\n\n");
 
-        prompt.append("For each potential issue, use this flow:\n\n");
+        // Current Test Code
+        prompt.append("## Current Test Code\n");
+        prompt.append("```java\n");
+        prompt.append(mergingTools.getCurrentTestCode());
+        prompt.append("\n```\n\n");
 
-        prompt.append("STEP 1 - Ask yourself:\n");
-        prompt.append("  Write: I'm checking if [specific concern about the code]\n\n");
+        // Validation Errors (Categorized)
+        int totalErrors = compilationErrors.size() + logicIssues.size();
+        prompt.append("## Validation Errors (").append(totalErrors).append(" total)\n\n");
 
-        prompt.append("STEP 2 - State what you'll do:\n");
-        prompt.append("  Write: To verify this, I'll look up [what you want to find out]\n");
-        prompt.append("  Action: Express intent naturally, framework handles invocation\n\n");
+        if (!compilationErrors.isEmpty()) {
+            prompt.append("### Compilation Errors (MUST FIX - ").append(compilationErrors.size()).append(")\n");
+            for (String error : compilationErrors) {
+                prompt.append("- ").append(error).append("\n");
+            }
+            prompt.append("\n");
+        }
 
-        prompt.append("STEP 3 - State what you learned:\n");
-        prompt.append("  Write: The lookup shows: [result]\n");
-        prompt.append("  Write: This means: [interpretation]\n\n");
+        if (!logicIssues.isEmpty()) {
+            prompt.append("### Logic Issues (SHOULD FIX - ").append(logicIssues.size()).append(")\n");
+            for (String issue : logicIssues) {
+                prompt.append("- ").append(issue).append("\n");
+            }
+            prompt.append("\n");
+        }
 
-        prompt.append("STEP 4 - Decide action:\n");
-        prompt.append("  Write: This is [correct/incorrect], so I'll [fix it / leave it]\n");
-        prompt.append("  If fixing: State fix intent naturally, framework handles it\n\n");
+        // ============================================================================
+        // SECTION 3: TASK SPECIFICATION
+        // ============================================================================
 
-        prompt.append("EXAMPLE 1 - Checking method signature:\n\n");
-        prompt.append("I'm checking if getInstance in ProfileConnectionPool has the correct signature\n\n");
+        prompt.append("---\n\n");
+        prompt.append("# YOUR TASK\n\n");
+        prompt.append("Fix all validation errors using the 3-step process below.\n\n");
 
-        prompt.append("To verify this, I'll look up the method signature to see what parameters it actually takes\n");
-        prompt.append("Looking up getInstance in com.zps.logaggregator.database.ProfileConnectionPool now\n\n");
+        prompt.append("**Success Criteria:**\n");
+        prompt.append("- All compilation errors resolved\n");
+        prompt.append("- Logic issues fixed where possible\n");
+        prompt.append("- Validation passes (0 errors)\n");
+        prompt.append("- Code calls `updateTestCode()` with complete fixed version\n");
+        prompt.append("- Code calls `validateCurrentTestCode()` to verify\n");
+        prompt.append("- Code calls `markMergingDone()` to signal completion\n\n");
 
-        prompt.append("The lookup shows: getInstance(ApplicationConfig config) - static method\n");
-        prompt.append("This means the test is using the wrong parameter type - it passes ConnectionManager but needs ApplicationConfig\n\n");
+        // ============================================================================
+        // SECTION 4: REQUIRED WORKFLOW (3 Clear Steps)
+        // ============================================================================
 
-        prompt.append("This is incorrect, so I'll fix it by changing the parameter type\n");
-        prompt.append("Replacing getInstance(connectionManager) with getInstance(applicationConfig)\n\n");
+        prompt.append("---\n\n");
+        prompt.append("# 3-STEP WORKFLOW\n\n");
 
-        prompt.append("EXAMPLE 2 - Checking class availability:\n\n");
-        prompt.append("I'm checking if SomeExternalClass is actually in the project dependencies\n\n");
+        // STEP 1: Batch Investigation
+        prompt.append("## STEP 1: Batch Investigation (ONE tool call)\n\n");
+        prompt.append("Extract all missing class names from validation errors, then:\n\n");
+        prompt.append("```\n");
+        prompt.append("findImportForClass(\"ClassName1, ClassName2, ClassName3\")\n");
+        prompt.append("```\n\n");
+        prompt.append("**Example:**\n");
+        prompt.append("If errors show: `Cannot resolve 'RedisContainer'` and `Cannot resolve 'TestContainers'`\n");
+        prompt.append("Call: `findImportForClass(\"RedisContainer, TestContainers\")`\n\n");
+        prompt.append("**For each result:**\n");
+        prompt.append("- `CLASS_NOT_FOUND` → Remove ALL usages from test code\n");
+        prompt.append("- `MULTIPLE_MATCHES` → Choose correct one based on imports\n");
+        prompt.append("- `✅ Found` → Add import if needed\n\n");
 
-        prompt.append("To verify, I'll use findImportForClass to check if the class exists\n");
-        prompt.append("Looking up: findImportForClass('SomeExternalClass')\n");
-        prompt.append("Result shows: CLASS_NOT_FOUND - no class with that name exists\n");
-        prompt.append("This means the class is not available in this project\n\n");
+        // STEP 2: Categorize & Plan
+        prompt.append("## STEP 2: Categorize Errors & Plan Fixes\n\n");
+        prompt.append("Group errors by type:\n\n");
+        prompt.append("**Category A: Missing Classes** (from Step 1)\n");
+        prompt.append("- Action: Remove all usages if CLASS_NOT_FOUND\n\n");
+        prompt.append("**Category B: Method Signature Errors**\n");
+        prompt.append("- Use `lookupMethod(className, methodName)` to get correct signatures\n");
+        prompt.append("- Fix ALL occurrences of wrong signatures\n\n");
+        prompt.append("**Category C: Field Access Errors**\n");
+        prompt.append("- Use `lookupClass(className)` to check if fields are public or need getters\n");
+        prompt.append("- Fix pattern globally (e.g., `result.userId` vs `result.getUserId()`)\n\n");
+        prompt.append("**Category D: Import/Type Errors**\n");
+        prompt.append("- Add missing imports with `addImport()`\n");
+        prompt.append("- Fix type mismatches\n\n");
+        prompt.append("**Category E: Mockito Errors**\n");
+        prompt.append("- Void methods: Use `doNothing().when(mock).method()` instead of `when(mock.method()).thenReturn()`\n");
+        prompt.append("- Fix return type mismatches\n\n");
 
-        prompt.append("This is incorrect, so I need to find an alternative that exists\n");
-        prompt.append("Let me look up what similar classes exist with findImportForClass()\n\n");
+        // STEP 3: Generate Complete Fix
+        prompt.append("## STEP 3: Generate Complete Fixed Code\n\n");
+        prompt.append("Write the ENTIRE test class with all fixes applied:\n\n");
+        prompt.append("```\n");
+        prompt.append("updateTestCode(completeFixedTestCode)\n");
+        prompt.append("```\n\n");
+        prompt.append("Then validate:\n\n");
+        prompt.append("```\n");
+        prompt.append("validateCurrentTestCode()\n");
+        prompt.append("```\n\n");
+        prompt.append("Finally, mark as done:\n\n");
+        prompt.append("```\n");
+        prompt.append("markMergingDone(\"Validation passed - all X errors fixed\")\n");
+        prompt.append("```\n\n");
 
-        prompt.append("AVAILABLE TOOLS:\n");
-        prompt.append("- lookupClass - Check if classes exist and get their structure\n");
-        prompt.append("- lookupMethod - Get actual method signatures from classes\n");
-        prompt.append("- readFile - Read source code files for context\n");
-        prompt.append("- searchCode - Find usage examples in the codebase\n");
-        prompt.append("- addImport - Add missing import statements to the test class\n");
-        prompt.append("- applySimpleFix - Apply exact text replacements\n");
-        prompt.append("- applyRegexFix - Apply fixes using regex (handles whitespace variations)\n\n");
+        // ============================================================================
+        // SECTION 5: TOOLS REFERENCE
+        // ============================================================================
 
-        prompt.append("After reviewing all potential issues:\n");
-        prompt.append("  If you made changes: Explain what you fixed, then validate the test code\n");
-        prompt.append("  Always: Mark merging done with a summary of the logic review\n\n");
+        prompt.append("---\n\n");
+        prompt.append("# TOOLS REFERENCE\n\n");
 
-        prompt.append("BALANCE:\n");
-        prompt.append("✅ Explain your thought process throughout\n");
-        prompt.append("✅ State your intent naturally - framework invokes tools automatically\n");
-        prompt.append("✅ Explain what you learned from lookups and what it means\n");
-        prompt.append("✅ Keep a flowing narrative: Question → Investigate → Learn → Act\n");
+        prompt.append("**Investigation:**\n");
+        prompt.append("- `findImportForClass(\"Class1, Class2, ...\")` - Batch lookup (use in Step 1)\n");
+        prompt.append("- `lookupMethod(className, methodName)` - Get method signatures\n");
+        prompt.append("- `lookupClass(className)` - Get class fields/structure\n\n");
+
+        prompt.append("**Code Generation:**\n");
+        prompt.append("- `updateTestCode(code)` - Replace entire test (use ONCE in Step 3)\n");
+        prompt.append("- `addImport(importPath)` - Add single import (rarely needed if using updateTestCode)\n\n");
+
+        prompt.append("**Validation:**\n");
+        prompt.append("- `validateCurrentTestCode()` - Check for errors after fix\n\n");
+
+        prompt.append("**Completion:**\n");
+        prompt.append("- `markMergingDone(reason)` - **MANDATORY** signal completion\n\n");
+
+        // ============================================================================
+        // SECTION 6: ANTI-PATTERNS (What NOT to Do)
+        // ============================================================================
+
+        prompt.append("---\n\n");
+        prompt.append("# ANTI-PATTERNS (Avoid These)\n\n");
+
+        prompt.append("❌ **DON'T** call `findImportForClass()` multiple times for different classes\n");
+        prompt.append("   ✅ DO batch them: `findImportForClass(\"Class1, Class2, Class3\")`\n\n");
+
+        prompt.append("❌ **DON'T** use `when(mock.voidMethod()).thenReturn(...)` for void methods\n");
+        prompt.append("   ✅ DO use `doNothing().when(mock).voidMethod()` or just don't mock it\n\n");
+
+        prompt.append("❌ **DON'T** keep using classes that `findImportForClass()` returns as CLASS_NOT_FOUND\n");
+        prompt.append("   ✅ DO remove ALL usages of missing classes from test code\n\n");
+
+        prompt.append("❌ **DON'T** just describe fixes without generating code\n");
+        prompt.append("   ✅ DO call `updateTestCode()` with complete fixed code\n\n");
+
+        prompt.append("❌ **DON'T** forget to call `markMergingDone()` at the end\n");
+        prompt.append("   ✅ DO always end with `markMergingDone(reason)`\n\n");
+
+        // ============================================================================
+        // SECTION 7: COMPLETE EXAMPLE
+        // ============================================================================
+
+        prompt.append("---\n\n");
+        prompt.append("# COMPLETE EXAMPLE\n\n");
+
+        prompt.append("```\n");
+        prompt.append("Given errors:\n");
+        prompt.append("- Cannot resolve 'RedisContainer' (5 occurrences)\n");
+        prompt.append("- Cannot resolve 'UserService' (2 occurrences)\n");
+        prompt.append("- when(mock.set(...)).thenReturn() cannot be applied to void\n\n");
+
+        prompt.append("STEP 1: Batch Investigation\n");
+        prompt.append("findImportForClass(\"RedisContainer, UserService\")\n\n");
+
+        prompt.append("Result:\n");
+        prompt.append("- RedisContainer: CLASS_NOT_FOUND\n");
+        prompt.append("- UserService: ✅ Found at com.example.UserService\n\n");
+
+        prompt.append("STEP 2: Categorize & Plan\n");
+        prompt.append("Category A (Missing): RedisContainer → Remove all usages (5 places)\n");
+        prompt.append("Category D (Import): UserService → Add import com.example.UserService\n");
+        prompt.append("Category E (Mockito): mock.set() is void → Change to doNothing().when(mock).set(...)\n\n");
+
+        prompt.append("STEP 3: Generate Complete Fix\n");
+        prompt.append("updateTestCode(\"\"\"\n");
+        prompt.append("package com.example;\n\n");
+        prompt.append("import com.example.UserService;\n");
+        prompt.append("import static org.mockito.Mockito.*;\n\n");
+        prompt.append("class MyTest {\n");
+        prompt.append("    // Removed RedisContainer field\n");
+        prompt.append("    // Removed @Container redisContainer\n");
+        prompt.append("    \n");
+        prompt.append("    @Test\n");
+        prompt.append("    void test() {\n");
+        prompt.append("        UserService service = mock(UserService.class);\n");
+        prompt.append("        doNothing().when(service).set(anyString(), anyString());\n");
+        prompt.append("        // Test logic without Redis\n");
+        prompt.append("    }\n");
+        prompt.append("}\n");
+        prompt.append("\"\"\")\n\n");
+
+        prompt.append("validateCurrentTestCode()\n");
+        prompt.append("// If passed:\n");
+        prompt.append("markMergingDone(\"Validation passed - fixed 7 errors\")\n");
+        prompt.append("```\n\n");
 
         return prompt.toString();
     }
@@ -815,14 +912,50 @@ public class AITestMergerAgent extends StreamingBaseAgent {
 
         ---
 
-        ## Workflow
+        ## REACT Workflow (Required)
 
-        1. Receive validation errors and current test code
-        2. Analyze ALL errors together - look for patterns
-        3. Investigate unknowns (lookup methods/classes, read files)
-        4. Write ONE complete fixed version with `updateTestCode()`
-        5. Validate with `validateCurrentTestCode()`
-        6. Call `recordMergedResult()` + `markMergingDone()`
+        **BEFORE Investigation:**
+
+        🤔 **Thought - Pattern Recognition**:
+        1. Read validation errors carefully
+        2. Group errors by type/pattern
+        3. Count occurrences of each pattern
+        4. Form hypotheses about root causes
+
+        🎯 **Investigation Plan**:
+        - Which unknowns require tool calls?
+        - What can I infer from error messages alone?
+        - Which classes/methods do I need to look up?
+
+        **DURING Investigation:**
+
+        Before EVERY tool call:
+        - "🤔 Thought: [Why I need this information]"
+        - "🎯 Expected: [What I'll discover]"
+
+        After EVERY tool call:
+        - "👁️ Observation: [What I found]"
+        - "🔧 Tool usage: [X/50] calls used"
+
+        Batch your tool calls:
+        - ✅ `findImportForClass("Class1, Class2, Class3")` - ONE call for multiple classes
+        - ❌ Multiple `findImportForClass("Class1")` calls - wasteful
+
+        **AFTER Investigation:**
+
+        🧠 **Root Cause Analysis**:
+        Map each error pattern to its root cause and fix approach
+
+        📋 **Complete Fix Strategy**:
+        Explain holistic fix for ALL error categories before rewriting
+
+        **FINAL Step - Rewrite:**
+
+        1. State what you're changing (category by category)
+        2. Call `updateTestCode()` ONCE with complete fixed code
+        3. Call `validateCurrentTestCode()` to verify
+        4. Report before/after error counts
+        5. Call `recordMergedResult()` + `markMergingDone()`
 
         ---
 
@@ -963,43 +1096,82 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         6. **Setup/Teardown**: Consolidate @BeforeEach/@AfterEach methods intelligently
         ```
 
-        **PHASE 1: BULK FIX - FULL REWRITE WITH AWARENESS**
+        **PHASE 1: BULK FIX - FULL REWRITE WITH REACT**
         ```
 
         When you receive validation errors, this is PHASE 1.
 
-        YOUR TASK:
-        1. **Read and understand the ENTIRE test code** (use getCurrentTestCode())
-        2. **Analyze ALL validation errors together** - look for patterns
-        3. **Rewrite the complete test code** with all fixes applied
-        4. Use updateTestCode() ONCE with the fully corrected code
+        **REACT WORKFLOW** (Required - follow this exact structure):
 
-        THINK HOLISTICALLY:
-        - Missing class? (e.g., RedisContainer not found) → Remove all usages
-        - Wrong field access pattern? (e.g., result.userId when should use getter) → Fix ALL occurrences
-        - Import issues? → Review and fix ALL imports together
-        - Ambiguous method calls? → Fix the pattern everywhere
+        **STEP 1: ANALYZE (Thought)**
 
-        PHASE 1 RESPONSE FORMAT:
+        🤔 **Pattern Recognition**:
+        - Group errors by type (imports, syntax, API misuse, missing classes)
+        - Count occurrences of each pattern
+        - Identify root causes, not just symptoms
 
+        🎯 **Investigation Hypothesis**:
+        - What do I need to verify before fixing?
+        - Which unknowns require tool calls?
+        - What can I infer from error messages alone?
+
+        **STEP 2: INVESTIGATE (Action)**
+
+        🔍 **Batch Investigation** (saves tool calls):
+        Before EVERY tool call, state:
+        - "🤔 Thought: [Why I need this tool]"
+        - "🎯 Expected: [What I'll learn]"
+
+        After EVERY tool call:
+        - "👁️ Observation: [What I discovered]"
+        - "🔧 Tool usage: [X/50] calls used, [Y] remaining"
+
+        Tools to use:
+        - findImportForClass("Class1, Class2, ...") - Batch lookup
+        - lookupClass(className) - Check structure/fields
+        - getCurrentTestCode() - See full context
+
+        **STEP 3: SYNTHESIZE (Observation + Reflection)**
+
+        👁️ **Concrete Findings** (list what you discovered):
+        - RedisContainer: CLASS_NOT_FOUND
+        - UserProfile: Has public fields userId, email (no getters)
+        - AssertJ: Needs explicit cast for type inference
+
+        🧠 **Root Cause Mapping**:
         ```
-        📊 PHASE 1: BULK FIX - Analyzing all [N] errors
-
-        Pattern Analysis:
-        1. [Error category] ([count] errors - lines X-Y)
-           Root cause: [explanation]
-           Fix: [what you'll do globally]
-
-        2. [Error category] ([count] errors - lines X-Y)
-           Root cause: [explanation]
-           Fix: [what you'll do globally]
-
-        [Continue for all error patterns]
-
-        Now performing complete rewrite with all fixes applied...
+        ERROR CATEGORY          | COUNT | ROOT CAUSE              | FIX APPROACH
+        ----------------------|-------|----------------------|-----------------------------
+        UserProfile methods   | 30    | Wrong access pattern | Change getter to field
+        RedisContainer        | 15    | Class doesn't exist  | Remove all usages
+        assertThat ambiguous  | 5     | Type inference issue | Add explicit cast
         ```
+
+        📋 **Complete Fix Strategy**:
+        [Explain your holistic approach for all categories]
+
+        **STEP 4: REWRITE (Action)**
+
+        Before calling updateTestCode(), state your plan:
+        - "Applying Fix Category 1: [description] affecting [N] lines"
+        - "Applying Fix Category 2: [description] affecting [N] lines"
+        - [Continue for all categories]
 
         Then call: updateTestCode(entirelyFixedCode)
+
+        **STEP 5: VALIDATE (Observation)**
+
+        After updateTestCode(), call validateCurrentTestCode() and report:
+        ```
+        📊 PHASE 1 RESULTS:
+        - Before: [N] errors
+        - After: [M] errors
+        - ✅ Fixed: [N-M] errors ([percentage]% resolved)
+        - 🔧 Tool usage: [X/50] calls used
+        ```
+
+        If M > 0: "⚠️ [M] errors remaining → Entering Phase 2"
+        If M = 0: "✅ All errors resolved → Calling recordMergedResult()"
 
         ⚠️ PHASE 1 RULES:
         - ❌ Don't call applySimpleFix() or applyRegexFix() in Phase 1
@@ -1126,6 +1298,45 @@ public class AITestMergerAgent extends StreamingBaseAgent {
            → If error count INCREASES: Your fixes are corrupting the code - STOP
            → Call getCurrentTestCode() to see actual state
            → If code is corrupted, acknowledge and use updateTestCode() to restore
+        ```
+
+        **STRATEGIC PIVOTING (Self-Correction)**
+        ```
+
+        Every 10 fixes in Phase 2, pause and evaluate:
+
+        📊 **Progress Check Example**:
+        - Validation 1 (initial): 50 errors
+        - Validation 2 (after 5 fixes): 35 errors → ✅ 15 fixed (30%), continue
+        - Validation 3 (after 10 fixes): 28 errors → ✅ 7 fixed (20%), continue
+        - Validation 4 (after 15 fixes): 32 errors → ❌ INCREASED by 4!
+
+        🚨 **If errors increase or plateau** (no progress after 2 validations):
+        1. STOP incremental fixes immediately
+        2. Call getCurrentTestCode() to inspect current state
+        3. Re-analyze with fresh eyes (treat as new Phase 1):
+           🤔 Thought: "My fixes are making it worse. What's the root cause I'm missing?"
+           👁️ Observation: [Review current code state]
+           🧠 Reflection: [Identify what went wrong]
+        4. Consider full rewrite: Use updateTestCode() if pattern is fundamentally wrong
+
+        🎯 **Circuit Breaker - When to Give Up**:
+        - After 2 complete validation cycles with NO progress (<5% error reduction)
+        - After 40 tool calls used (80% of budget exhausted)
+        - When same error persists after 3 different fix attempts
+        - When fixes create new errors faster than solving old ones
+
+        If circuit breaker triggers:
+        ```
+        ⚠️ Circuit Breaker Activated
+        - Attempted: [N] fix iterations
+        - Tool usage: [X/50] calls ([Y]% of budget)
+        - Unable to resolve [M] remaining errors:
+          1. [Error type]: [Reason why unfixable]
+          2. [Error type]: [Reason why unfixable]
+
+        Calling markMergingDone("Partial completion - [M] errors persist due to [reasons]")
+        ```
         ```
 
         **CODE QUALITY REVIEW (After validation passes)**

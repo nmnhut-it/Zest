@@ -261,12 +261,8 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                     planningTools.targetMethods.add(name);
                 }
 
-                // NEW: Analyze usage patterns for target methods
-                if (contextTools != null) {
-                    sendToUI("\n🔍 Analyzing how target methods are used throughout the project...\n");
-                    contextTools.analyzeMethodUsages(request.getTargetMethods());
-                    sendToUI("✅ Usage analysis complete\n\n");
-                }
+                // Usage analysis is now pre-computed in ContextGatheringHandler before AI exploration
+                // No need to call contextTools.analyzeMethodUsages() here - it's already done
 
                 // Build the planning request
                 String planRequest = buildPlanningRequest(request);
@@ -895,6 +891,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         try {
             // Use naive LLM service for analysis
             NaiveLLMService.LLMQueryParams params = new NaiveLLMService.LLMQueryParams(analysisPrompt.toString())
+                    .useLiteCodeModel()
                     .withMaxTokens(500)
                     .withTemperature(0.2); // Low temperature for factual extraction
 

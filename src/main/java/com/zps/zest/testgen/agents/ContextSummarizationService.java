@@ -263,6 +263,7 @@ public class ContextSummarizationService {
             }
 
             NaiveLLMService.LLMQueryParams params = new NaiveLLMService.LLMQueryParams(fullPrompt)
+                    .useLiteCodeModel()
                     .withMaxTokens(maxTokens)
                     .withTemperature(0.3);
 
@@ -317,6 +318,7 @@ public class ContextSummarizationService {
 
         try {
             NaiveLLMService.LLMQueryParams params = new NaiveLLMService.LLMQueryParams(prompt)
+                    .useLiteCodeModel()
                     .withMaxTokens(500)
                     .withTemperature(0.3);
 
@@ -384,6 +386,7 @@ public class ContextSummarizationService {
 
         try {
             NaiveLLMService.LLMQueryParams params = new NaiveLLMService.LLMQueryParams(prompt)
+                    .useLiteCodeModel()
                     .withMaxTokens(300)
                     .withTemperature(0.3);
 

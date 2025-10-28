@@ -237,7 +237,7 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
                     .user(username != null && !username.isEmpty() ? username : null)
                     .logRequests(true)
                     .logResponses(true)
-                    .parallelToolCalls(false)
+                    .parallelToolCalls(true)
                     .timeout(Duration.ofSeconds(1200))
                     .httpClientBuilder(httpClientBuilder)
                     ;

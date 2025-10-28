@@ -100,16 +100,25 @@ public class ContextAgent extends StreamingBaseAgent {
     }
 
     /**
-     * Load system prompt from markdown file.
+     * Load system prompt from plugin resources (packaged in JAR).
      */
     private static String loadSystemPrompt(Project project) {
         try {
-            File promptFile = new File(project.getBasePath(), "prompts/context-agent.md");
-            if (promptFile.exists()) {
-                return Files.readString(promptFile.toPath());
+            // Load from plugin resources (works in both dev and deployed JAR)
+            java.io.InputStream resourceStream = ContextAgent.class.getClassLoader()
+                .getResourceAsStream("prompts/context-agent.md");
+
+            if (resourceStream != null) {
+                String content = new String(resourceStream.readAllBytes(),
+                                           java.nio.charset.StandardCharsets.UTF_8);
+                resourceStream.close();
+                LOG.info("Loaded context-agent prompt from resources (" + content.length() + " chars)");
+                return content;
+            } else {
+                LOG.warn("Resource prompts/context-agent.md not found in plugin JAR, using fallback");
             }
         } catch (Exception e) {
-            LOG.warn("Failed to load prompt from file, using fallback", e);
+            LOG.warn("Failed to load prompt from resources, using fallback", e);
         }
 
         // Fallback to embedded minimal prompt
@@ -148,12 +157,13 @@ public class ContextAgent extends StreamingBaseAgent {
             try {
                 LOG.debug("Starting context gathering with LangChain4j orchestration");
 
-                // Reset tools for new session
+                // Build the context request FIRST (includes pre-computed data from ContextGatheringHandler)
+                String contextRequest = buildContextRequest(request);
+
+                // Then reset tools for new session (preserves pre-computed data in the prompt already built)
+                // Note: Pre-computed usage analysis, framework, and dependencies are already in contextRequest
                 contextTools.reset();
                 contextTools.setContextUpdateCallback(updateCallback);
-
-                // Build the context request
-                String contextRequest = buildContextRequest(request);
 
                 // Send initial request to UI
                 sendToUI("🔍 Gathering context for test generation...\n\n");
@@ -241,47 +251,103 @@ public class ContextAgent extends StreamingBaseAgent {
 
     /**
      * Build the initial context request with complete target class information.
+     * Follows LLM best practices: clear hierarchy, pre-computed data first, task instructions last.
      */
     private String buildContextRequest(TestGenerationRequest request) {
         StringBuilder prompt = new StringBuilder();
-        prompt.append("**TEST GENERATION CONTEXT REQUEST**\n");
-        prompt.append("```\n");
-        prompt.append("Tool budget: ").append(maxToolsPerResponse).append(" calls per response\n");
-        prompt.append("```\n\n");
+
+        // SECTION 1: Task Configuration
+        appendTaskConfiguration(prompt);
+
+        // SECTION 2: Pre-Computed Analysis (CRITICAL - what we already know)
+        appendPreComputedAnalysis(prompt, request);
+
+        // SECTION 3: Target Code Information
+        appendTargetInformation(prompt, request);
+
+        // SECTION 4: User-Provided Context
+        appendUserContext(prompt, request);
+
+        // SECTION 5: Existing Context Notes
+        appendExistingFindings(prompt);
+
+        // SECTION 6: Task Instructions
+        appendTaskInstructions(prompt, request);
+
+        return prompt.toString();
+    }
+
+    /**
+     * Section 1: Task configuration and constraints
+     */
+    private void appendTaskConfiguration(StringBuilder prompt) {
+        prompt.append("## Task Configuration\n\n");
+        prompt.append("**Tool Budget**: ").append(maxToolsPerResponse).append(" calls per response\n\n");
+        prompt.append("---\n\n");
+    }
+
+    /**
+     * Section 2: Pre-computed analysis - the most valuable context
+     */
+    private void appendPreComputedAnalysis(StringBuilder prompt, TestGenerationRequest request) {
+        prompt.append("## Pre-Computed Analysis\n\n");
+        prompt.append("*The following context has been pre-analyzed. Build on this foundation, don't rediscover it.*\n\n");
+
+        // Method usage analysis (MOST CRITICAL)
+        Map<String, com.zps.zest.testgen.analysis.UsageContext> methodUsages = contextTools.getMethodUsages();
+        if (!methodUsages.isEmpty()) {
+            prompt.append("### Method Usage Patterns\n\n");
+            for (Map.Entry<String, com.zps.zest.testgen.analysis.UsageContext> entry : methodUsages.entrySet()) {
+                com.zps.zest.testgen.analysis.UsageContext usageContext = entry.getValue();
+                prompt.append(usageContext.formatForLLM());
+                prompt.append("\n");
+            }
+        }
+
+        // Framework detection
+        String framework = contextTools.getFrameworkInfo();
+        if (framework != null && !framework.isEmpty() && !framework.equals("Unknown")) {
+            prompt.append("### Detected Testing Framework\n\n");
+            prompt.append("**Framework**: ").append(framework).append("\n\n");
+        }
+
+        // Project dependencies (structured)
+        String dependencies = contextTools.getProjectDependencies();
+        if (dependencies != null && !dependencies.isEmpty()) {
+            prompt.append("### Project Dependencies\n\n");
+            prompt.append(dependencies);
+            prompt.append("\n");
+        }
+
+        prompt.append("---\n\n");
+    }
+
+    /**
+     * Section 3: Target code information
+     */
+    private void appendTargetInformation(StringBuilder prompt, TestGenerationRequest request) {
+        prompt.append("## Target Code\n\n");
 
         String targetFilePath = request.getTargetFile().getVirtualFile().getPath();
 
-        // Target class analysis section
+        // Target class analysis
         String targetClassAnalysis = getOrAnalyzeTargetClass(targetFilePath);
         if (targetClassAnalysis != null && !targetClassAnalysis.trim().isEmpty()) {
-            prompt.append("**TARGET CLASS ANALYSIS**\n");
+            prompt.append("### Target Class Analysis\n\n");
             prompt.append("```java\n");
             prompt.append(targetClassAnalysis);
             prompt.append("\n```\n\n");
             prompt.append("*Note: Target class already analyzed - do not re-analyze.*\n\n");
         }
 
-        // Target methods section
+        // Target methods
         if (!request.getTargetMethods().isEmpty()) {
-            prompt.append("**TARGET METHODS**\n");
-            prompt.append("```\n");
+            prompt.append("### Target Methods to Test\n\n");
             java.util.List<String> methodNames = new java.util.ArrayList<>();
             for (com.intellij.psi.PsiMethod method : request.getTargetMethods()) {
                 methodNames.add(method.getName());
             }
-            prompt.append("Focus on: ").append(String.join(", ", methodNames));
-            prompt.append("\n```\n\n");
-        }
-
-        // User-provided files section
-        appendUserProvidedFiles(prompt, request.getUserProvidedFiles(), targetFilePath);
-
-        // Existing context notes section
-        appendContextNotes(prompt, contextTools.getContextNotes());
-
-        // Additional context
-        if (request.hasUserProvidedContext()) {
-            prompt.append("*User provided additional context in chat history - prioritize it.*\n\n");
+            prompt.append("Focus on: **").append(String.join(", ", methodNames)).append("**\n\n");
         }
 
         prompt.append("**Target file**: `").append(targetFilePath).append("`\n");
@@ -290,10 +356,72 @@ public class ContextAgent extends StreamingBaseAgent {
         }
 
         prompt.append("\n---\n\n");
-        prompt.append("Focus on understanding how target methods are used in real scenarios. " +
-                     "Gather context needed for comprehensive test generation.");
+    }
 
-        return prompt.toString();
+    /**
+     * Section 4: User-provided context (files, code snippets)
+     */
+    private void appendUserContext(StringBuilder prompt, TestGenerationRequest request) {
+        String targetFilePath = request.getTargetFile().getVirtualFile().getPath();
+        boolean hasUserFiles = request.getUserProvidedFiles() != null && !request.getUserProvidedFiles().isEmpty();
+        boolean hasUserContext = request.hasUserProvidedContext();
+
+        if (hasUserFiles || hasUserContext) {
+            prompt.append("## User-Provided Context\n\n");
+
+            if (hasUserContext) {
+                prompt.append("*User provided additional context in chat history - prioritize it.*\n\n");
+            }
+
+            if (hasUserFiles) {
+                appendUserProvidedFiles(prompt, request.getUserProvidedFiles(), targetFilePath);
+            }
+
+            prompt.append("---\n\n");
+        }
+    }
+
+    /**
+     * Section 5: Existing context notes and findings
+     */
+    private void appendExistingFindings(StringBuilder prompt) {
+        java.util.List<String> contextNotes = contextTools.getContextNotes();
+        if (!contextNotes.isEmpty()) {
+            prompt.append("## Existing Context Notes\n\n");
+            appendContextNotes(prompt, contextNotes);
+            prompt.append("---\n\n");
+        }
+    }
+
+    /**
+     * Section 6: Task instructions - what the AI should do
+     */
+    private void appendTaskInstructions(StringBuilder prompt, TestGenerationRequest request) {
+        prompt.append("## Your Task\n\n");
+        prompt.append("**Objective**: Gather additional context needed for comprehensive test generation.\n\n");
+        prompt.append("**Approach**:\n");
+        prompt.append("1. Review the pre-computed analysis above\n");
+        prompt.append("2. Identify gaps in understanding (referenced files, edge cases, integration patterns)\n");
+        prompt.append("3. Build an exploration plan focusing on what's NOT yet known\n");
+        prompt.append("4. Execute systematically and take structured notes\n\n");
+        prompt.append("Focus on understanding how target methods are used in real scenarios. ");
+        prompt.append("Build on the pre-computed analysis - don't rediscover what's already known.\n\n");
+
+        // Final task restatement with specific target methods
+        prompt.append("---\n\n");
+        prompt.append("**Remember your specific goal**: ");
+
+        // Include target method names
+        if (!request.getTargetMethods().isEmpty()) {
+            java.util.List<String> methodNames = new java.util.ArrayList<>();
+            for (com.intellij.psi.PsiMethod method : request.getTargetMethods()) {
+                methodNames.add(method.getName());
+            }
+            prompt.append("Gather context for methods: **").append(String.join(", ", methodNames)).append("**. ");
+        }
+
+        prompt.append("Focus on **gaps in the pre-computed analysis** above - find what's NOT yet known. ");
+        prompt.append("Call `markContextCollectionDone()` when you have sufficient context to test these methods without assumptions.\n");
     }
 
     private String getOrAnalyzeTargetClass(String targetFilePath) {
@@ -310,18 +438,17 @@ public class ContextAgent extends StreamingBaseAgent {
             return;
         }
 
-        prompt.append("**USER PROVIDED FILES**\n");
-        prompt.append("```\n");
+        prompt.append("### User-Provided Files\n\n");
         for (String filePath : userProvidedFiles) {
             if (filePath.equals(targetFilePath)) {
                 continue; // Skip target file as it's already analyzed
             }
-            prompt.append("File: ").append(extractFileName(filePath)).append("\n");
+            prompt.append("**File**: `").append(extractFileName(filePath)).append("`\n\n");
+            prompt.append("```\n");
             contextTools.readFile(filePath);
             prompt.append(contextTools.readFiles.get(filePath));
-            prompt.append("\n---\n");
+            prompt.append("\n```\n\n");
         }
-        prompt.append("```\n");
         prompt.append("*Note: Files above provided by user - do not re-read.*\n\n");
     }
 
@@ -330,12 +457,10 @@ public class ContextAgent extends StreamingBaseAgent {
             return;
         }
 
-        prompt.append("**EXISTING CONTEXT NOTES**\n");
-        prompt.append("```\n");
         for (String note : contextNotes) {
             prompt.append("- ").append(note).append("\n");
         }
-        prompt.append("```\n\n");
+        prompt.append("\n");
     }
 
     private String extractFileName(String filePath) {

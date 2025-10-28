@@ -450,26 +450,19 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
             return
         }
 
-        object : com.intellij.openapi.progress.Task.Backgroundable(project, "Saving Test File", false) {
-            private var savedFile: VirtualFile? = null
-
-            override fun run(indicator: com.intellij.openapi.progress.ProgressIndicator) {
-                indicator.text = "Writing test file..."
-
-                ApplicationManager.getApplication().runWriteAction {
-                    savedFile = createOrUpdateTestFile(mergedTest)
+        // VFS operations must run on EDT with WriteAction
+        ApplicationManager.getApplication().invokeLater {
+            try {
+                val savedFile = ApplicationManager.getApplication().runWriteAction<VirtualFile?> {
+                    createOrUpdateTestFile(mergedTest)
                 }
-            }
 
-            override fun onSuccess() {
                 statusLabel.text = "✅ Saved: ${mergedTest.fileName}"
                 savedFile?.let { FileEditorManager.getInstance(project).openFile(it, true) }
-            }
-
-            override fun onThrowable(error: Throwable) {
+            } catch (error: Throwable) {
                 Messages.showErrorDialog(project, "Failed to write test file:\n${error.message}", "Write Error")
             }
-        }.queue()
+        }
     }
 
     /**

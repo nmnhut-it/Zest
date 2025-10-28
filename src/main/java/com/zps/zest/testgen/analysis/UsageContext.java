@@ -79,7 +79,8 @@ public class UsageContext {
         }
 
         StringBuilder formatted = new StringBuilder();
-        formatted.append("=== USAGE ANALYSIS FOR ").append(targetName).append(" ===\n\n");
+        formatted.append("**USAGE ANALYSIS FOR ").append(targetName).append("**\n");
+        formatted.append("```\n");
 
         // Call sites
         if (!callSites.isEmpty()) {
@@ -87,10 +88,20 @@ public class UsageContext {
             int limit = Math.min(5, callSites.size()); // Limit to first 5 for brevity
             for (int i = 0; i < limit; i++) {
                 CallSite site = callSites.get(i);
-                formatted.append(String.format("%d. Called from %s\n", i + 1, site.getCallerDescription()));
+                formatted.append(String.format("\n%d. Called from %s\n", i + 1, site.getCallerDescription()));
                 formatted.append(String.format("   Context: %s\n", site.getContextDescription()));
+
+                // Show code snippet if available
+                if (site.getCodeSnippet() != null && !site.getCodeSnippet().isEmpty()) {
+                    formatted.append("   Code:\n");
+                    String[] lines = site.getCodeSnippet().split("\n");
+                    for (String line : lines) {
+                        formatted.append("      ").append(line).append("\n");
+                    }
+                }
+
                 if (site.hasErrorHandling()) {
-                    formatted.append("   ⚠️ Wrapped in error handling: ").append(site.getErrorHandlingType()).append("\n");
+                    formatted.append("   ⚠️ Error handling: ").append(site.getErrorHandlingType()).append("\n");
                 }
                 formatted.append("\n");
             }
@@ -125,6 +136,7 @@ public class UsageContext {
             formatted.append(integrationContext.formatForLLM()).append("\n");
         }
 
+        formatted.append("```\n");
         return formatted.toString();
     }
 

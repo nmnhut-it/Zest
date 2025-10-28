@@ -59,9 +59,12 @@ data class ScenarioDisplayData(
     val description: String,
     val priority: Priority,
     val category: String,
+    val prerequisites: List<String> = emptyList(),
     val setupSteps: List<String> = emptyList(),
     val executionSteps: List<String> = emptyList(),
     val assertions: List<String> = emptyList(),
+    val teardownSteps: List<String> = emptyList(),
+    val isolationStrategy: String = "Independent",
     val inputs: List<String> = emptyList(),  // Test input data for the scenario
     val expectedOutcome: String = "",  // Expected result/assertion description
     val expectedComplexity: String = "Medium",
@@ -122,6 +125,10 @@ data class ScenarioDisplayData(
                     TestPlan.TestScenario.Priority.LOW -> Priority.LOW
                 },
                 category = scenario.type.displayName,  // Use type as category
+                prerequisites = scenario.prerequisites,
+                setupSteps = scenario.setupSteps,
+                teardownSteps = scenario.teardownSteps,
+                isolationStrategy = scenario.isolationStrategy.description,
                 inputs = scenario.inputs,  // Pass test inputs
                 expectedOutcome = scenario.expectedOutcome  // Pass expected outcome
             )

@@ -27,6 +27,8 @@ class LightweightChatBrowser(
     private val browser: JBCefBrowser
     private var jsQuery: JBCefJSQuery? = null
     private var jsBridge: ChatJavaScriptBridge? = null
+    @Volatile
+    private var isDisposed = false
 
     init {
         LOG.info("Creating lightweight chat browser for project: ${project.name}")
@@ -85,21 +87,48 @@ class LightweightChatBrowser(
     }
 
     fun loadURL(url: String) {
+        if (isDisposed) {
+            LOG.warn("Attempted to load URL on disposed browser: $url")
+            return
+        }
         LOG.info("Loading URL in chat browser: $url")
         browser.loadURL(url)
     }
 
     fun executeJavaScript(script: String) {
+        if (isDisposed) {
+            LOG.warn("Attempted to execute JavaScript on disposed browser")
+            return
+        }
         browser.cefBrowser.executeJavaScript(script, browser.cefBrowser.url, 0)
     }
 
-    fun getComponent(): JComponent = browser.component
+    fun getComponent(): JComponent? {
+        if (isDisposed) {
+            LOG.warn("Attempted to get component from disposed browser")
+            return null
+        }
+        return browser.component
+    }
 
-    fun getCefBrowser(): CefBrowser = browser.cefBrowser
+    fun getCefBrowser(): CefBrowser? {
+        if (isDisposed) {
+            LOG.warn("Attempted to get CEF browser from disposed instance")
+            return null
+        }
+        return browser.cefBrowser
+    }
 
     override fun dispose() {
-        LOG.info("Disposing lightweight chat browser")
+        if (isDisposed) {
+            LOG.warn("LightweightChatBrowser already disposed, skipping")
+            return
+        }
 
+        LOG.info("Disposing lightweight chat browser")
+        isDisposed = true
+
+        // Dispose jsQuery first
         jsQuery?.let {
             try {
                 Disposer.dispose(it)
@@ -108,7 +137,9 @@ class LightweightChatBrowser(
             }
         }
         jsQuery = null
+        jsBridge = null
 
+        // Dispose browser
         try {
             browser.cefBrowser.loadURL("about:blank")
             Thread.sleep(100)
@@ -123,6 +154,11 @@ class LightweightChatBrowser(
 
         LOG.info("Lightweight chat browser disposed")
     }
+
+    /**
+     * Check if this browser instance has been disposed
+     */
+    fun isDisposed(): Boolean = isDisposed
 
     /**
      * Minimal JavaScript bridge for chat-specific actions only

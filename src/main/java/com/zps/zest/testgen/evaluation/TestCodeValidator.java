@@ -41,21 +41,61 @@ public class TestCodeValidator {
      * @return Number of compilation errors, or -1 if validation failed/skipped
      */
     public static int countCompilationErrors(@NotNull Project project, @NotNull String testCode, @NotNull String className) {
+        ValidationResult result = validate(project, testCode, className);
+        return result.getErrorCount();
+    }
+
+    /**
+     * Check if test code compiles successfully (no errors).
+     *
+     * @return true if no compilation errors, false otherwise
+     */
+    public static boolean testCompiles(@NotNull Project project, @NotNull String testCode, @NotNull String className) {
+        ValidationResult result = validate(project, testCode, className);
+        return result.compiles();
+    }
+
+    /**
+     * Validation result with details
+     */
+    public static class ValidationResult {
+        private final boolean compiles;
+        private final int errorCount;
+        private final List<String> errors;
+
+        public ValidationResult(boolean compiles, int errorCount, List<String> errors) {
+            this.compiles = compiles;
+            this.errorCount = errorCount;
+            this.errors = errors != null ? errors : Collections.emptyList();
+        }
+
+        public boolean compiles() {
+            return compiles;
+        }
+
+        public int getErrorCount() {
+            return errorCount;
+        }
+
+        public List<String> getErrors() {
+            return errors;
+        }
+    }
+
+    /**
+     * Get detailed validation result with error messages
+     */
+    public static ValidationResult validate(@NotNull Project project, @NotNull String testCode, @NotNull String className) {
         try {
             FileType javaFileType = FileTypeManager.getInstance().getFileTypeByExtension("java");
-
-            // Find test source root for proper classpath context
             VirtualFile testSourceRoot = findTestSourceRoot(project);
 
-            // Create virtual file with test source root as parent
-            // This ensures IntelliJ uses test classpath (with JUnit, Mockito, etc.)
             LightVirtualFile virtualFile = new LightVirtualFile(
                     className + ".java",
                     javaFileType,
                     testCode
             );
 
-            // Set the parent to test source root for proper scope resolution
             if (testSourceRoot != null) {
                 virtualFile.setOriginalFile(testSourceRoot);
             }
@@ -67,7 +107,7 @@ public class TestCodeValidator {
                         @Override
                         public void run(@NotNull ProgressIndicator indicator) {
                             try {
-                                indicator.setText("Analyzing test code for compilation errors...");
+                                indicator.setText("Analyzing test code for errors...");
                                 indicator.setIndeterminate(true);
 
                                 CodeSmellDetector detector = CodeSmellDetector.getInstance(project);
@@ -86,54 +126,42 @@ public class TestCodeValidator {
                     }
             );
 
-            // Wait for result with timeout
-            List<CodeSmellInfo> errors = future.get(10, TimeUnit.SECONDS);
-            return errors.size();
+            List<CodeSmellInfo> errorInfos = future.get(300, TimeUnit.SECONDS);
+
+            // Format error messages with Rust-like code context
+            List<String> errorMessages = new java.util.ArrayList<>();
+            String[] codeLines = testCode.split("\n");
+
+            for (CodeSmellInfo issue : errorInfos) {
+                int lineNum = issue.getStartLine();
+                String errorMsg = issue.getDescription();
+
+                // Build Rust-like error with code context
+                StringBuilder errorBlock = new StringBuilder();
+                errorBlock.append("Error at Line ").append(lineNum).append(":\n");
+
+                // Show 2 lines before, error line, 2 lines after
+                int startLine = Math.max(0, lineNum - 3);
+                int endLine = Math.min(codeLines.length, lineNum + 2);
+
+                for (int i = startLine; i < endLine; i++) {
+                    String linePrefix = (i == lineNum - 1) ? " →  " : "    ";
+                    errorBlock.append(String.format("%s%4d | %s\n", linePrefix, i + 1, codeLines[i]));
+                }
+
+                errorBlock.append("         |\n");
+                errorBlock.append("         | ").append(errorMsg).append("\n");
+
+                errorMessages.add(errorBlock.toString());
+            }
+
+            boolean compiles = errorInfos.isEmpty();
+            return new ValidationResult(compiles, errorInfos.size(), errorMessages);
 
         } catch (Exception e) {
             LOG.warn("Error validating test code", e);
-            return -1;  // Validation failed/skipped
+            return new ValidationResult(false, -1, Collections.singletonList("Validation failed: " + e.getMessage()));
         }
-    }
-
-    /**
-     * Check if test code compiles successfully (no errors).
-     *
-     * @return true if no compilation errors, false otherwise
-     */
-    public static boolean testCompiles(@NotNull Project project, @NotNull String testCode, @NotNull String className) {
-        int errorCount = countCompilationErrors(project, testCode, className);
-        return errorCount == 0;
-    }
-
-    /**
-     * Validation result with details
-     */
-    public static class ValidationResult {
-        private final boolean compiles;
-        private final int errorCount;
-
-        public ValidationResult(boolean compiles, int errorCount) {
-            this.compiles = compiles;
-            this.errorCount = errorCount;
-        }
-
-        public boolean compiles() {
-            return compiles;
-        }
-
-        public int getErrorCount() {
-            return errorCount;
-        }
-    }
-
-    /**
-     * Get detailed validation result
-     */
-    public static ValidationResult validate(@NotNull Project project, @NotNull String testCode, @NotNull String className) {
-        int errorCount = countCompilationErrors(project, testCode, className);
-        boolean compiles = errorCount == 0;
-        return new ValidationResult(compiles, errorCount);
     }
 
     /**

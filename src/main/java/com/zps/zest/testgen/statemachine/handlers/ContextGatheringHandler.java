@@ -176,15 +176,8 @@ public class ContextGatheringHandler extends AbstractStateHandler {
 
             LOG.info("Analyzing target class: " + targetFilePath);
 
-            // Create AnalyzeClassTool and analyze the target class
-            AnalyzeClassTool analyzeClassTool = new AnalyzeClassTool(
-                getProject(stateMachine),
-                contextTools.getAnalyzedClasses() // Use ContextAgent's map for proper tracking
-            );
-            String analysis = analyzeClassTool.analyzeClass(targetFilePath);
-
-            // Target class analysis is stored in contextTools.analyzedClasses for CoordinatorAgent access
-            contextTools.getAnalyzedClasses().put(targetFilePath, analysis);
+            // Analyze the target class using ContextAgent's tool (already properly initialized)
+            String analysis = contextTools.analyzeClass(targetFilePath);
 
             // Get actual target methods from the request (PsiMethod objects)
             java.util.List<String> targetMethodNames = new java.util.ArrayList<>();
@@ -270,15 +263,8 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                             if (filePath.equals(targetFilePath)) {
                                 LOG.info("User provided target file - analyzing with AnalyzeClassTool");
 
-                                // Use AnalyzeClassTool for proper analysis
-                                AnalyzeClassTool analyzeClassTool = new AnalyzeClassTool(
-                                    getProject(stateMachine),
-                                    contextTools.getAnalyzedClasses()
-                                );
-                                String analysis = analyzeClassTool.analyzeClass(targetFilePath);
-
-                                // Target class analysis stored in contextTools.analyzedClasses for CoordinatorAgent access
-                                contextTools.getAnalyzedClasses().put(targetFilePath, analysis);
+                                // Analyze using ContextAgent's tool (already properly initialized)
+                                String analysis = contextTools.analyzeClass(targetFilePath);
 
                                 // Get actual target methods from the request (PsiMethod objects)
                                 java.util.List<String> targetMethodNames = new java.util.ArrayList<>();

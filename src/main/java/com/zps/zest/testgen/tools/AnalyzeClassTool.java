@@ -20,10 +20,14 @@ import java.util.Map;
 public class AnalyzeClassTool {
     private final Project project;
     private final Map<String, String> analyzedClasses;
+    private final Map<String, String> pathToFQN; // Lightweight mapping: file path -> FQN
 
-    public AnalyzeClassTool(@NotNull Project project, @NotNull Map<String, String> analyzedClasses) {
+    public AnalyzeClassTool(@NotNull Project project,
+                           @NotNull Map<String, String> analyzedClasses,
+                           @NotNull Map<String, String> pathToFQN) {
         this.project = project;
         this.analyzedClasses = analyzedClasses;
+        this.pathToFQN = pathToFQN;
     }
 
     @Tool("""
@@ -35,20 +39,22 @@ public class AnalyzeClassTool {
         - Annotations and their parameters
         - Inner classes and enums
         - Direct dependencies on other classes
-        
+
         Parameters:
         - filePathOrClassName: Can be one of:
           * Fully qualified name: "com.example.service.UserService" (preferred for precision)
           * Full file path: "/src/main/java/com/example/UserService.java"
           * Simple class name: "UserService" (may find multiple matches)
-          
+          * INNER CLASS: Use $ separator: "com.example.TestPlan$TestScenario" (NOT dot notation)
+
         The tool tries multiple resolution strategies in order of specificity.
-        
+
         Returns: Detailed analysis of the class structure or an error message if the class cannot be found.
-        
+
         Example usage:
-        - analyzeClass("com.example.service.UserService") (FQN - most reliable)
-        - analyzeClass("/src/main/java/com/example/UserService.java") (file path)  
+        - analyzeClass("com.example.service.UserService") (outer class - FQN most reliable)
+        - analyzeClass("com.example.TestPlan$TestScenario") (inner class - use $ not .)
+        - analyzeClass("/src/main/java/com/example/UserService.java") (file path)
         - analyzeClass("UserService") (simple name - fallback)
         """)
     public String analyzeClass(String filePathOrClassName) {
@@ -73,13 +79,23 @@ public class AnalyzeClassTool {
                 PsiClass targetClass = classes[0];
                 String contextInfo = ClassAnalyzer.collectClassContext(targetClass);
 
-                // Store the analyzed class with its canonical path
+                // Store by fully qualified class name (primary key for lookups)
                 String canonicalPath = psiFile.getVirtualFile().getPath();
-                analyzedClasses.put(canonicalPath, contextInfo);
+                String qualifiedName = targetClass.getQualifiedName();
 
-                return String.format("Analyzed class '%s' from file: %s\n\n%s",
+                if (qualifiedName != null && !qualifiedName.isEmpty()) {
+                    // Store content by FQN
+                    analyzedClasses.put(qualifiedName, contextInfo);
+                    // Maintain lightweight path→FQN mapping for file path lookups
+                    pathToFQN.put(canonicalPath, qualifiedName);
+                } else {
+                    // Fallback to file path if no FQN available
+                    analyzedClasses.put(canonicalPath, contextInfo);
+                }
+
+                return String.format("Analyzed class '%s' (FQN: %s)\n\n%s",
                         targetClass.getName(),
-                        canonicalPath,
+                        qualifiedName != null ? qualifiedName : "from file",
                         contextInfo);
                         
             } catch (Exception e) {

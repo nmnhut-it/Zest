@@ -87,13 +87,17 @@ public class UsageAnalyzer {
                 return;
             }
 
+            // Extract code snippet around the call site (3 lines before, 5 lines after)
+            String codeSnippet = extractCodeSnippet(callElement, 3, 5);
+
             // Build call site information
             CallSite.Builder callSiteBuilder = new CallSite.Builder()
                     .callerClass(callerClass.getName() != null ? callerClass.getName() : "Unknown")
                     .callerMethod(callerMethod.getName())
                     .filePath(callElement.getContainingFile().getVirtualFile().getPath())
                     .lineNumber(getLineNumber(callElement))
-                    .context(determineCallContext(callerClass, callerMethod));
+                    .context(determineCallContext(callerClass, callerMethod))
+                    .codeSnippet(codeSnippet);
 
             // Check for error handling around this call
             ErrorHandlingInfo errorInfo = detectErrorHandling(callElement);
@@ -138,6 +142,55 @@ public class UsageAnalyzer {
     }
 
     /**
+     * Extract code snippet around the call site showing context.
+     * Returns code with N lines before and M lines after the call.
+     */
+    @NotNull
+    private String extractCodeSnippet(@NotNull PsiElement callElement, int linesBefore, int linesAfter) {
+        try {
+            PsiFile file = callElement.getContainingFile();
+            if (file == null) return "";
+
+            String fileText = file.getText();
+            int callOffset = callElement.getTextOffset();
+
+            // Find start of line containing the call
+            int lineStart = callOffset;
+            while (lineStart > 0 && fileText.charAt(lineStart - 1) != '\n') {
+                lineStart--;
+            }
+
+            // Go back N lines
+            for (int i = 0; i < linesBefore && lineStart > 0; i++) {
+                lineStart--;
+                while (lineStart > 0 && fileText.charAt(lineStart - 1) != '\n') {
+                    lineStart--;
+                }
+            }
+
+            // Find end - go forward M lines from call line
+            int lineEnd = callOffset;
+            while (lineEnd < fileText.length() && fileText.charAt(lineEnd) != '\n') {
+                lineEnd++;
+            }
+
+            for (int i = 0; i < linesAfter && lineEnd < fileText.length(); i++) {
+                lineEnd++;
+                while (lineEnd < fileText.length() && fileText.charAt(lineEnd) != '\n') {
+                    lineEnd++;
+                }
+            }
+
+            String snippet = fileText.substring(lineStart, Math.min(lineEnd, fileText.length()));
+            return snippet.trim();
+
+        } catch (Exception e) {
+            LOG.debug("Failed to extract code snippet: " + e.getMessage());
+            return "";
+        }
+    }
+
+    /**
      * Determine the context/role of the calling code.
      */
     @NotNull
@@ -178,6 +231,7 @@ public class UsageAnalyzer {
 
     /**
      * Detect error handling patterns around a method call.
+     * Returns specific exception types being caught.
      */
     @Nullable
     private ErrorHandlingInfo detectErrorHandling(@NotNull PsiElement callElement) {
@@ -186,11 +240,21 @@ public class UsageAnalyzer {
         if (tryStatement != null) {
             PsiCatchSection[] catchSections = tryStatement.getCatchSections();
             if (catchSections.length > 0) {
-                PsiParameter catchParam = catchSections[0].getParameter();
-                if (catchParam != null) {
-                    String exceptionType = catchParam.getType().getPresentableText();
-                    return new ErrorHandlingInfo("try-catch", exceptionType);
+                // Collect ALL caught exception types (there may be multiple catch blocks)
+                java.util.List<String> exceptionTypes = new java.util.ArrayList<>();
+                for (PsiCatchSection catchSection : catchSections) {
+                    PsiParameter catchParam = catchSection.getParameter();
+                    if (catchParam != null) {
+                        // Get the actual exception type name
+                        PsiType type = catchParam.getType();
+                        String typeName = type.getPresentableText();
+                        exceptionTypes.add(typeName);
+                    }
                 }
+
+                // Combine all exception types with " | " separator
+                String allTypes = String.join(" | ", exceptionTypes);
+                return new ErrorHandlingInfo("try-catch", allTypes);
             }
         }
 
@@ -331,14 +395,24 @@ public class UsageAnalyzer {
 
     /**
      * Check if a modifier list has any of the specified annotations.
+     * Checks both fully qualified names and simple names for better detection.
      */
     private boolean hasAnnotation(@NotNull PsiModifierList modifiers, String... annotationNames) {
         for (String annotationName : annotationNames) {
             PsiAnnotation[] annotations = modifiers.getAnnotations();
             for (PsiAnnotation annotation : annotations) {
                 String qualifiedName = annotation.getQualifiedName();
-                if (qualifiedName != null && (qualifiedName.endsWith("." + annotationName) || qualifiedName.equals(annotationName))) {
-                    return true;
+                if (qualifiedName != null) {
+                    // Check fully qualified name
+                    if (qualifiedName.equals(annotationName) || qualifiedName.endsWith("." + annotationName)) {
+                        return true;
+                    }
+
+                    // Also check simple name (after last dot)
+                    String simpleName = qualifiedName.substring(qualifiedName.lastIndexOf('.') + 1);
+                    if (simpleName.equals(annotationName)) {
+                        return true;
+                    }
                 }
             }
         }

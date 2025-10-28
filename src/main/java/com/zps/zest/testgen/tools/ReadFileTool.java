@@ -323,23 +323,25 @@ public class ReadFileTool {
     private VirtualFile findFileByPathOrFqn(String pathOrFqn) {
         // First normalize path separators for Windows/Unix compatibility
         String normalizedPath = pathOrFqn.replace('\\', '/');
-        
+
+        // FIRST: Try project root directory (for pom.xml, build.gradle, README.md, etc.)
+        String basePath = project.getBasePath();
+        if (basePath != null) {
+            basePath = basePath.replace('\\', '/');
+            VirtualFile file = LocalFileSystem.getInstance().findFileByPath(basePath + "/" + normalizedPath);
+            if (file != null && file.exists()) {
+                return file;
+            }
+        }
+
         // Try direct absolute path
         VirtualFile file = LocalFileSystem.getInstance().findFileByPath(normalizedPath);
         if (file != null && file.exists()) {
             return file;
         }
 
-        // Try relative to project base path
-        String basePath = project.getBasePath();
+        // Try relative to project base path (redundant check but keeping for safety)
         if (basePath != null) {
-            basePath = basePath.replace('\\', '/');
-            
-            // Try as relative path from project root
-            file = LocalFileSystem.getInstance().findFileByPath(basePath + "/" + normalizedPath);
-            if (file != null && file.exists()) {
-                return file;
-            }
 
             // Try without leading slash if present
             if (normalizedPath.startsWith("/")) {

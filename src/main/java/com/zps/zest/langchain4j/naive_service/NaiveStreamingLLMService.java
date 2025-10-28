@@ -37,7 +37,11 @@ public final class NaiveStreamingLLMService {
     
     private final Project project;
     private final ConfigurationManager config;
-    
+
+    // Cancellation support
+    private volatile boolean cancelled = false;
+    private final java.util.Set<HttpURLConnection> activeConnections = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     // Configuration constants
     private static final int CONNECTION_TIMEOUT_MS = 30_000;
     private static final int READ_TIMEOUT_MS = 300_000; // Longer for streaming
@@ -249,6 +253,11 @@ public final class NaiveStreamingLLMService {
     private String executeStreamingQuery(String prompt, String model, Consumer<String> chunkConsumer)
             throws IOException {
 
+        // Check cancellation before starting request
+        if (cancelled) {
+            throw new IOException("Streaming LLM service has been cancelled");
+        }
+
         // Check for OpenAI configuration in .env file first
         String envApiKey = EnvLoader.getEnv("OPENAI_API_KEY", null);
         String envModel = EnvLoader.getEnv("OPENAI_MODEL", model);
@@ -259,6 +268,13 @@ public final class NaiveStreamingLLMService {
         if (envApiKey != null && !envApiKey.isEmpty()) {
             // Use OpenAI configuration from .env - no office hours logic applied
             apiUrl = envBaseUrl;
+            // Ensure URL ends with /chat/completions for OpenAI-compatible APIs
+            if (!apiUrl.endsWith("/chat/completions")) {
+                if (!apiUrl.endsWith("/")) {
+                    apiUrl += "/";
+                }
+                apiUrl += "chat/completions";
+            }
             authToken = envApiKey;
             finalModel = envModel;
             LOG.info("Using OpenAI configuration from .env file - Model: " + finalModel);
@@ -272,11 +288,12 @@ public final class NaiveStreamingLLMService {
         if (apiUrl == null || apiUrl.isEmpty()) {
             throw new IllegalStateException("LLM API URL not configured");
         }
-        
+
         URL url = new URL(apiUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        activeConnections.add(connection); // Track this connection
         long startTime = System.currentTimeMillis();
-        
+
         try {
             // Setup connection
             setupConnection(connection, authToken);
@@ -303,10 +320,11 @@ public final class NaiveStreamingLLMService {
             // Log the response
             long duration = System.currentTimeMillis() - startTime;
             logResponse(response, finalModel, duration);
-            
+
             return response;
-            
+
         } finally {
+            activeConnections.remove(connection);
             connection.disconnect();
         }
     }
@@ -537,21 +555,27 @@ public final class NaiveStreamingLLMService {
     /**
      * Executes streaming query with cancellation support.
      */
-    private String executeStreamingQueryWithCancellation(String prompt, String model, 
+    private String executeStreamingQueryWithCancellation(String prompt, String model,
                                                        Consumer<String> chunkConsumer,
                                                        AtomicBoolean cancelled) throws IOException {
-        
+
+        // Check cancellation before starting request
+        if (this.cancelled || cancelled.get()) {
+            throw new IOException("Streaming LLM service has been cancelled");
+        }
+
         String apiUrl = config.getApiUrl();
         String authToken = config.getAuthToken();
-        
+
         if (apiUrl == null || apiUrl.isEmpty()) {
             throw new IllegalStateException("LLM API URL not configured");
         }
-        
+
         URL url = new URL(apiUrl);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        activeConnections.add(connection); // Track this connection
         long startTime = System.currentTimeMillis();
-        
+
         try {
             setupConnection(connection, authToken);
             
@@ -594,16 +618,53 @@ public final class NaiveStreamingLLMService {
             
             // Log the response (mark as cancelled if applicable)
             long duration = System.currentTimeMillis() - startTime;
-            if (cancelled.get()) {
+            if (cancelled.get() || this.cancelled) {
                 logResponse("[CANCELLED] " + response, model, duration);
             } else {
                 logResponse(response, model, duration);
             }
-            
+
             return response;
-            
+
         } finally {
+            activeConnections.remove(connection);
             connection.disconnect();
         }
+    }
+
+    /**
+     * Cancel all active streaming requests and close HTTP connections
+     */
+    public void cancelAll() {
+        LOG.info("Cancelling all active streaming requests (" + activeConnections.size() + " connections)");
+        cancelled = true;
+
+        // Disconnect all active HttpURLConnections
+        for (HttpURLConnection connection : activeConnections) {
+            try {
+                connection.disconnect();
+            } catch (Exception e) {
+                LOG.warn("Error disconnecting streaming HttpURLConnection", e);
+            }
+        }
+        activeConnections.clear();
+
+        LOG.info("All active streaming requests cancelled and connections closed");
+    }
+
+    /**
+     * Reset cancellation state for new requests
+     */
+    public void reset() {
+        cancelled = false;
+        activeConnections.clear();
+        LOG.info("StreamingLLMService reset - ready for new requests");
+    }
+
+    /**
+     * Check if this service has been cancelled
+     */
+    public boolean isCancelled() {
+        return cancelled;
     }
 }

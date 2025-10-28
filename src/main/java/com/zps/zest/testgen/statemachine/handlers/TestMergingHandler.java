@@ -63,15 +63,25 @@ public class TestMergingHandler extends AbstractStateHandler {
 
             // Send initial streaming update
             if (streamingCallback != null) {
-                streamingCallback.accept("🤖 AI-based test merging starting...\n");
+                streamingCallback.accept("🤖 Starting phased test merging workflow...\n");
             }
-            
-            // Use AI-based merging for complete test class generation
-            logToolActivity(stateMachine, "AITestMerger", "Starting AI-based test merging");
-            
+
+            // Create AI merger agent
+            logToolActivity(stateMachine, "AITestMerger", "Initializing merger agent");
+
             ZestLangChain4jService langChainService = getProject(stateMachine).getService(ZestLangChain4jService.class);
             NaiveLLMService naiveLlmService = getProject(stateMachine).getService(NaiveLLMService.class);
-            AITestMergerAgent aiMerger = new AITestMergerAgent(getProject(stateMachine), langChainService, naiveLlmService);
+
+            // Default to FULL_REWRITE_ONLY for simpler, faster fixing
+            // TODO: Make this configurable via settings for A/B testing
+            TestFixStrategy strategy = TestFixStrategy.FULL_REWRITE_ONLY;
+
+            AITestMergerAgent aiMerger = new AITestMergerAgent(
+                    getProject(stateMachine),
+                    langChainService,
+                    naiveLlmService,
+                    strategy
+            );
 
             // Store as field for direct access
             this.aiTestMergerAgent = aiMerger;
@@ -82,9 +92,8 @@ public class TestMergingHandler extends AbstractStateHandler {
                 uiEventListener.onMergerAgentCreated(aiMerger);
             }
 
-            CompletableFuture<MergedTestClass> mergeFuture = aiMerger.mergeTests(result, contextTools);
-            
-            MergedTestClass mergedTestClass = waitForMerging(stateMachine, mergeFuture, "AI merging");
+            // Execute phased workflow with explicit checkpoints
+            MergedTestClass mergedTestClass = executePhasedMerging(stateMachine, aiMerger, result, contextTools);
             
             // Trigger UI update for merged test class
             if (uiEventListener != null && mergedTestClass != null) {
@@ -133,47 +142,212 @@ public class TestMergingHandler extends AbstractStateHandler {
                 "Failed to merge tests with AI: " + e.getMessage());
         }
     }
-    
+
     /**
-     * Wait for merging to complete with progress updates
+     * Execute phased merging workflow with explicit checkpoints.
+     * New workflow: Java handles deterministic tasks, AI uses tools for code modification.
      */
-    private MergedTestClass waitForMerging(@NotNull TestGenerationStateMachine stateMachine,
-                                         @NotNull CompletableFuture<MergedTestClass> future,
-                                         @NotNull String mergerType) throws Exception {
-        
-        int progressPercent = 30;
-        // Set timeout for AI merging
-        int maxWaitSeconds = 560; // AI merging may take some time
-        int waitedSeconds = 0;
-        
-        while (!future.isDone() && waitedSeconds < maxWaitSeconds) {
+    private MergedTestClass executePhasedMerging(
+            @NotNull TestGenerationStateMachine stateMachine,
+            @NotNull AITestMergerAgent aiMerger,
+            @NotNull TestGenerationResult result,
+            @Nullable com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools) throws Exception {
+
+        String targetClass = result.getTargetClass();
+        String testClassName = result.getClassName();
+        String newTestCode = result.getCompleteTestClass();
+
+        // ============ PHASE 1: Find Existing Test (Java - No AI) ============
+        logToolActivity(stateMachine, "Phase1", "Finding existing test");
+        if (streamingCallback != null) {
+            streamingCallback.accept("\n**PHASE 1: Finding Existing Test (Java)**\n");
+        }
+
+        AITestMergerAgent.ExistingTestInfo existingTest = aiMerger.findExistingTest(targetClass);
+
+        if (shouldCancel(stateMachine)) {
+            throw new InterruptedException("Merging cancelled during Phase 1");
+        }
+
+        // ============ PHASE 2: Merge (AI Only If Needed) ============
+        logToolActivity(stateMachine, "Phase2", "Merging test code");
+        if (streamingCallback != null) {
+            streamingCallback.accept("\n**PHASE 2: Merge (AI only if existing test found)**\n");
+        }
+
+        String mergedCode = aiMerger.mergeUsingTools(existingTest, newTestCode, testClassName, targetClass, contextTools);
+
+        if (shouldCancel(stateMachine)) {
+            throw new InterruptedException("Merging cancelled during Phase 2");
+        }
+
+        // ============ PHASE 3: Fix Imports (Java - Deterministic) ============
+        logToolActivity(stateMachine, "Phase3", "Fixing imports");
+        if (streamingCallback != null) {
+            streamingCallback.accept("\n**PHASE 3: Import Enhancement (Java)**\n");
+        }
+
+        mergedCode = aiMerger.autoEnhanceImports(mergedCode, targetClass, result.getFramework(), contextTools);
+
+        // Update working code in tools
+        aiMerger.getMergingTools().setNewTestCode(testClassName, mergedCode);
+
+        if (streamingCallback != null) {
+            streamingCallback.accept("✅ Imports enhanced\n");
+        }
+
+        if (shouldCancel(stateMachine)) {
+            throw new InterruptedException("Merging cancelled during Phase 3");
+        }
+
+        // ============ PHASE 4: Validate (Java) ============
+        logToolActivity(stateMachine, "Phase4", "Validating test code");
+        if (streamingCallback != null) {
+            streamingCallback.accept("\n**PHASE 4: Validation (Java)**\n");
+        }
+
+        TestCodeValidator.ValidationResult validation = TestCodeValidator.validate(
+                getProject(stateMachine),
+                mergedCode,
+                testClassName
+        );
+
+        if (streamingCallback != null) {
+            streamingCallback.accept(validation.compiles() ?
+                    "✅ Validation passed - no errors\n" :
+                    "❌ Validation failed: " + validation.getErrorCount() + " errors\n");
+        }
+
+        // ============ PHASE 5: Fix Errors (AI with Chain-of-Thought) ============
+        if (!validation.compiles() && validation.getErrors() != null && !validation.getErrors().isEmpty()) {
             if (shouldCancel(stateMachine)) {
-                future.cancel(true);
-                throw new InterruptedException("Test merging cancelled");
+                throw new InterruptedException("Merging cancelled during validation");
             }
-            
-            // Update progress based on time elapsed
-            waitedSeconds += 2;
-            progressPercent = Math.min(90, 30 + (waitedSeconds * 60 / maxWaitSeconds));
-            
-            logToolActivity(stateMachine, "TestMerger", 
-                String.format("%s in progress...", mergerType));
-            
-            Thread.sleep(2000); // Wait 2 seconds between progress updates
+
+            logToolActivity(stateMachine, "Phase5", "Fixing validation errors");
+            if (streamingCallback != null) {
+                streamingCallback.accept("\n**PHASE 5: Fix Errors (AI chain-of-thought + exploration)**\n");
+            }
+
+            int maxFixAttempts = 3;
+            mergedCode = aiMerger.fixUsingTools(testClassName, validation.getErrors(), contextTools, maxFixAttempts);
+        } else {
+            if (streamingCallback != null) {
+                streamingCallback.accept("\n⏭️ Skipping Phase 5 (no errors to fix)\n");
+            }
         }
-        
-        if (!future.isDone()) {
-            future.cancel(true);
-            throw new RuntimeException(mergerType + " timed out after " + maxWaitSeconds + " seconds");
+
+        if (shouldCancel(stateMachine)) {
+            throw new InterruptedException("Merging cancelled during Phase 5");
         }
-        
-        logToolActivity(stateMachine, "TestMerger", mergerType + " completed");
-        return future.join();
+
+        // ============ PHASE 6: Final Validation (Java) ============
+        logToolActivity(stateMachine, "Phase6", "Final validation");
+        if (streamingCallback != null) {
+            streamingCallback.accept("\n**PHASE 6: Final Validation (Java)**\n");
+        }
+
+        validation = TestCodeValidator.validate(getProject(stateMachine), mergedCode, testClassName);
+
+        if (streamingCallback != null) {
+            streamingCallback.accept(validation.compiles() ?
+                    "✅ Final validation passed\n" :
+                    "⚠️ Still has " + validation.getErrorCount() + " errors\n");
+        }
+
+        // ============ PHASE 7: Logic Bug Review (AI with Self-Questioning) ============
+        if (validation.compiles()) {
+            if (shouldCancel(stateMachine)) {
+                throw new InterruptedException("Merging cancelled before logic review");
+            }
+
+            logToolActivity(stateMachine, "Phase7", "Logic bug review");
+            if (streamingCallback != null) {
+                streamingCallback.accept("\n**PHASE 7: Logic Review (AI self-questioning + exploration)**\n");
+            }
+
+            mergedCode = aiMerger.reviewLogicUsingTools(testClassName, contextTools);
+        } else {
+            if (streamingCallback != null) {
+                streamingCallback.accept("\n⏭️ Skipping Phase 7 (validation failed)\n");
+            }
+        }
+
+        // ============ Create Final Result ============
+        logToolActivity(stateMachine, "Finalizing", "Creating merged test class");
+        if (streamingCallback != null) {
+            streamingCallback.accept("\n**FINALIZING**\n");
+        }
+
+        String outputPath = existingTest != null ?
+                existingTest.getFilePath() :
+                determineOutputPath(testClassName, result.getPackageName());
+
+        int methodCount = countTestMethods(mergedCode);
+
+        MergedTestClass finalResult = new MergedTestClass(
+                testClassName,
+                result.getPackageName(),
+                mergedCode,
+                testClassName + ".java",
+                outputPath,
+                methodCount,
+                result.getFramework()
+        );
+
+        if (streamingCallback != null) {
+            streamingCallback.accept("✅ Merging workflow complete\n");
+            streamingCallback.accept(String.format("   Class: %s\n", testClassName));
+            streamingCallback.accept(String.format("   Methods: %d\n", methodCount));
+            streamingCallback.accept(String.format("   Validates: %s\n", validation.compiles() ? "YES" : "NO"));
+        }
+
+        return finalResult;
     }
+
+    private int countTestMethods(String testCode) {
+        int count = 0;
+        String[] lines = testCode.split("\n");
+        for (String line : lines) {
+            if (line.trim().startsWith("@Test")) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private String determineOutputPath(String className, String packageName) {
+        // Find test source root
+        String basePath = getProject(null).getBasePath();
+        if (basePath == null) {
+            return className + ".java";
+        }
+
+        java.io.File testDir = new java.io.File(basePath, "src/test/java");
+        if (!testDir.exists()) {
+            testDir = new java.io.File(basePath, "test");
+        }
+
+        String packagePath = packageName.replace('.', java.io.File.separatorChar);
+        java.io.File packageDir = packagePath.isEmpty() ? testDir : new java.io.File(testDir, packagePath);
+        java.io.File testFile = new java.io.File(packageDir, className + ".java");
+
+        return testFile.getAbsolutePath();
+    }
+
     
     /**
      * Get the AI test merger agent (direct access instead of session data)
      */
+    @Override
+    public void cancel() {
+        super.cancel();
+        if (aiTestMergerAgent != null) {
+            aiTestMergerAgent.cancel();
+            LOG.info("Cancelled AITestMergerAgent");
+        }
+    }
+
     @Nullable
     public AITestMergerAgent getAITestMergerAgent() {
         return aiTestMergerAgent;

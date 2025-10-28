@@ -41,6 +41,9 @@ class JCEFChatDialog(
         setSize(1000, 700)
         isModal = false
 
+        // Register chatPanel for automatic disposal when dialog closes
+        com.intellij.openapi.util.Disposer.register(disposable, chatPanel)
+
         // Temporary welcome message (DOM only, NOT in ChatMemory)
         chatPanel.addTemporaryChunk(
             "💬 **Welcome to Zest Chat!**",
@@ -427,7 +430,7 @@ class JCEFChatDialog(
         val devToolsItem = JMenuItem("Open Developer Tools (F12)")
         devToolsItem.addActionListener {
             try {
-                chatPanel.getLightweightBrowser().getCefBrowser().devTools?.createImmediately()
+                chatPanel.getLightweightBrowser().getCefBrowser()?.devTools?.createImmediately()
             } catch (ex: Exception) {
                 ex.printStackTrace();
             }
@@ -459,7 +462,7 @@ class JCEFChatDialog(
         panel.actionMap.put("openDevTools", object : AbstractAction() {
             override fun actionPerformed(e: java.awt.event.ActionEvent) {
                 try {
-                    chatPanel.getLightweightBrowser().getCefBrowser().devTools?.createImmediately()
+                    chatPanel.getLightweightBrowser().getCefBrowser()?.devTools?.createImmediately()
 //                    LOG.info("Dev tools opened via F12 key")
                 } catch (ex: Exception) {
 //                    LOG.warn("Failed to open dev tools via F12", ex)
@@ -570,8 +573,27 @@ class JCEFChatDialog(
     override fun dispose() {
         if (!isDisposed) {
             isDisposed = true
-            chatService.cancelCurrentSession()
+            LOG.info("Disposing JCEFChatDialog")
+
+            try {
+                // Cancel any ongoing chat session
+                chatService.cancelCurrentSession()
+            } catch (e: Exception) {
+                LOG.error("Error cancelling chat session", e)
+            }
+
+            // chatPanel will be disposed automatically via Disposer.register()
+            // but we can also call it explicitly for defensive cleanup
+            try {
+                if (chatPanel is com.intellij.openapi.Disposable) {
+                    com.intellij.openapi.util.Disposer.dispose(chatPanel)
+                }
+            } catch (e: Exception) {
+                LOG.error("Error disposing chatPanel", e)
+            }
+
             super.dispose()
+            LOG.info("JCEFChatDialog disposed successfully")
         }
     }
 

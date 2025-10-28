@@ -222,10 +222,10 @@ public class TestPlanImporter {
     
     private CsvColumnMapping detectCsvColumns(@NotNull String[] headers) {
         CsvColumnMapping mapping = new CsvColumnMapping();
-        
+
         for (int i = 0; i < headers.length; i++) {
             String header = headers[i].toLowerCase().trim();
-            
+
             // Detect scenario name column
             if (mapping.nameColumn == -1 && (header.contains("name") || header.contains("scenario") || header.contains("title"))) {
                 mapping.nameColumn = i;
@@ -250,8 +250,24 @@ public class TestPlanImporter {
             else if (mapping.expectedColumn == -1 && (header.contains("expected") || header.contains("result") || header.contains("outcome"))) {
                 mapping.expectedColumn = i;
             }
+            // Detect prerequisites column
+            else if (mapping.prerequisitesColumn == -1 && (header.contains("prerequisite") || header.contains("precondition") || header.contains("require"))) {
+                mapping.prerequisitesColumn = i;
+            }
+            // Detect setup steps column
+            else if (mapping.setupStepsColumn == -1 && (header.contains("setup") || header.contains("given") || header.contains("arrange"))) {
+                mapping.setupStepsColumn = i;
+            }
+            // Detect teardown steps column
+            else if (mapping.teardownStepsColumn == -1 && (header.contains("teardown") || header.contains("cleanup") || header.contains("after"))) {
+                mapping.teardownStepsColumn = i;
+            }
+            // Detect isolation strategy column
+            else if (mapping.isolationColumn == -1 && (header.contains("isolation") || header.contains("independent") || header.contains("shared"))) {
+                mapping.isolationColumn = i;
+            }
         }
-        
+
         return mapping;
     }
     
@@ -297,13 +313,56 @@ public class TestPlanImporter {
             }
             
             // Parse expected outcome
-            String expected = mapping.expectedColumn >= 0 && mapping.expectedColumn < values.length ? 
+            String expected = mapping.expectedColumn >= 0 && mapping.expectedColumn < values.length ?
                 values[mapping.expectedColumn] : "Should execute successfully";
             if (expected.isEmpty()) {
                 expected = "Should execute successfully";
             }
-            
-            return new TestPlan.TestScenario(name, description, type, inputs, expected, priority);
+
+            // Parse prerequisites
+            List<String> prerequisites = new ArrayList<>();
+            if (mapping.prerequisitesColumn >= 0 && mapping.prerequisitesColumn < values.length) {
+                String prerequisitesStr = values[mapping.prerequisitesColumn];
+                if (!prerequisitesStr.isEmpty()) {
+                    prerequisites = Arrays.asList(prerequisitesStr.split("[,;|]")).stream()
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toList());
+                }
+            }
+
+            // Parse setup steps
+            List<String> setupSteps = new ArrayList<>();
+            if (mapping.setupStepsColumn >= 0 && mapping.setupStepsColumn < values.length) {
+                String setupStr = values[mapping.setupStepsColumn];
+                if (!setupStr.isEmpty()) {
+                    setupSteps = Arrays.asList(setupStr.split("[,;|]")).stream()
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toList());
+                }
+            }
+
+            // Parse teardown steps
+            List<String> teardownSteps = new ArrayList<>();
+            if (mapping.teardownStepsColumn >= 0 && mapping.teardownStepsColumn < values.length) {
+                String teardownStr = values[mapping.teardownStepsColumn];
+                if (!teardownStr.isEmpty()) {
+                    teardownSteps = Arrays.asList(teardownStr.split("[,;|]")).stream()
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toList());
+                }
+            }
+
+            // Parse isolation strategy
+            TestPlan.TestScenario.TestIsolation isolation = TestPlan.TestScenario.TestIsolation.INDEPENDENT;
+            if (mapping.isolationColumn >= 0 && mapping.isolationColumn < values.length) {
+                isolation = parseIsolation(values[mapping.isolationColumn]);
+            }
+
+            return new TestPlan.TestScenario(name, description, type, inputs, expected, priority,
+                                            prerequisites, setupSteps, teardownSteps, isolation);
             
         } catch (Exception e) {
             LOG.warn("Failed to create scenario from CSV row " + rowNumber, e);
@@ -360,8 +419,51 @@ public class TestPlanImporter {
         
         // Extract expected outcome
         String expected = getJsonString(obj, Arrays.asList("expected", "expectedResult", "expectedOutcome", "result"), "Should execute successfully");
-        
-        return new TestPlan.TestScenario(name, description, type, inputs, expected, priority);
+
+        // Extract prerequisites
+        List<String> prerequisites = extractListFromJson(obj, Arrays.asList("prerequisites", "preconditions", "requirements"));
+
+        // Extract setup steps
+        List<String> setupSteps = extractListFromJson(obj, Arrays.asList("setupSteps", "setup", "given", "arrange"));
+
+        // Extract teardown steps
+        List<String> teardownSteps = extractListFromJson(obj, Arrays.asList("teardownSteps", "teardown", "cleanup", "after"));
+
+        // Extract isolation strategy
+        TestPlan.TestScenario.TestIsolation isolation = TestPlan.TestScenario.TestIsolation.INDEPENDENT;
+        String isolationStr = getJsonString(obj, Arrays.asList("isolationStrategy", "isolation", "testIsolation"), "");
+        if (!isolationStr.isEmpty()) {
+            isolation = parseIsolation(isolationStr);
+        }
+
+        return new TestPlan.TestScenario(name, description, type, inputs, expected, priority,
+                                        prerequisites, setupSteps, teardownSteps, isolation);
+    }
+
+    private List<String> extractListFromJson(@NotNull JsonObject obj, @NotNull List<String> possibleKeys) {
+        List<String> result = new ArrayList<>();
+        for (String key : possibleKeys) {
+            if (obj.has(key)) {
+                JsonElement element = obj.get(key);
+                if (element.isJsonArray()) {
+                    JsonArray array = element.getAsJsonArray();
+                    for (JsonElement item : array) {
+                        if (item.isJsonPrimitive()) {
+                            result.add(item.getAsString());
+                        }
+                    }
+                    return result;
+                } else if (element.isJsonPrimitive()) {
+                    // Single string, split by common delimiters
+                    String str = element.getAsString();
+                    return Arrays.asList(str.split("[,;|]")).stream()
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toList());
+                }
+            }
+        }
+        return result;
     }
     
     private String getJsonString(@NotNull JsonObject obj, @NotNull List<String> possibleKeys, @NotNull String defaultValue) {
@@ -406,6 +508,20 @@ public class TestPlanImporter {
         }
         return TestPlan.TestScenario.Type.UNIT;
     }
+
+    private TestPlan.TestScenario.TestIsolation parseIsolation(@NotNull String isolationStr) {
+        String lower = isolationStr.toLowerCase().trim();
+        if (lower.contains("shared") || lower.contains("fixture")) {
+            return TestPlan.TestScenario.TestIsolation.SHARED_FIXTURE;
+        }
+        if (lower.contains("reset") || lower.contains("between")) {
+            return TestPlan.TestScenario.TestIsolation.RESET_BETWEEN;
+        }
+        if (lower.contains("separate") || lower.contains("instance") || lower.contains("fresh")) {
+            return TestPlan.TestScenario.TestIsolation.SEPARATE_INSTANCE;
+        }
+        return TestPlan.TestScenario.TestIsolation.INDEPENDENT;
+    }
     
     private String getFileExtension(@NotNull String filePath) {
         int lastDot = filePath.lastIndexOf('.');
@@ -421,14 +537,21 @@ public class TestPlanImporter {
         int typeColumn = -1;
         int inputsColumn = -1;
         int expectedColumn = -1;
-        
+        int prerequisitesColumn = -1;
+        int setupStepsColumn = -1;
+        int teardownStepsColumn = -1;
+        int isolationColumn = -1;
+
         boolean isValid() {
             return nameColumn >= 0 && descriptionColumn >= 0;
         }
-        
+
         int getMaxIndex() {
-            return Math.max(Math.max(Math.max(nameColumn, descriptionColumn), Math.max(priorityColumn, typeColumn)),
-                          Math.max(inputsColumn, expectedColumn));
+            return Math.max(
+                Math.max(Math.max(Math.max(nameColumn, descriptionColumn), Math.max(priorityColumn, typeColumn)),
+                         Math.max(inputsColumn, expectedColumn)),
+                Math.max(Math.max(prerequisitesColumn, setupStepsColumn), Math.max(teardownStepsColumn, isolationColumn))
+            );
         }
     }
     

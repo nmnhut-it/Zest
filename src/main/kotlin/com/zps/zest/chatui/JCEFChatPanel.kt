@@ -1,7 +1,9 @@
 package com.zps.zest.chatui
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.zps.zest.browser.LightweightChatBrowser
 import java.awt.BorderLayout
 import java.text.SimpleDateFormat
@@ -15,13 +17,14 @@ import javax.swing.JPanel
 class JCEFChatPanel(
     private val project: Project,
     private var chatMemory: dev.langchain4j.memory.ChatMemory = dev.langchain4j.memory.chat.MessageWindowChatMemory.withMaxMessages(100)
-) : JPanel(BorderLayout()) {
+) : JPanel(BorderLayout()), Disposable {
 
     companion object {
         private val LOG = Logger.getInstance(JCEFChatPanel::class.java)
     }
 
     private val browser: LightweightChatBrowser = LightweightChatBrowser(project)
+    private var isDisposed = false
     private val timeFormatter = SimpleDateFormat("HH:mm:ss")
     private var messageCounter = 0
 
@@ -30,7 +33,8 @@ class JCEFChatPanel(
         initializeBrowser()
 
         // Add browser component directly
-        add(browser.getComponent(), BorderLayout.CENTER)
+        browser.getComponent()?.let { add(it, BorderLayout.CENTER) }
+            ?: LOG.error("Failed to get browser component during initialization")
     }
 
     /**
@@ -465,10 +469,31 @@ class JCEFChatPanel(
     /**
      * Get the browser component for integration
      */
-    fun getBrowserComponent(): JComponent = browser.getComponent()
+    fun getBrowserComponent(): JComponent? = browser.getComponent()
 
     /**
      * Get the lightweight browser for developer tools access
      */
     fun getLightweightBrowser(): LightweightChatBrowser = browser
+
+    /**
+     * Properly dispose of browser resources when panel is closed
+     */
+    override fun dispose() {
+        if (isDisposed) {
+            LOG.warn("JCEFChatPanel already disposed")
+            return
+        }
+
+        LOG.info("Disposing JCEFChatPanel")
+        isDisposed = true
+
+        try {
+            // Dispose the browser
+            Disposer.dispose(browser)
+            LOG.info("Browser disposed successfully")
+        } catch (e: Exception) {
+            LOG.error("Error disposing browser in JCEFChatPanel", e)
+        }
+    }
 }

@@ -150,6 +150,107 @@ pre code {
     border-radius: 0;
 }
 
+/* Collapsible Code Blocks */
+.code-block-wrapper {
+    margin: 12px 0;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg-tertiary);
+}
+
+.code-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-primary);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s ease;
+}
+
+.code-block-header:hover {
+    background: var(--bg-primary);
+}
+
+.code-block-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.code-lang-icon {
+    font-size: 14px;
+}
+
+.code-lang-name {
+    color: var(--text-link);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.code-line-count {
+    color: var(--text-secondary);
+    font-weight: 400;
+    margin-left: 4px;
+}
+
+.code-block-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.code-copy-btn,
+.code-block-toggle {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-primary);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.code-copy-btn:hover,
+.code-block-toggle:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--border-accent);
+}
+
+.code-block-content {
+    position: relative;
+    max-height: none;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.code-block-content.collapsed {
+    max-height: 200px;
+}
+
+.code-block-content pre {
+    margin: 0;
+    border: none;
+    border-radius: 0;
+}
+
+.code-block-fade {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 80px;
+    background: linear-gradient(to bottom, transparent, var(--bg-tertiary));
+    pointer-events: none;
+}
+
 /* Tables */
 table {
     border-collapse: collapse;

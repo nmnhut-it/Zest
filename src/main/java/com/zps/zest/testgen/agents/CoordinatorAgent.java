@@ -1,7 +1,9 @@
 package com.zps.zest.testgen.agents;
 
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiMethod;
+import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.*;
@@ -11,8 +13,6 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
-import dev.langchain4j.memory.chat.TokenWindowChatMemory;
-import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -32,14 +32,11 @@ import javax.swing.SwingUtilities;
  */
 public class CoordinatorAgent extends StreamingBaseAgent {
     private static final int MAX_TOKENS = 80000; // Max tokens for this agent's memory
-    private static final double TOKEN_THRESHOLD = 0.7; // Trigger summarization at 70%
 
     private final TestPlanningTools planningTools;
     private final TestPlanningAssistant assistant;
     private final ChatMemory chatMemory;
     private final ContextAgent.ContextGatheringTools contextTools;
-    private final OpenAiTokenCountEstimator tokenizer;
-    private final ContextSummarizationService summarizationService;
 
     public CoordinatorAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
@@ -48,11 +45,9 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         super(project, langChainService, naiveLlmService, "CoordinatorAgent");
         this.contextTools = contextTools;
         this.planningTools = new TestPlanningTools(this);
-        this.tokenizer = new OpenAiTokenCountEstimator("gpt-4o");
-        this.summarizationService = new ContextSummarizationService(project, naiveLlmService);
 
-        // Build the agent with token-aware memory
-        this.chatMemory = TokenWindowChatMemory.withMaxTokens(MAX_TOKENS, tokenizer);
+        // Build the agent with message-based memory (no token estimation needed)
+        this.chatMemory = MessageWindowChatMemory.withMaxMessages(50);
         this.assistant = AgenticServices
                 .agentBuilder(TestPlanningAssistant.class)
                 .chatModel(getChatModelWithStreaming()) // Use wrapped model for streaming
@@ -69,17 +64,41 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         @dev.langchain4j.service.SystemMessage("""
         You are a test planning assistant that creates comprehensive test plans.
 
-        IMPORTANT: The target methods have already been selected by the user. Do NOT call addTargetMethod - the methods are already determined.
-
         CRITICAL: Generate test scenarios ONLY for the methods that were selected by the user. Do NOT generate tests for other methods you see in the code, even if they seem related or important. Focus exclusively on the user-selected methods.
 
-        PROCESS:
-        1. Analyze the code and set target class.
-        2. Add multiple test scenarios at once using addTestScenarios (note: plural) - but ONLY for the selected methods
-        3. Each scenario should specify its own type (UNIT or INTEGRATION) based on what it tests
-        4. Call setTestingNotes to provide testing approach recommendations in natural language
+        PROCESS (Reasoning → Tools):
 
-        Prefer quality over quantity. Keep the test focused on the selected methods only, aimed at preventing potential bugs in those specific methods. Make sure all paths and branches of the SELECTED methods are tested.
+        PHASE 1: REASONING (text response - think before acting)
+
+        🔙 STEP-BACK ANALYSIS:
+        Before diving into specific scenarios, step back and analyze the big picture:
+        - What is the CORE PURPOSE of the selected method(s)?
+        - What are REALISTIC failure modes based on signatures, parameters, return types?
+        - What did the CONTEXT ANALYSIS reveal about how these methods are actually used?
+        - What CATEGORIES of risks exist? (validation errors, null handling, boundary conditions, state management, integration issues)
+
+        Share your step-back analysis (2-3 sentences).
+
+        💭 SCENARIO BRAINSTORMING:
+        List potential scenarios by category (brief bullet points):
+        ✅ Happy Path: [1-2 key normal scenarios]
+        ⚠️ Error Handling: [2-3 error/exception scenarios]
+        🎯 Edge Cases: [1-2 boundary/corner cases]
+        🔄 Integration: [1-2 scenarios if method has external dependencies]
+
+        📊 PRIORITIZATION REASONING:
+        Explain your HIGH/MEDIUM/LOW priority choices based on:
+        - User impact (crashes, data loss, wrong results vs minor issues)
+        - Usage frequency (from context analysis - what's called often?)
+        - Business criticality (financial, security, core functionality)
+
+        PHASE 2: TOOL EXECUTION
+
+        1. Call setTargetClass with fully qualified class name
+        2. Call addTestScenarios with ALL scenarios at once (based on your brainstorming above)
+        3. Call setTestingNotes with testing approach recommendations
+
+        Prefer quality over quantity. Focus on the selected methods only, preventing potential bugs. Ensure all paths and branches of the SELECTED methods are tested.
 
         CRITICAL: Each test scenario should have its own test type based on what that specific scenario tests:
         - Scenarios testing pure business logic (calculations, validations) → Use "UNIT" type
@@ -96,6 +115,41 @@ public class CoordinatorAgent extends StreamingBaseAgent {
           * File operations: Use @TempDir for temporary test directories
         - Avoid mocking frameworks when possible - prefer real test infrastructure for more reliable tests
 
+        TEST LIFECYCLE MANAGEMENT:
+
+        PREREQUISITES - What must be true before test runs:
+        - Service state: "Service is initialized and ready"
+        - Data conditions: "Test data exists in data store"
+        - Dependencies: "External dependency returns expected responses"
+
+        SETUP APPROACHES (describe WHAT, not framework-specific HOW):
+        - Class-level setup: When multiple tests need same initialization
+        - Test-level setup: When each test needs unique preparation
+        Examples:
+        - "Initialize service with test configuration"
+        - "Prepare test data set with 3 valid items"
+        - "Configure test double to return success response"
+
+        TEARDOWN APPROACHES (describe WHAT to clean):
+        - Class-level teardown: When cleaning up shared resources
+        - Test-level teardown: When each test has unique cleanup
+        Examples:
+        - "Remove all test-created data"
+        - "Reset service to initial state"
+        - "Release acquired resources"
+
+        ISOLATION STRATEGIES (prevent data pollution between tests):
+        - INDEPENDENT: No shared state, each test creates/destroys everything
+        - SHARED_FIXTURE: Tests share initial setup but clean up changes
+        - RESET_BETWEEN: Reset shared resources (mocks, caches, state) between tests
+        - SEPARATE_INSTANCE: Each test gets fresh instances of dependencies
+
+        CHOOSING ISOLATION:
+        - Pure logic tests → INDEPENDENT
+        - Tests using shared infrastructure → SHARED_FIXTURE with cleanup
+        - Tests with stateful dependencies → RESET_BETWEEN
+        - Tests needing pristine environment → SEPARATE_INSTANCE
+
         TESTING NOTES GUIDELINES:
         When calling setTestingNotes, provide natural language recommendations:
         - Mention the detected testing framework (JUnit 5, JUnit 4, TestNG)
@@ -104,6 +158,20 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         - For HTTP APIs: recommend "Use WireMock for API mocking"
         - For pure logic: recommend "Direct unit tests, no mocking needed"
         - Include setup/teardown hints if needed: "Set up test infrastructure in @BeforeEach, clean up in @AfterEach"
+
+        DEPENDENCY EXTRACTION (IMPORTANT):
+        When you receive project dependencies (pom.xml, build.gradle content), extract ONLY test-relevant libraries and include in your testing notes as a concise list.
+        Test-relevant libraries include:
+        - Test frameworks: JUnit 4/5, TestNG, Spock, Kotest, etc.
+        - Mocking libraries: Mockito, EasyMock, PowerMock, MockK, etc.
+        - Assertion libraries: AssertJ, Hamcrest, Google Truth, Strikt, etc.
+        - Test utilities: Testcontainers, H2, HSQLDB, WireMock, REST Assured, MockServer, Awaitility, etc.
+        - Spring testing: Spring Boot Test Starter, Spring Test, etc.
+
+        Include in testing notes as:
+        "Available test libraries: JUnit 5, Mockito, AssertJ, Spring Boot Test, Testcontainers"
+
+        DO NOT include the full build file content in testing notes - only extract the concise list of test libraries.
 
         TEST PLANNING PRINCIPLES:
 
@@ -144,7 +212,11 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
         Remember: Quality over quantity. Five well-thought-out tests are better than twenty random ones. Each test should have a clear purpose and test one specific scenario.
 
-        You will respond using tools only. Generate multiple scenarios in a single addTestScenarios call for the selected methods only.
+        RESPONSE FORMAT:
+        1. First, share your reasoning (STEP-BACK ANALYSIS, SCENARIO BRAINSTORMING, PRIORITIZATION)
+        2. Then, use tools (setTargetClass, addTestScenarios, setTestingNotes)
+
+        Generate multiple scenarios in a single addTestScenarios call for the selected methods only.
         The number of test scenarios to generate will be specified in the user's request - follow that guideline.
         """)
         @dev.langchain4j.agentic.Agent
@@ -186,7 +258,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
                 for (PsiMethod psiMethod : request.getTargetMethods()) {
                     String name = psiMethod.getName();
-                    planningTools.addTargetMethod(name);
+                    planningTools.targetMethods.add(name);
                 }
 
                 // NEW: Analyze usage patterns for target methods
@@ -255,21 +327,28 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
         prompt.append("Create a comprehensive test plan for the following code.\n\n");
 
-        // File information
-        prompt.append("File: ").append(request.getTargetFile().getName()).append("\n");
+        // File information (wrap PSI access in read action)
+        String fileName = ReadAction.compute(() -> request.getTargetFile().getName());
+        prompt.append("File: ").append(fileName).append("\n");
 
-        // Explicitly list the selected methods to test
+        // Explicitly list the selected methods to test (wrap PSI access in read action)
         prompt.append("SELECTED METHODS TO TEST (generate scenarios ONLY for these methods):\n");
-        for (var method : request.getTargetMethods()) {
-            prompt.append("- ").append(method.getName()).append("()\n");
-        }
+        String selectedMethods = ReadAction.compute(() -> {
+            StringBuilder methods = new StringBuilder();
+            for (var method : request.getTargetMethods()) {
+                methods.append("- ").append(method.getName()).append("()\n");
+            }
+            return methods.toString();
+        });
+        prompt.append(selectedMethods);
         prompt.append("\n");
 
         // Add configuration
         TestGenerationConfig config = request.getConfig();
-        prompt.append("=== TEST GENERATION CONFIGURATION ===\n");
+        prompt.append("**TEST GENERATION CONFIGURATION**\n");
+        prompt.append("```\n");
         prompt.append(config.toPromptDescription());
-        prompt.append("\n");
+        prompt.append("```\n\n");
         
         // Skip adding raw code here since it's already included in analyzed class implementations below
         
@@ -278,14 +357,15 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         if (contextTools != null) {
             prompt.append("- Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n");
 
-            // Add project dependencies for better test planning
-            String projectDeps = contextTools.getProjectDependencies();
-            if (projectDeps != null && !projectDeps.isEmpty()) {
-                prompt.append("\n").append(projectDeps).append("\n");
-                prompt.append("Use this dependency information to:\n");
-                prompt.append("- Choose appropriate test types (unit vs integration based on available frameworks)\n");
-                prompt.append("- Decide whether to use mocking frameworks or TestContainers\n");
-                prompt.append("- Select the right assertion libraries\n");
+            // Analyze build files and create focused dependency notes
+            Map<String, String> buildFiles = contextTools.getBuildFiles();
+            if (!buildFiles.isEmpty()) {
+                String dependencyNotes = analyzeDependencies(buildFiles, request, contextTools);
+                // Store as context note so it's part of the context
+                contextTools.takeNote(dependencyNotes);
+                LOG.info("Dependency analysis created and stored as context note");
+            } else {
+                LOG.info("No build files found, skipping dependency analysis");
             }
         } else {
             prompt.append("- Testing Framework: JUnit 5 (default)\n");
@@ -296,117 +376,71 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 // Add context notes (with deduplication)
                 List<String> contextNotes = contextTools.getContextNotes();
                 if (!contextNotes.isEmpty()) {
-                    prompt.append("\n=== DETAILED CONTEXT ANALYSIS ===\n");
+                    prompt.append("\n**DETAILED CONTEXT ANALYSIS**\n");
+                    prompt.append("```\n");
                     prompt.append("Context Agent Findings (use this for test planning decisions):\n");
 
-                    // Condense notes to avoid token bloat
-                    List<String> condensedNotes = summarizationService.condenseNotes(contextNotes, 20);
                     int noteNum = 1;
-                    for (String note : condensedNotes) {
+                    for (String note : contextNotes) {
                         prompt.append(String.format("%d. %s\n\n", noteNum++, note));
                     }
+                    prompt.append("```\n\n");
                 }
 
-                // Add analyzed classes with token-aware summarization
+                // Add method usage patterns (NEW RICH DATA from analyzeMethodUsage tool)
+                Map<String, com.zps.zest.testgen.analysis.UsageContext> methodUsages = contextTools.getMethodUsages();
+                if (!methodUsages.isEmpty()) {
+                    prompt.append("**METHOD USAGE PATTERNS (FROM REAL CODE ANALYSIS)**\n");
+                    prompt.append("```\n");
+                    prompt.append("The following shows how target methods are ACTUALLY used in the codebase.\n");
+                    prompt.append("Use this to plan realistic test scenarios based on real usage patterns:\n");
+                    prompt.append("- Error handling patterns → Plan appropriate error test scenarios\n");
+                    prompt.append("- Edge cases from actual code → Include in test plan\n");
+                    prompt.append("- Integration patterns (transactions, async, events) → Plan integration vs unit tests\n");
+                    prompt.append("- Call site contexts (Controller, Service, Test) → Understand architectural layers\n\n");
+
+                    for (Map.Entry<String, com.zps.zest.testgen.analysis.UsageContext> entry : methodUsages.entrySet()) {
+                        String methodName = entry.getKey();
+                        com.zps.zest.testgen.analysis.UsageContext usage = entry.getValue();
+
+                        if (!usage.isEmpty()) {
+                            prompt.append("Method: ").append(methodName).append("\n");
+                            prompt.append(usage.formatForLLM()).append("\n");
+                        }
+                    }
+                    prompt.append("```\n\n");
+                }
+
+                // Add analyzed classes
                 Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
                 if (!analyzedClasses.isEmpty()) {
-                    prompt.append("\n=== DEPENDENCY ANALYSIS FOR TEST TYPE DECISIONS ===\n");
+                    prompt.append("**DEPENDENCY ANALYSIS FOR TEST TYPE DECISIONS**\n");
+                    prompt.append("```\n");
                     prompt.append("→ GUIDANCE: Create INTEGRATION scenarios for code paths using external dependencies\n");
                     prompt.append("→ GUIDANCE: Create UNIT scenarios for pure business logic that doesn't use external dependencies\n");
+                    prompt.append("```\n\n");
 
-                    // Check token usage and conditionally summarize
-                    int classTokens = summarizationService.estimateClassTokens(analyzedClasses);
-                    int currentPromptTokens = summarizationService.estimateTokens(prompt.toString());
-                    int availableTokens = (int) (MAX_TOKENS * TOKEN_THRESHOLD) - currentPromptTokens;
+                    prompt.append("**ANALYZED CLASS IMPLEMENTATIONS**\n");
+                    prompt.append("```\n");
 
-                    prompt.append("\n=== ANALYZED CLASS IMPLEMENTATIONS ===\n");
-
-                    if (classTokens > availableTokens) {
-                        // Need to summarize - get target method class names
-                        List<String> targetClassNames = request.getTargetMethods().stream()
-                                .map(method -> method.getContainingClass() != null ?
-                                        method.getContainingClass().getQualifiedName() : "Unknown")
-                                .distinct()
-                                .toList();
-
-                        LOG.info("Context too large (" + classTokens + " tokens), summarizing with " + availableTokens + " token budget");
-                        prompt.append("(Context automatically summarized to fit token limits)\n\n");
-
-                        try {
-                            Map<String, String> summarized = summarizationService.summarizeClasses(
-                                    analyzedClasses,
-                                    targetClassNames,
-                                    availableTokens
-                            ).get();
-
-                            for (var entry : summarized.entrySet()) {
-                                prompt.append(String.format("Class: %s\n", entry.getKey()));
-                                prompt.append(entry.getValue()).append("\n\n");
-                            }
-                        } catch (Exception e) {
-                            LOG.warn("Summarization failed, using truncated content: " + e.getMessage());
-                            // Fallback: include only target classes in full
-                            for (String targetClass : targetClassNames) {
-                                if (analyzedClasses.containsKey(targetClass)) {
-                                    prompt.append(String.format("Class: %s\n", targetClass));
-                                    prompt.append(analyzedClasses.get(targetClass)).append("\n\n");
-                                }
-                            }
-                        }
-                    } else {
-                        // Token budget OK, include full implementations
-                        for (var entry : analyzedClasses.entrySet()) {
-                            prompt.append(String.format("Class: %s\n", entry.getKey()));
-                            prompt.append(entry.getValue()).append("\n\n");
-                        }
+                    for (var entry : analyzedClasses.entrySet()) {
+                        prompt.append(String.format("Class: %s\n", entry.getKey()));
+                        prompt.append(entry.getValue()).append("\n\n");
                     }
+                    prompt.append("```\n\n");
                 }
 
-                // Add file contents with token-aware summarization
+                // Add file contents
                 Map<String, String> readFiles = contextTools.getReadFiles();
                 if (!readFiles.isEmpty()) {
-                    int currentPromptTokens = summarizationService.estimateTokens(prompt.toString());
-                    int availableTokens = (int) (MAX_TOKENS * TOKEN_THRESHOLD) - currentPromptTokens;
+                    prompt.append("**RELATED FILES READ**\n");
+                    prompt.append("```\n");
 
-                    prompt.append("\n=== RELATED FILES READ ===\n");
-
-                    // Estimate file tokens
-                    int fileTokens = 0;
-                    for (String content : readFiles.values()) {
-                        fileTokens += summarizationService.estimateTokens(content);
+                    for (var entry : readFiles.entrySet()) {
+                        prompt.append(String.format("File: %s\n", entry.getKey()));
+                        prompt.append(entry.getValue()).append("\n\n");
                     }
-
-                    if (fileTokens > availableTokens) {
-                        LOG.info("File context too large (" + fileTokens + " tokens), summarizing with " + availableTokens + " token budget");
-                        prompt.append("(File contents automatically summarized to fit token limits)\n\n");
-
-                        try {
-                            Map<String, String> summarized = summarizationService.summarizeFiles(
-                                    readFiles,
-                                    availableTokens
-                            ).get();
-
-                            for (var entry : summarized.entrySet()) {
-                                prompt.append(String.format("File: %s\n", entry.getKey()));
-                                prompt.append(entry.getValue()).append("\n\n");
-                            }
-                        } catch (Exception e) {
-                            LOG.warn("File summarization failed, using truncated content: " + e.getMessage());
-                            // Fallback: truncate each file
-                            for (var entry : readFiles.entrySet()) {
-                                String content = entry.getValue();
-                                String truncated = content.substring(0, Math.min(500, content.length()));
-                                prompt.append(String.format("File: %s\n", entry.getKey()));
-                                prompt.append(truncated).append("\n... (truncated)\n\n");
-                            }
-                        }
-                    } else {
-                        // Token budget OK, include full files
-                        for (var entry : readFiles.entrySet()) {
-                            prompt.append(String.format("File: %s\n", entry.getKey()));
-                            prompt.append(entry.getValue()).append("\n\n");
-                        }
-                    }
+                    prompt.append("```\n\n");
                 }
         } else {
             prompt.append("\nNo context analysis available - analyze the provided code to determine if scenarios need UNIT or INTEGRATION types\n");
@@ -495,19 +529,6 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             return "Target class set to: " + className;
         }
 
-        @Tool("Add a target method for testing (only if not already specified by user)")
-        public String addTargetMethod(String methodName) {
-            // Prevent LLM from adding methods beyond user selection
-            // Only allow if we have no methods yet (fallback scenario)
-            if (this.targetMethods.isEmpty()) {
-                notifyTool("addTargetMethod", methodName);
-                this.targetMethods.add(methodName);
-                return "Added target method: " + methodName + " (Total: " + targetMethods.size() + ")";
-            } else {
-                return "Target methods already specified by user. Cannot add additional methods: " + methodName;
-            }
-        }
-
 
         @Tool("Add multiple test scenarios to the plan. Each scenario must include: " +
               "1) name: Test method name (e.g., 'testCalculateTotal_WithValidInput_ReturnsSum'), " +
@@ -515,7 +536,17 @@ public class CoordinatorAgent extends StreamingBaseAgent {
               "3) type: UNIT (pure logic), INTEGRATION (external systems), EDGE_CASE (boundaries), or ERROR_HANDLING (exceptions), " +
               "4) inputs: List of specific test data (e.g., ['null value', 'empty string', 'valid data 123']), " +
               "5) expectedOutcome: What the test should assert (e.g., 'Returns 150', 'Throws IllegalArgumentException'), " +
-              "6) priority: HIGH (critical path), MEDIUM (important cases), or LOW (nice-to-have)")
+              "6) priority: HIGH (critical path), MEDIUM (important cases), or LOW (nice-to-have), " +
+              "7) prerequisites: Conditions needed (e.g., ['Service initialized', 'Test data exists']), " +
+              "8) setupSteps: What to prepare (e.g., ['Initialize service', 'Create test data']), " +
+              "9) teardownSteps: What to cleanup (e.g., ['Remove test data', 'Reset state']), " +
+              "10) isolationStrategy: INDEPENDENT, SHARED_FIXTURE, RESET_BETWEEN, or SEPARATE_INSTANCE. " +
+              "\n\nIMPORTANT - Enum Value References: " +
+              "Use exact enum names (case-sensitive): " +
+              "type = UNIT|INTEGRATION|EDGE_CASE|ERROR_HANDLING, " +
+              "priority = HIGH|MEDIUM|LOW, " +
+              "isolationStrategy = INDEPENDENT|SHARED_FIXTURE|RESET_BETWEEN|SEPARATE_INSTANCE. " +
+              "Return type: List<com.zps.zest.testgen.model.TestPlan$TestScenario>")
         public String addTestScenarios(List<TestPlan.TestScenario> testScenarios) {
             notifyTool("addTestScenarios", testScenarios.size() + " scenarios");
             int startCount = scenarios.size();
@@ -538,9 +569,12 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                         scenario.getDescription(),
                         displayPriority,
                         scenario.getType().getDisplayName(), // category
-                        new ArrayList<>(), // setupSteps
+                        new ArrayList<>(scenario.getPrerequisites()), // prerequisites
+                        new ArrayList<>(scenario.getSetupSteps()), // setupSteps
                         new ArrayList<>(), // executionSteps
                         new ArrayList<>(), // assertions
+                        new ArrayList<>(scenario.getTeardownSteps()), // teardownSteps
+                        scenario.getIsolationStrategy().getDescription(), // isolationStrategy
                         new ArrayList<>(scenario.getInputs()), // inputs from scenario
                         scenario.getExpectedOutcome(), // expectedOutcome from scenario
                         "Medium", // expectedComplexity
@@ -685,9 +719,12 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                         scenario.getDescription(),
                         displayPriority,
                         scenario.getType().getDisplayName(), // category
-                        new ArrayList<>(), // setupSteps
+                        new ArrayList<>(scenario.getPrerequisites()), // prerequisites
+                        new ArrayList<>(scenario.getSetupSteps()), // setupSteps
                         new ArrayList<>(), // executionSteps
                         new ArrayList<>(), // assertions
+                        new ArrayList<>(scenario.getTeardownSteps()), // teardownSteps
+                        scenario.getIsolationStrategy().getDescription(), // isolationStrategy
                         new ArrayList<>(scenario.getInputs()), // inputs from scenario
                         scenario.getExpectedOutcome(), // expectedOutcome from scenario
                         "Medium", // expectedComplexity
@@ -738,8 +775,145 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 return TestGenerationRequest.TestType.INTEGRATION_TESTS;
             }
         }
+
+        @Tool("Read file content. Use for deep investigation if needed during planning.")
+        public String readFile(String filePath) {
+            if (coordinatorAgent.contextTools == null) {
+                return "ERROR: Context tools not available";
+            }
+            notifyTool("readFile", filePath);
+            return coordinatorAgent.contextTools.readFile(filePath);
+        }
+
+        @Tool("Search code for patterns. Use if you need to explore code during planning.")
+        public String searchCode(String query, String filePattern, String excludePattern,
+                                Integer beforeLines, Integer afterLines, Boolean multiline) {
+            if (coordinatorAgent.contextTools == null) {
+                return "ERROR: Context tools not available";
+            }
+            notifyTool("searchCode", query);
+            return coordinatorAgent.contextTools.searchCode(query, filePattern, excludePattern, beforeLines, afterLines, multiline);
+        }
+
+        @Tool("Look up method signature from project or library. Use if you need exact method details during planning.")
+        public String lookupMethod(String className, String methodName) {
+            if (coordinatorAgent.contextTools == null) {
+                return "ERROR: Context tools not available";
+            }
+            notifyTool("lookupMethod", className + "." + methodName);
+            return coordinatorAgent.contextTools.lookupMethod(className, methodName);
+        }
+
+        @Tool("Look up class structure. Use if you need to understand dependencies during planning.")
+        public String lookupClass(String className) {
+            if (coordinatorAgent.contextTools == null) {
+                return "ERROR: Context tools not available";
+            }
+            notifyTool("lookupClass", className);
+            return coordinatorAgent.contextTools.lookupClass(className);
+        }
     }
-    
+
+    /**
+     * Analyze build files and create focused dependency notes for test generation.
+     * Returns notes about test framework, mocking libs, code dependencies, and integration test tools.
+     */
+    private String analyzeDependencies(
+            @NotNull Map<String, String> buildFiles,
+            @NotNull TestGenerationRequest request,
+            @NotNull ContextAgent.ContextGatheringTools contextTools) {
+
+        if (buildFiles.isEmpty()) {
+            return "[DEPENDENCY_ANALYSIS] No build files found - using defaults (JUnit 5)";
+        }
+
+        // Build LLM prompt for dependency analysis
+        StringBuilder analysisPrompt = new StringBuilder();
+        analysisPrompt.append("Analyze build files and extract focused dependency information for test generation.\n\n");
+
+        analysisPrompt.append("**BUILD FILES**\n");
+        analysisPrompt.append("```\n");
+        for (Map.Entry<String, String> entry : buildFiles.entrySet()) {
+            String fileName = entry.getKey().substring(Math.max(
+                    entry.getKey().lastIndexOf('/'),
+                    entry.getKey().lastIndexOf('\\')) + 1);
+            analysisPrompt.append("File: ").append(fileName).append("\n");
+            analysisPrompt.append(entry.getValue()).append("\n\n");
+        }
+        analysisPrompt.append("```\n\n");
+
+        analysisPrompt.append("**CODE UNDER TEST**\n");
+        analysisPrompt.append("```\n");
+        analysisPrompt.append("Target Class(es): ");
+        // Wrap PSI access in read action since this runs in background thread
+        String targetClasses = ReadAction.compute(() -> {
+            StringBuilder classes = new StringBuilder();
+            for (com.intellij.psi.PsiMethod method : request.getTargetMethods()) {
+                if (method.getContainingClass() != null) {
+                    classes.append(method.getContainingClass().getQualifiedName()).append(" ");
+                }
+            }
+            return classes.toString();
+        });
+        analysisPrompt.append(targetClasses);
+        analysisPrompt.append("\n");
+        analysisPrompt.append("```\n\n");
+
+        // Include analyzed classes to see what the code actually uses
+        Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
+        if (!analyzedClasses.isEmpty()) {
+            analysisPrompt.append("**CODE DEPENDENCIES (what the code actually uses)**\n");
+            analysisPrompt.append("```\n");
+            for (String className : analyzedClasses.keySet()) {
+                analysisPrompt.append("- ").append(className).append("\n");
+            }
+            analysisPrompt.append("```\n\n");
+        }
+
+        analysisPrompt.append("**EXTRACT (be specific with versions)**\n");
+        analysisPrompt.append("```\n");
+        analysisPrompt.append("1. **Testing Framework**: [name] ([version]) - [usage notes like '@Test, @BeforeEach']\n");
+        analysisPrompt.append("   Example: JUnit 5 (5.9.3) - Use @Test, @BeforeEach, @AfterEach, Assertions.*\n\n");
+
+        analysisPrompt.append("2. **Mocking/Test Utilities**: [list with versions]\n");
+        analysisPrompt.append("   Example: Mockito 4.8.0 for mocking dependencies, AssertJ 3.24.0 for fluent assertions\n\n");
+
+        analysisPrompt.append("3. **Code Dependencies**: [what the code under test actually uses]\n");
+        analysisPrompt.append("   Example: Spring Data JPA 3.0.0 (code uses @Repository, @Entity), PostgreSQL JDBC 42.5.0\n\n");
+
+        analysisPrompt.append("4. **Integration Test Tools**: [available tools for real dependencies]\n");
+        analysisPrompt.append("   Example: Testcontainers PostgreSQL 1.17.6 - use for real DB tests, Spring Boot Test 3.0.0 - provides @SpringBootTest, @DataJpaTest\n\n");
+
+        analysisPrompt.append("IMPORTANT:\n");
+        analysisPrompt.append("- Include versions for all dependencies\n");
+        analysisPrompt.append("- Focus ONLY on test-relevant dependencies\n");
+        analysisPrompt.append("- Explain what each dependency is used for\n");
+        analysisPrompt.append("- Be concise (max 200 words total)\n");
+        analysisPrompt.append("- Start response with '[DEPENDENCY_ANALYSIS]'\n");
+        analysisPrompt.append("```\n");
+
+        try {
+            // Use naive LLM service for analysis
+            NaiveLLMService.LLMQueryParams params = new NaiveLLMService.LLMQueryParams(analysisPrompt.toString())
+                    .withMaxTokens(500)
+                    .withTemperature(0.2); // Low temperature for factual extraction
+
+            String analysis = naiveLlmService.queryWithParams(params, ChatboxUtilities.EnumUsage.AGENT_COORDINATOR);
+
+            // Ensure it starts with the marker
+            if (!analysis.startsWith("[DEPENDENCY_ANALYSIS]")) {
+                analysis = "[DEPENDENCY_ANALYSIS] " + analysis;
+            }
+
+            LOG.info("Dependency analysis complete: " + analysis.length() + " characters");
+            return analysis;
+
+        } catch (Exception e) {
+            LOG.warn("Failed to analyze dependencies: " + e.getMessage(), e);
+            return "[DEPENDENCY_ANALYSIS] Failed to analyze build files - using JUnit 5 defaults";
+        }
+    }
+
     @NotNull
     public ChatMemory getChatMemory() {
         return chatMemory;

@@ -6,9 +6,10 @@ import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.ui.model.GeneratedTestDisplayData;
+import com.zps.zest.testgen.constants.PromptConstants;
+import com.zps.zest.testgen.constants.UIMessageConstants;
 import com.zps.zest.chatui.ChatUIService;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
-import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -25,65 +26,9 @@ import java.util.stream.Collectors;
  * Uses ChatUIService.sendMessageStreaming for proper streaming display.
  */
 public class TestWriterAgent extends StreamingBaseAgent {
-    private static final int MAX_TOKENS = 40000; // Max tokens for test writer context
-    private static final double TOKEN_THRESHOLD = 0.7; // Trigger summarization at 70%
-
     private ChatUIService chatService;
-    private final OpenAiTokenCountEstimator tokenizer;
-    private final ContextSummarizationService summarizationService;
 
-    private static final String TEST_GENERATION_SYSTEM_PROMPT = """
-        You are a test writing assistant that generates complete, high-quality Java test classes.
-
-        CRITICAL: Generate the ENTIRE test class as a COMPLETE JAVA FILE in your response.
-
-        OUTPUT FORMAT:
-        Return the complete Java test class code wrapped in markdown code blocks:
-        ```java
-        // Your complete Java test class here
-        ```
-
-        The response must include:
-        - Package declaration
-        - All necessary imports
-        - Class declaration with proper annotations
-        - Field declarations (if needed)
-        - Setup method (@BeforeEach) if needed
-        - All test methods with @Test annotations
-        - Teardown method (@AfterEach) if needed
-
-        QUALITY STANDARDS:
-        - Each test method tests ONE specific scenario
-        - Use descriptive method names: testMethodName_WhenCondition_ThenExpectedResult
-        - Include proper setup, execution, and verification (Given-When-Then pattern)
-        - Use appropriate assertions: assertEquals, assertTrue, assertThrows, etc.
-        - Proper Java formatting and indentation
-        - Complete method implementations with assertions
-
-        DEPENDENCY-AWARE TESTING STRATEGY:
-
-        1. **PURE BUSINESS LOGIC** (no external dependencies):
-           → Write UNIT TESTS - test actual logic directly, no mocking needed
-
-        2. **DATABASE INTERACTIONS** (JPA, JDBC, repositories):
-           → Use TESTCONTAINERS with appropriate database containers
-
-        3. **MESSAGE QUEUES** (Kafka, RabbitMQ, ActiveMQ):
-           → Use TESTCONTAINERS with message broker containers
-
-        4. **EXTERNAL SERVICES** (Redis, Elasticsearch, etc.):
-           → Use TESTCONTAINERS with service containers
-
-        5. **HTTP CLIENTS/APIS** (last resort):
-           → Prefer WireMock or MockWebServer over mocking
-
-        FRAMEWORK DETECTION: Adapt to the project's testing framework (JUnit 4, JUnit 5, TestNG, etc.)
-
-        F.I.R.S.T Principles: Fast, Independent, Repeatable, Self-validating, Timely
-
-        CRITICAL REMINDER: If we can write test without mocking, please avoid mocking.
-        Generate the complete Java test class now. Return ONLY the test class code, no explanations.
-        """;
+    private static final String TEST_GENERATION_SYSTEM_PROMPT = PromptConstants.TestWriter.SYSTEM_PROMPT;
 
     public TestWriterAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
@@ -92,8 +37,6 @@ public class TestWriterAgent extends StreamingBaseAgent {
 
         // Get ChatUIService for streaming
         this.chatService = project.getService(ChatUIService.class);
-        this.tokenizer = new OpenAiTokenCountEstimator("gpt-4o");
-        this.summarizationService = new ContextSummarizationService(project, naiveLlmService);
     }
 
     /**
@@ -125,7 +68,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
 
                 // Notify UI
                 notifyStart();
-                sendToUI("✍️ Generating complete test class...\n\n");
+                sendToUI(UIMessageConstants.GENERATING_TESTS.getMessage());
 
                 // Build the test writing request with system prompt
                 String testRequest = buildTestWritingRequest(testPlan, contextTools);
@@ -134,9 +77,9 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 chatService.addSystemMessage(TEST_GENERATION_SYSTEM_PROMPT);
 
                 // Send the request to UI
-                sendToUI("📋 Request:\n" + testRequest + "\n\n");
-                sendToUI("🤖 Assistant Response:\n");
-                sendToUI("-".repeat(40) + "\n");
+                sendToUI(UIMessageConstants.REQUEST_HEADER.append(testRequest + "\n\n"));
+                sendToUI(UIMessageConstants.ASSISTANT_RESPONSE.getMessage());
+                sendToUI(UIMessageConstants.SEPARATOR.getMessage());
 
                 // Notify streaming started
                 String targetClass = testPlan.getTargetClass();
@@ -180,7 +123,7 @@ public class TestWriterAgent extends StreamingBaseAgent {
                     (Throwable error) -> {
                         // Handle error
                         isGeneratingTest = false;
-                        sendToUI("\n❌ Error: " + error.getMessage() + "\n");
+                        sendToUI("\n" + UIMessageConstants.ERROR_PREFIX.append(error.getMessage() + "\n"));
                         streamingFuture.completeExceptionally(error);
                         return kotlin.Unit.INSTANCE;
                     },
@@ -201,12 +144,12 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 TestGenerationResult result = parseCompleteTestClass(completeTestClass, testPlan, contextTools);
 
                 // Summary
-                sendToUI("\n📊 Test Generation Summary:\n");
-                sendToUI("  - Test class: " + result.getClassName() + "\n");
-                sendToUI("  - Package: " + result.getPackageName() + "\n");
-                sendToUI("  - Framework: " + result.getFramework() + "\n");
-                sendToUI("  - Methods generated: " + result.getMethodCount() + "\n");
-                sendToUI("  - Lines of code: " + result.getCompleteTestClass().split("\n").length + "\n");
+                sendToUI("\n" + UIMessageConstants.SUMMARY_HEADER.getMessage());
+                sendToUI(UIMessageConstants.SUMMARY_TEST_CLASS.append(result.getClassName() + "\n"));
+                sendToUI(UIMessageConstants.SUMMARY_PACKAGE.append(result.getPackageName() + "\n"));
+                sendToUI(UIMessageConstants.SUMMARY_FRAMEWORK.append(result.getFramework() + "\n"));
+                sendToUI(UIMessageConstants.SUMMARY_METHOD_COUNT.append(result.getMethodCount() + "\n"));
+                sendToUI(UIMessageConstants.SUMMARY_LOC.append(result.getCompleteTestClass().split("\n").length + "\n"));
                 notifyComplete();
 
                 LOG.debug("Test generation complete: " + result.getMethodCount() + " test(s)");
@@ -215,8 +158,8 @@ public class TestWriterAgent extends StreamingBaseAgent {
 
             } catch (Exception e) {
                 LOG.error("Failed to generate tests", e);
-                sendToUI("\n❌ Test generation failed: " + e.getMessage() + "\n");
-                throw new RuntimeException("Test generation failed: " + e.getMessage(), e);
+                sendToUI("\n" + UIMessageConstants.ERROR_PREFIX.append(UIMessageConstants.ERROR_TEST_GENERATION.append(e.getMessage() + "\n")));
+                throw new RuntimeException(UIMessageConstants.ERROR_TEST_GENERATION.append(e.getMessage()), e);
             }
         });
     }
@@ -235,30 +178,30 @@ public class TestWriterAgent extends StreamingBaseAgent {
      * Parse complete test class generated by AI into TestGenerationResult
      */
     private TestGenerationResult parseCompleteTestClass(String completeTestClass, TestPlan testPlan, ContextAgent.ContextGatheringTools contextTools) {
-        sendToUI("🔄 Parsing generated test class...\n");
-        
+        sendToUI(UIMessageConstants.PARSING_CLASS.getMessage());
+
         // Clean up the response (remove markdown if present)
         String cleanTestClass = cleanGeneratedCode(completeTestClass);
-        
+
         // Extract metadata from the complete test class
         String className = extractClassName(cleanTestClass, testPlan);
         String packageName = extractPackageName(cleanTestClass, testPlan);
         String framework = detectFramework(cleanTestClass);
-        
-        sendToUI("  - Detected class: " + className + "\n");
-        sendToUI("  - Detected package: " + packageName + "\n");
-        sendToUI("  - Detected framework: " + framework + "\n");
-        
+
+        sendToUI(UIMessageConstants.DETECTED_CLASS.append(className + "\n"));
+        sendToUI(UIMessageConstants.DETECTED_PACKAGE.append(packageName + "\n"));
+        sendToUI(UIMessageConstants.DETECTED_FRAMEWORK.append(framework + "\n"));
+
         // Extract components from the complete class
         List<String> imports = extractImports(cleanTestClass);
         List<String> fields = extractFields(cleanTestClass);
         List<GeneratedTestMethod> methods = extractTestMethods(cleanTestClass, testPlan);
         String beforeEachCode = extractBeforeEachCode(cleanTestClass);
         String afterEachCode = extractAfterEachCode(cleanTestClass);
-        
-        sendToUI("  - Extracted " + imports.size() + " imports\n");
-        sendToUI("  - Extracted " + fields.size() + " fields\n");
-        sendToUI("  - Extracted " + methods.size() + " test methods\n");
+
+        sendToUI(UIMessageConstants.EXTRACTED_IMPORTS.append(imports.size() + UIMessageConstants.IMPORTS_LABEL.getMessage()));
+        sendToUI(UIMessageConstants.EXTRACTED_FIELDS.append(fields.size() + UIMessageConstants.FIELDS_LABEL.getMessage()));
+        sendToUI(UIMessageConstants.EXTRACTED_METHODS.append(methods.size() + UIMessageConstants.TEST_METHODS_LABEL.getMessage()));
 
         // Create result with the complete test class
         TestGenerationResult result = new TestGenerationResult(
@@ -276,8 +219,8 @@ public class TestWriterAgent extends StreamingBaseAgent {
             contextTools,
             cleanTestClass // Store the complete test class
         );
-        
-        sendToUI("✅ Parsing completed!\n");
+
+        sendToUI(UIMessageConstants.PARSING_COMPLETE.getMessage());
         return result;
     }
     
@@ -689,20 +632,16 @@ public class TestWriterAgent extends StreamingBaseAgent {
         prompt.append("Generate a complete Java test class for the following requirements.\n\n");
 
         // Target information
-        prompt.append("=== TARGET CLASS INFO ===\n");
-        prompt.append("Target Class: ").append(testPlan.getTargetClass()).append("\n");
+        prompt.append("**TARGET CLASS INFO**\n");
+        prompt.append("```\n");
         prompt.append("Target Class: ").append(testPlan.getTargetClass()).append("\n");
         prompt.append("Target Method(s): ").append(testPlan.getTargetMethods().stream().collect(Collectors.joining(", "))).append("\n");
-        prompt.append("Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n\n");
+        prompt.append("Testing Framework: ").append(contextTools.getFrameworkInfo());
+        prompt.append("\n```\n\n");
 
-        // Testing approach from test plan
-        if (!testPlan.getTestingNotes().isEmpty()) {
-            prompt.append("=== TESTING APPROACH ===\n");
-            prompt.append(testPlan.getTestingNotes()).append("\n\n");
-        }
-        
         // Test scenarios to implement
-        prompt.append("=== TEST SCENARIOS TO IMPLEMENT ===\n");
+        prompt.append("**TEST SCENARIOS TO IMPLEMENT**\n");
+        prompt.append("```\n");
         for (int i = 0; i < testPlan.getTestScenarios().size(); i++) {
             TestPlan.TestScenario scenario = testPlan.getTestScenarios().get(i);
             prompt.append((i + 1)).append(". ").append(scenario.getName()).append("\n");
@@ -710,9 +649,25 @@ public class TestWriterAgent extends StreamingBaseAgent {
             prompt.append("   Type: ").append(scenario.getType().getDisplayName()).append("\n");
             prompt.append("   Priority: ").append(scenario.getPriority().getDisplayName()).append("\n");
 
+            // Include prerequisites
+            if (!scenario.getPrerequisites().isEmpty()) {
+                prompt.append("   Prerequisites:\n");
+                for (String prereq : scenario.getPrerequisites()) {
+                    prompt.append("      - ").append(prereq).append("\n");
+                }
+            }
+
+            // Include setup steps
+            if (!scenario.getSetupSteps().isEmpty()) {
+                prompt.append("   Setup Steps:\n");
+                for (String step : scenario.getSetupSteps()) {
+                    prompt.append("      - ").append(step).append("\n");
+                }
+            }
+
             // Include test inputs if available
             if (!scenario.getInputs().isEmpty()) {
-                prompt.append("   Test Inputs: \n");
+                prompt.append("   Test Inputs:\n");
                 for (String input : scenario.getInputs()) {
                     prompt.append("      - ").append(input).append("\n");
                 }
@@ -720,16 +675,31 @@ public class TestWriterAgent extends StreamingBaseAgent {
 
             // Include expected outcome
             prompt.append("   Expected Outcome: ").append(scenario.getExpectedOutcome()).append("\n");
+
+            // Include teardown steps
+            if (!scenario.getTeardownSteps().isEmpty()) {
+                prompt.append("   Teardown Steps:\n");
+                for (String step : scenario.getTeardownSteps()) {
+                    prompt.append("      - ").append(step).append("\n");
+                }
+            }
+
+            // Include isolation strategy
+            prompt.append("   Isolation: ").append(scenario.getIsolationStrategy().getDescription()).append("\n");
             prompt.append("\n");
         }
-        
+        prompt.append("```\n\n");
+
         // Add context for code generation
-        prompt.append("=== CODE CONTEXT ===\n");
+        prompt.append("**CODE CONTEXT**\n");
+        prompt.append("```\n");
         String contextInfo = buildTestWriterContext(contextTools, testPlan);
         prompt.append(contextInfo);
-        
+        prompt.append("```\n\n");
+
         // Instructions for complete test class
-        prompt.append("\n=== INSTRUCTIONS ===\n");
+        prompt.append("**INSTRUCTIONS**\n");
+        prompt.append("```\n");
         prompt.append("Generate a COMPLETE Java test class that:\n");
         prompt.append("1. Uses package name based on target class: ").append(inferPackageName(testPlan.getTargetClass())).append("\n");
         prompt.append("2. Class name: ").append(testPlan.getTargetClass()).append("Test\n");
@@ -737,10 +707,19 @@ public class TestWriterAgent extends StreamingBaseAgent {
         prompt.append("4. Uses ").append(contextTools.getFrameworkInfo()).append(" testing framework\n");
         prompt.append("5. Includes proper imports, setup/teardown if needed\n");
         prompt.append("6. Each test method has complete implementation with assertions\n");
-        prompt.append("7. Follows dependency-aware testing practices (unit vs integration)\n\n");
-        
+        prompt.append("7. Follows dependency-aware testing practices (unit vs integration)\n");
+        prompt.append("```\n\n");
+
+        // Testing approach from test plan (moved to end as final guidance)
+        if (!testPlan.getTestingNotes().isEmpty()) {
+            prompt.append("**TESTING APPROACH (FINAL GUIDANCE)**\n");
+            prompt.append("```\n");
+            prompt.append(testPlan.getTestingNotes());
+            prompt.append("\n```\n\n");
+        }
+
         prompt.append("Return ONLY the complete Java test class code - no explanations needed.");
-        
+
         return prompt.toString();
     }
     
@@ -772,109 +751,37 @@ public class TestWriterAgent extends StreamingBaseAgent {
         info.append("Target Methods: ").append(String.join(", ", testPlan.getTargetMethods())).append("\n");
         info.append("Testing Framework: ").append(contextTools.getFrameworkInfo()).append("\n\n");
 
-        // Add project dependencies information
-        String projectDeps = contextTools.getProjectDependencies();
-        if (projectDeps != null && !projectDeps.isEmpty()) {
-            info.append(projectDeps).append("\n");
-        }
+        // Note: Project dependencies are extracted by CoordinatorAgent and included in testPlan.testingNotes
+        // No need to duplicate the full build files here - the test plan already contains the concise list
 
-        // Add context notes with deduplication
+        // Add context notes
         List<String> contextNotes = contextTools.getContextNotes();
         if (!contextNotes.isEmpty()) {
-            info.append("=== CONTEXT INSIGHTS ===\n");
-            List<String> condensedNotes = summarizationService.condenseNotes(contextNotes, 20);
-            for (String note : condensedNotes) {
+            info.append("**CONTEXT INSIGHTS**\n");
+            for (String note : contextNotes) {
                 info.append("- ").append(note).append("\n");
             }
             info.append("\n");
         }
 
-        // Add analyzed class implementations with USAGE-AWARE summarization
+        // Add analyzed class implementations
         Map<String, String> analyzedClasses = contextTools.getAnalyzedClasses();
         if (!analyzedClasses.isEmpty()) {
-            // Check token usage
-            int classTokens = summarizationService.estimateClassTokens(analyzedClasses);
-            int currentInfoTokens = summarizationService.estimateTokens(info.toString());
-            int availableTokens = (int) (MAX_TOKENS * TOKEN_THRESHOLD) - currentInfoTokens;
+            info.append("**ALL ANALYZED CLASSES**\n");
 
-            info.append("=== ALL ANALYZED CLASSES (WITH USAGE CONTEXT) ===\n");
+            for (Map.Entry<String, String> entry : analyzedClasses.entrySet()) {
+                String className = entry.getKey();
+                String implementation = entry.getValue();
 
-            if (classTokens > availableTokens) {
-                // Need to summarize - use ENHANCED summarization with usage context
-                LOG.info("TestWriter context too large (" + classTokens + " tokens), using enhanced summarization with " + availableTokens + " token budget");
-                info.append("(Context automatically summarized with usage analysis to fit token limits)\n\n");
-
-                try {
-                    // Use enhanced summarization with usage context
-                    for (Map.Entry<String, String> entry : analyzedClasses.entrySet()) {
-                        String className = entry.getKey();
-                        String implementation = entry.getValue();
-                        boolean isTargetClass = className.equals(testPlan.getTargetClass());
-
-                        // Get usage context if available
-                        com.zps.zest.testgen.analysis.UsageContext usageContext = null;
-                        // Note: Usage context is per-method, we'll use it at method level
-                        // For class-level summary, we pass null for now
-
-                        // Determine detail level
-                        ContextSummarizationService.DetailLevel level = isTargetClass ?
-                                ContextSummarizationService.DetailLevel.DETAILED :
-                                ContextSummarizationService.DetailLevel.MODERATE;
-
-                        // Use enhanced summarization (PsiClass is null since we only have string)
-                        String summary = summarizationService.summarizeWithUsageContext(
-                                className,
-                                implementation,
-                                usageContext,  // Will be null for now, method-specific usage added in prompt
-                                null,          // PsiClass lookup could be added here
-                                level,
-                                isTargetClass
-                        );
-
-                        info.append("From ").append(className).append(":\n");
-                        info.append(summary).append("\n\n");
-                    }
-                } catch (Exception e) {
-                    LOG.warn("Enhanced summarization failed, falling back to simple: " + e.getMessage());
-                    // Fallback: include only target class
-                    if (analyzedClasses.containsKey(testPlan.getTargetClass())) {
-                        info.append("From ").append(testPlan.getTargetClass()).append(":\n");
-                        info.append(analyzedClasses.get(testPlan.getTargetClass())).append("\n\n");
-                    }
-                }
-            } else {
-                // Token budget OK, still use enhanced summarization for better quality
-                LOG.info("Token budget OK, using enhanced summarization for quality improvement");
-                for (Map.Entry<String, String> entry : analyzedClasses.entrySet()) {
-                    String className = entry.getKey();
-                    String implementation = entry.getValue();
-                    boolean isTargetClass = className.equals(testPlan.getTargetClass());
-
-                    try {
-                        // Use enhanced summarization even when space permits (for quality)
-                        String summary = summarizationService.summarizeWithUsageContext(
-                                className,
-                                implementation,
-                                null,  // Usage context
-                                null,  // PsiClass
-                                ContextSummarizationService.DetailLevel.FULL,  // Keep full detail when space permits
-                                isTargetClass
-                        );
-                        info.append("From ").append(className).append(":\n");
-                        info.append(summary).append("\n\n");
-                    } catch (Exception e) {
-                        // Fallback to original content
-                        info.append("From ").append(className).append(":\n");
-                        info.append(implementation).append("\n\n");
-                    }
-                }
+                info.append("From ").append(className).append(":\n");
+                info.append(implementation).append("\n\n");
             }
         }
 
         // NEW: Add usage context for target methods
         Map<String, com.zps.zest.testgen.analysis.UsageContext> methodUsages = contextTools.getMethodUsages();
         if (!methodUsages.isEmpty()) {
-            info.append("=== METHOD USAGE PATTERNS (HOW CODE IS ACTUALLY USED) ===\n");
+            info.append("**METHOD USAGE PATTERNS (HOW CODE IS ACTUALLY USED)**\n");
             info.append("The following shows how target methods are called throughout the project.\n");
             info.append("Use this to write realistic tests based on actual usage patterns.\n\n");
 
@@ -886,50 +793,14 @@ public class TestWriterAgent extends StreamingBaseAgent {
             }
         }
 
-        // Add related files with token-aware summarization
+        // Add related files
         Map<String, String> readFiles = contextTools.getReadFiles();
         if (!readFiles.isEmpty()) {
-            int currentInfoTokens = summarizationService.estimateTokens(info.toString());
-            int availableTokens = (int) (MAX_TOKENS * TOKEN_THRESHOLD) - currentInfoTokens;
+            info.append("**RELATED FILES**\n");
 
-            // Estimate file tokens
-            int fileTokens = 0;
-            for (String content : readFiles.values()) {
-                fileTokens += summarizationService.estimateTokens(content);
-            }
-
-            info.append("=== RELATED FILES ===\n");
-
-            if (fileTokens > availableTokens) {
-                LOG.info("TestWriter file context too large (" + fileTokens + " tokens), summarizing with " + availableTokens + " token budget");
-                info.append("(File contents automatically summarized to fit token limits)\n\n");
-
-                try {
-                    Map<String, String> summarized = summarizationService.summarizeFiles(
-                            readFiles,
-                            availableTokens
-                    ).get();
-
-                    for (Map.Entry<String, String> entry : summarized.entrySet()) {
-                        info.append("File: ").append(entry.getKey()).append("\n");
-                        info.append("```\n").append(entry.getValue()).append("\n```\n\n");
-                    }
-                } catch (Exception e) {
-                    LOG.warn("File summarization failed, using truncated content: " + e.getMessage());
-                    // Fallback: truncate files
-                    for (Map.Entry<String, String> entry : readFiles.entrySet()) {
-                        String content = entry.getValue();
-                        String truncated = content.substring(0, Math.min(500, content.length()));
-                        info.append("File: ").append(entry.getKey()).append("\n");
-                        info.append("```\n").append(truncated).append("\n... (truncated)\n```\n\n");
-                    }
-                }
-            } else {
-                // Token budget OK, include full files
-                for (Map.Entry<String, String> entry : readFiles.entrySet()) {
-                    info.append("File: ").append(entry.getKey()).append("\n");
-                    info.append("```\n").append(entry.getValue()).append("\n```\n\n");
-                }
+            for (Map.Entry<String, String> entry : readFiles.entrySet()) {
+                info.append("File: ").append(entry.getKey()).append("\n");
+                info.append("```\n").append(entry.getValue()).append("\n```\n\n");
             }
         }
         

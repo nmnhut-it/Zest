@@ -111,7 +111,7 @@ public class SendCodeReviewToChatBox extends BaseChatAction {
         try {
             // Initialize tools
             RipgrepCodeTool ripgrepTool = new RipgrepCodeTool(project, new HashSet<>(), new ArrayList<>());
-            AnalyzeClassTool analyzeClassTool = new AnalyzeClassTool(project, new HashMap<>());
+            AnalyzeClassTool analyzeClassTool = new AnalyzeClassTool(project, new HashMap<>(), new HashMap<>());
 
             // Extract key identifiers from the code
             Set<String> classNames = extractClassNames(codeContent);

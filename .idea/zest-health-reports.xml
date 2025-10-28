@@ -3,337 +3,1155 @@
   <component name="CodeHealthReportStorage">
     <option name="reports">
       <map>
-        <entry key="2025-10-21">
+        <entry key="2025-10-26">
           <value>
             <SerializableHealthReport>
-              <option name="date" value="2025-10-21" />
+              <option name="date" value="2025-10-26" />
               <option name="results">
                 <list>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.determineOverallTestType" />
-                    <option name="healthScore" value="85" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.8" />
-                          <option name="description" value="Default return of INTEGRATION_TESTS when no scenarios or unclear types may mislead users about actual test coverage" />
-                          <option name="impact" value="Users may assume integration tests are needed when unit tests would suffice, leading to unnecessary test infrastructure setup" />
-                          <option name="issueCategory" value="Logic" />
-                          <option name="severity" value="3" />
-                          <option name="suggestedFix" value="Return a new UNKNOWN type or throw exception when test type cannot be determined, rather than defaulting to INTEGRATION_TESTS" />
-                          <option name="title" value="Default case may misrepresent test type" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Determines overall test type based on scenarios" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.buildPlanningRequest" />
-                    <option name="healthScore" value="80" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools.analyzeClass" />
+                    <option name="healthScore" value="78" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
                           <option name="confidence" value="0.85" />
-                          <option name="description" value="Using StringBuilder.append() in loops for string building, but concatenating large strings without considering potential memory impact" />
-                          <option name="impact" value="Could cause performance issues or OutOfMemoryError when processing large codebases with many analyzed classes" />
-                          <option name="issueCategory" value="Performance" />
-                          <option name="severity" value="3" />
-                          <option name="suggestedFix" value="Consider using StringBuilder capacity estimation or breaking large content into chunks for processing" />
-                          <option name="title" value="Inefficient string concatenation in loop" />
+                          <option name="description" value="ContextDisplayData creation may cause memory overhead with large class files" />
+                          <option name="impact" value="Memory bloat when analyzing large classes, potential OOM errors" />
+                          <option name="issueCategory" value="Resource" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Limit analysis result size or use streaming approach for large files" />
+                          <option name="title" value="Potential resource leak in file analysis" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Builds LLM prompt with context information" />
+                    <option name="summary" value="Analyzes Java class and returns structure" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.buildTestPlan" />
-                    <option name="healthScore" value="75" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.85" />
-                          <option name="description" value="Exception caught during priority conversion is silently ignored, defaulting to MEDIUM without user notification" />
-                          <option name="impact" value="Test scenarios may be displayed with incorrect priority, affecting user's perception of test importance" />
-                          <option name="issueCategory" value="Error-Handling" />
-                          <option name="severity" value="3" />
-                          <option name="suggestedFix" value="Log the exception or notify user when priority conversion fails, rather than silently defaulting to MEDIUM" />
-                          <option name="title" value="Exception ignored in priority conversion" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Builds final test plan from collected data" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.planTests" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools.readFile" />
                     <option name="healthScore" value="75" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
                           <option name="confidence" value="0.95" />
-                          <option name="description" value="Exception caught in CompletableFuture.supplyAsync is rethrown as RuntimeException without preserving original type or context" />
-                          <option name="impact" value="Loss of debugging information, makes it harder to distinguish between different failure causes in test planning" />
-                          <option name="issueCategory" value="Error-Handling" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Wrap original exception in a custom TestPlanningException with detailed context, or log full stack trace before rethrowing" />
-                          <option name="title" value="Exception swallowed in CompletableFuture" />
+                          <option name="description" value="Direct use of user-provided filePath without validation allows arbitrary file access" />
+                          <option name="impact" value="Security breach enabling access to sensitive system files, config, or credentials" />
+                          <option name="issueCategory" value="Security" />
+                          <option name="severity" value="5" />
+                          <option name="suggestedFix" value="Validate file path to ensure it's within project boundaries using Path.of() and relativize()" />
+                          <option name="title" value="Path traversal vulnerability in file reading" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Main test planning method with async execution" />
+                    <option name="summary" value="Reads file content from project" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.addTestScenarios" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.ContextAgent.buildContextRequest" />
+                    <option name="healthScore" value="72" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="Repeatedly calls analyzeClass even when already analyzed" />
+                          <option name="impact" value="Performance degradation from redundant analysis operations" />
+                          <option name="issueCategory" value="Performance" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Cache analysis result or use weak references to avoid repeated analysis of same classes" />
+                          <option name="title" value="Unnecessary repeated class analysis calls" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Builds context request for AI assistant" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools.markContextCollectionDone" />
                     <option name="healthScore" value="70" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
                           <option name="confidence" value="0.9" />
-                          <option name="description" value="Multiple UI updates from different threads without synchronization, potentially causing inconsistent test plan displays" />
-                          <option name="impact" value="UI may show incorrect or incomplete test scenarios, leading to user confusion and potential data corruption" />
+                          <option name="description" value="Checks caller investigation completeness before validating complete plan items" />
+                          <option name="impact" value="May incorrectly allow completion when plan items are incomplete but callers are investigated" />
                           <option name="issueCategory" value="Logic" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Use ApplicationManager.getApplication().invokeLater() for all UI operations instead of SwingUtilities.invokeLater() to ensure EDT compliance" />
-                          <option name="title" value="Race condition in UI update" />
+                          <option name="suggestedFix" value="Reorder validation checks to ensure plan completion before caller investigation validation" />
+                          <option name="title" value="Inconsistent validation of caller investigation" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Adds multiple test scenarios to plan" />
+                    <option name="summary" value="Validates and marks context collection as complete" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.explanation.tools.RipgrepCodeTool.searchCode" />
-                    <option name="healthScore" value="85" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.9" />
-                          <option name="description" value="Regex validation misses several common malformed patterns including unclosed brackets" />
-                          <option name="impact" value="Malformed regex patterns can cause ripgrep to fail or produce incorrect results" />
-                          <option name="issueCategory" value="Logic" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Add comprehensive regex validation using Pattern.compile() with try-catch" />
-                          <option name="title" value="Invalid regex validation logic" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Main search method with input validation and ripgrep execution" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.explanation.tools.RipgrepCodeTool.buildRipgrepCommand" />
-                    <option name="healthScore" value="82" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.8" />
-                          <option name="description" value="File patterns are comma-separated but not validated for edge cases" />
-                          <option name="impact" value="Unexpected behavior when patterns contain commas" />
-                          <option name="issueCategory" value="API-Usage" />
-                          <option name="severity" value="3" />
-                          <option name="suggestedFix" value="Add validation to ensure comma-separated patterns don't contain malformed elements" />
-                          <option name="title" value="Inconsistent pattern handling" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Builds ripgrep command with various flags and patterns" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.explanation.tools.RipgrepCodeTool.executeRipgrepCommand" />
-                    <option name="healthScore" value="80" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools.getUnresolvedFileReferences" />
+                    <option name="healthScore" value="68" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
                           <option name="confidence" value="0.85" />
-                          <option name="description" value="Process input stream not properly closed in all code paths, potential resource leak" />
-                          <option name="impact" value="Memory exhaustion or file descriptor leaks when executing many commands" />
-                          <option name="issueCategory" value="Resource" />
+                          <option name="description" value="False positive detection logic is too simplistic and may miss actual references" />
+                          <option name="impact" value="Misses file references in code, leading to incomplete context gathering" />
+                          <option name="issueCategory" value="Logic" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Use try-with-resources for BufferedReader and ensure process destruction on failure" />
-                          <option name="title" value="Resource leak in process handling" />
+                          <option name="suggestedFix" value="Implement more robust pattern matching using regex or AST parsing for accurate reference detection" />
+                          <option name="title" value="Incorrect file reference detection logic" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Executes ripgrep process and handles output parsing" />
+                    <option name="summary" value="Finds unresolved file references in analyzed code" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.explanation.tools.RipgrepCodeTool.searchWithRipgrep" />
-                    <option name="healthScore" value="78" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.95" />
-                          <option name="description" value="Direct command execution with user input without sanitization" />
-                          <option name="impact" value="Arbitrary code execution via malicious query patterns" />
-                          <option name="issueCategory" value="Security" />
-                          <option name="severity" value="5" />
-                          <option name="suggestedFix" value="Implement strict input validation and sanitization before passing to shell" />
-                          <option name="title" value="Command injection vulnerability" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Core ripgrep search implementation with binary detection" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.explanation.tools.RipgrepCodeTool.parseMatch" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.ContextAgent.ContextGatheringAssistant.gatherContext" />
                     <option name="healthScore" value="75" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
                           <option name="confidence" value="0.85" />
-                          <option name="description" value="Exception caught but silently ignored, returning null without logging" />
-                          <option name="impact" value="Data loss or failed search results without diagnostic information" />
-                          <option name="issueCategory" value="Error-Handling" />
+                          <option name="description" value="Shared mutable state in ContextGatheringTools not properly synchronized for concurrent access" />
+                          <option name="impact" value="Data corruption or inconsistent context gathering results" />
+                          <option name="issueCategory" value="Concurrency" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Log parsing exceptions with stack trace for debugging and return default values" />
-                          <option name="title" value="Silent failure in JSON parsing" />
+                          <option name="suggestedFix" value="Use proper synchronization or thread-safe collections for all shared mutable state" />
+                          <option name="title" value="Potential race condition in context tools" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Parses match data from JSON output" />
+                    <option name="summary" value="Main method for gathering context using AI assistant" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.buildPlanningRequest" />
+                    <option name="healthScore" value="75" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="Code content might be exposed in planning request" />
+                          <option name="impact" value="Potentially sensitive implementation details could be leaked to LLM" />
+                          <option name="issueCategory" value="Security" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Filter or truncate code content before inclusion in prompts to prevent leakage" />
+                          <option name="title" value="Sensitive data exposure in prompt" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Request building with potential information leakage" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.buildTestPlan" />
+                    <option name="healthScore" value="72" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="Default to integration when none found might be incorrect" />
+                          <option name="impact" value="Could misclassify mixed scenario plans as integration instead of mixed" />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Use explicit mixed type or require clear unit/integration distinction" />
+                          <option name="title" value="Ambiguous overall test type determination" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Test plan building with possible incorrect type determination" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.planTests" />
+                    <option name="healthScore" value="70" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="UI updates and callbacks may not be properly synchronized" />
+                          <option name="impact" value="Potential UI freezes or inconsistent state during parallel execution" />
+                          <option name="issueCategory" value="Concurrency" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Ensure all UI updates happen on EDT using invokeLater and proper synchronization" />
+                          <option name="title" value="Thread safety in UI updates" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Main test planning method with potential concurrency and UI update issues" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.analyzeDependencies" />
+                    <option name="healthScore" value="68" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="Only logs warning but doesn't properly handle analysis failures" />
+                          <option name="impact" value="Failed dependency analysis could silently continue with incomplete results" />
+                          <option name="issueCategory" value="Error-Handling" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Throw or propagate exception on analysis failure to ensure proper error handling" />
+                          <option name="title" value="Incomplete exception handling" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Dependency analysis with potential unhandled exceptions" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.CoordinatorAgent.TestPlanningTools.addTestScenarios" />
+                    <option name="healthScore" value="65" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="No validation for null scenario objects in addTestScenarios" />
+                          <option name="impact" value="Could cause NullPointerException when processing corrupted or invalid scenarios" />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add null checks for scenario objects before processing and validation" />
+                          <option name="title" value="Missing null checks in scenario processing" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Test scenario addition with potential data inconsistency" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.TestMergingTools.applySimpleFix" />
+                    <option name="healthScore" value="70" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="Same text appears multiple times in code, only replaces first occurrence" />
+                          <option name="impact" value="Partial fixes applied instead of comprehensive corrections" />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Add more precise replacement logic with context awareness or error when multiple matches" />
+                          <option name="title" value="Ambiguous text replacement detection" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Text replacement with potential multiple occurrences" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.mergeTestCode" />
+                    <option name="healthScore" value="68" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Merged test code not validated before being returned to caller" />
+                          <option name="impact" value="Invalid merged test classes may be returned without detection" />
+                          <option name="issueCategory" value="Error-Handling" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Add validation step after merging to ensure merged code is valid" />
+                          <option name="title" value="Missing validation after merge" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Test merging without explicit validation after merging" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.mergeTests" />
+                    <option name="healthScore" value="65" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="description" value="CompletableFuture.supplyAsync creates background task but UI updates still happen on EDT" />
+                          <option name="impact" value="Potential UI freezing and performance degradation" />
+                          <option name="issueCategory" value="Concurrency" />
+                          <option name="severity" value="5" />
+                          <option name="suggestedFix" value="Move all UI updates to EDT using invokeLater() and avoid blocking operations" />
+                          <option name="title" value="Blocking EDT in CompletableFuture" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Main test merging method with critical threading and resource management issues" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.TestMergingTools.validateTestCode" />
+                    <option name="healthScore" value="60" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="LightVirtualFile created without proper cleanup in validation process" />
+                          <option name="impact" value="Memory leaks and potential file descriptor exhaustion with many validations" />
+                          <option name="issueCategory" value="Resource" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Ensure proper disposal of LightVirtualFile resources and use try-with-resources pattern" />
+                          <option name="title" value="Possible resource leak in validation" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Test validation with potential resource leak and security vulnerability" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.TestMergingTools.findImportForClass" />
+                    <option name="healthScore" value="55" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="No rate limiting on class lookup requests, could be abused for denial of service" />
+                          <option name="impact" value="System overload and denial of service attacks through excessive class lookups" />
+                          <option name="issueCategory" value="Security" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add request rate limiting and validation for class names to prevent abuse" />
+                          <option name="title" value="Potential DoS via batch class lookup" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Batch import lookup with potential DoS vulnerability" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.StreamingBaseAgent.sendToUI" />
+                    <option name="healthScore" value="90" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="Direct access to streamingConsumer without proper null check" />
+                          <option name="impact" value="May cause NPE if consumer is set to null concurrently" />
+                          <option name="issueCategory" value="Concurrency" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Add null check before calling accept() or synchronize access to streamingConsumer" />
+                          <option name="title" value="Potential null pointer in UI consumer access" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Sends message to UI consumer" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.StreamingBaseAgent.determineUsageForAgent" />
+                    <option name="healthScore" value="85" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="Contains overlapping conditions that can cause incorrect usage enum assignment" />
+                          <option name="impact" value="Incorrect usage tracking for agents with names containing both 'test' and 'context'" />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Reorder conditions to be more specific, or use exclusive matching logic" />
+                          <option name="title" value="Inconsistent agent type detection logic" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Determines agent usage enum based on name" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.StreamingBaseAgent.notifyToolCall" />
+                    <option name="healthScore" value="80" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="SwingUtilities.invokeLater() used in multiple notification methods but not consistently in all" />
+                          <option name="impact" value="Inconsistent UI thread handling may cause UI freezes or race conditions" />
+                          <option name="issueCategory" value="API-Usage" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Ensure all UI update methods consistently use SwingUtilities.invokeLater()" />
+                          <option name="title" value="Potential UI thread blocking in event notifications" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Notifies UI about tool calls" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.StreamingBaseAgent.queryLLM" />
+                    <option name="healthScore" value="75" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.95" />
+                          <option name="description" value="CancellationException is caught but re-thrown, but may be silently ignored by caller" />
+                          <option name="impact" value="Thread interruption may not be handled properly by calling code" />
+                          <option name="issueCategory" value="Error-Handling" />
+                          <option name="severity" value="5" />
+                          <option name="suggestedFix" value="Ensure caller properly handles CancellationException or use a dedicated cancellation handler" />
+                          <option name="title" value="Cancellation exception not properly propagated" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Performs direct LLM query" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.StreamingBaseAgent.cancel" />
+                    <option name="healthScore" value="70" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Direct cast and method call on chatModel without checking if it's null" />
+                          <option name="impact" value="NullPointerException if chatModel is somehow null during cancellation" />
+                          <option name="issueCategory" value="Resource" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add null check before casting and calling cancelAll() on chatModel" />
+                          <option name="title" value="Missing null check on chatModel when canceling" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Cancels agent operations" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.evaluation.TestCodeValidator.countCompilationErrors" />
+                    <option name="healthScore" value="75" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="validate() is called twice: once in countCompilationErrors and again in testCompiles." />
+                          <option name="impact" value="Wastes CPU cycles and increases latency for repeated validations." />
+                          <option name="issueCategory" value="Performance" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Reuse ValidationResult from one call instead of calling validate() twice." />
+                          <option name="title" value="Unnecessary duplicate validation" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Redundant validation call" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.evaluation.TestCodeValidator.findTestSourceRoot" />
+                    <option name="healthScore" value="65" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Repeated calls to LocalFileSystem.getInstance().findFileByPath() without caching." />
+                          <option name="impact" value="May lead to unnecessary I/O overhead and slower validation times." />
+                          <option name="issueCategory" value="Performance" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Cache or memoize results of file system lookups for repeated paths." />
+                          <option name="title" value="Repeated file system access" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Inefficient fallback file system lookup" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.evaluation.TestCodeValidator.validate" />
+                    <option name="healthScore" value="55" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="Background Task.Backgroundable may not be properly disposed if interrupted or canceled." />
+                          <option name="impact" value="Could leave background threads running, causing resource leaks or memory issues." />
+                          <option name="issueCategory" value="Resource" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Ensure proper disposal of background tasks and monitor cancellation via ProgressIndicator." />
+                          <option name="title" value="Unmanaged background thread lifecycle" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Resource leak potential due to unmanaged background task" />
                   </SerializableMethodResult>
                 </list>
               </option>
             </SerializableHealthReport>
           </value>
         </entry>
-        <entry key="2025-10-22">
+        <entry key="2025-10-27">
           <value>
             <SerializableHealthReport>
-              <option name="date" value="2025-10-22" />
+              <option name="date" value="2025-10-27" />
               <option name="results">
                 <list>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.git.GitCommitMessageService.getPreviewProgress" />
-                    <option name="healthScore" value="85" />
-                    <option name="issues">
-                      <list>
-                        <SerializableHealthIssue>
-                          <option name="confidence" value="0.85" />
-                          <option name="description" value="Removes session from previewSessions only after returning response, risking race condition if another request accesses the same session concurrently." />
-                          <option name="impact" value="Could return stale or inconsistent progress data if multiple clients poll the same session simultaneously during cleanup phase." />
-                          <option name="issueCategory" value="Concurrency" />
-                          <option name="severity" value="3" />
-                          <option name="suggestedFix" value="Remove session from previewSessions before building the response to ensure atomic cleanup, or use synchronized access to the session map." />
-                          <option name="title" value="Inconsistent state cleanup on completion" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
-                          <option name="verified" value="true" />
-                        </SerializableHealthIssue>
-                      </list>
-                    </option>
-                    <option name="modificationCount" value="1" />
-                    <option name="summary" value="Gets current progress of ongoing preview generation" />
-                  </SerializableMethodResult>
-                  <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.git.GitCommitMessageService.streamCommitMessage" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.findImportForClassesInternal" />
                     <option name="healthScore" value="82" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.85" />
-                          <option name="description" value="Accesses and modifies CommitMessageSession state (started, completed) without synchronization, risking inconsistent state across threads." />
-                          <option name="impact" value="Could lead to duplicate streaming starts, incorrect completion status, or missed chunks due to concurrent access from UI and background threads." />
-                          <option name="issueCategory" value="Concurrency" />
+                          <option name="confidence" value="0.95" />
+                          <option name="description" value="The code assumes psiClass.getContainingFile() is never null, but it can be null for synthetic or library classes without source files." />
+                          <option name="impact" value="NullPointerException during class lookup, causing batch failures and misleading error messages." />
+                          <option name="issueCategory" value="Logic" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Add synchronization (synchronized blocks or atomic variables) around shared state modifications in CommitMessageSession, particularly isStarted() and start()." />
-                          <option name="title" value="Race condition on session state" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="suggestedFix" value="Add null check before accessing getContainingFile().getVirtualFile().getPath() to handle synthetic/library classes gracefully." />
+                          <option name="title" value="Null pointer risk on PsiClass.getContainingFile()" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Streams commit message generation response in chunks" />
+                    <option name="summary" value="Potential NPE on PsiClass.getContainingFile()" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.git.GitCommitMessageService.previewFileGroups" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.extractLineRange" />
                     <option name="healthScore" value="80" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
-                          <option name="confidence" value="0.88" />
-                          <option name="description" value="Processes all files in memory without pagination or streaming, risking OOM for very large repositories or hundreds of files." />
-                          <option name="impact" value="Application may crash with OutOfMemoryError when processing large changesets, making the feature unusable for enterprise-sized projects." />
-                          <option name="issueCategory" value="Performance" />
-                          <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Implement pagination or streaming for file processing, or add a hard limit on maximum files processed (e.g., first 500 files) with user notification." />
-                          <option name="title" value="Unbounded memory growth from large file lists" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="The method checks startLine and endLine bounds but doesn't validate that endLine &lt;= lines.length, potentially creating invalid ranges." />
+                          <option name="impact" value="Incorrect text extraction leading to regex matching failures or UI display errors when line ranges exceed file length." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Add validation that endLine &lt;= lines.length before extraction, or clamp endLine to lines.length if it exceeds bounds." />
+                          <option name="title" value="Incomplete line range validation" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Generates preview of file grouping for hierarchical generation" />
+                    <option name="summary" value="Line range extraction without proper validation" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.git.GitCommitMessageService.generateCommitMessage" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.addImport" />
+                    <option name="healthScore" value="79" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="The method adds newline after imports but doesn't handle existing whitespace properly, potentially creating inconsistent formatting." />
+                          <option name="impact" value="Poor code formatting that may trigger style checkers or confuse developers reviewing the generated code." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Use a more sophisticated approach to preserve existing whitespace patterns or use IntelliJ's code formatting API for consistent results." />
+                          <option name="title" value="Inconsistent whitespace handling in import insertion" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Import insertion without proper whitespace handling" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.findImportForClass" />
                     <option name="healthScore" value="78" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
                           <option name="confidence" value="0.9" />
-                          <option name="description" value="Calls gitService.getFileDiffContent() directly in generateCommitMessage without background threading, risking UI freeze for large diffs." />
-                          <option name="impact" value="UI may freeze during commit message generation, especially with large files or many changes, degrading user experience." />
-                          <option name="issueCategory" value="Performance" />
+                          <option name="description" value="The method uses executeOnPooledThread but wraps ReadAction.compute() which may still block if PSI operations are heavy. Should use ProgressManager for long-running operations." />
+                          <option name="impact" value="UI freezing during batch class lookups, especially with large projects or network dependencies." />
+                          <option name="issueCategory" value="Concurrency" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Move gitService.getFileDiffContent() calls to background thread using ApplicationManager.getApplication().executeOnPooledThread() to prevent UI blocking." />
-                          <option name="title" value="Blocking Git operations in UI thread" />
-                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="suggestedFix" value="Wrap the ReadAction.compute() in ProgressManager.getInstance().runProcessWithProgressSynchronously() with proper progress indicator and cancellation support." />
+                          <option name="title" value="EDT blocking risk in batch class lookup" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Generates commit message from file diffs with streaming support" />
+                    <option name="summary" value="Batch class lookup with potential EDT blocking" />
                   </SerializableMethodResult>
                   <SerializableMethodResult>
-                    <option name="fqn" value="com.zps.zest.git.GitCommitMessageService.startPreviewFileGroups" />
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.applyRegexFix" />
+                    <option name="healthScore" value="75" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="The method calculates actualMatchStart but doesn't validate it against the original matcher's positions, risking replacement at wrong location if regex has overlapping matches." />
+                          <option name="impact" value="Incorrect code modification that could break test functionality or introduce syntax errors." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add validation that matcher.start() == actualMatchStart before replacement, or use a more robust position tracking mechanism." />
+                          <option name="title" value="Offset mismatch in regex replacement" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Regex replacement with potential offset mismatch" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.findImportForClassesInternal" />
+                    <option name="healthScore" value="82" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.95" />
+                          <option name="description" value="The code assumes psiClass.getContainingFile() is never null, but it can be null for synthetic or library classes without source files." />
+                          <option name="impact" value="NullPointerException during class lookup, causing batch failures and misleading error messages." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add null check before accessing getContainingFile().getVirtualFile().getPath() to handle synthetic/library classes gracefully." />
+                          <option name="title" value="Null pointer risk on PsiClass.getContainingFile()" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Potential NPE on PsiClass.getContainingFile()" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.extractLineRange" />
+                    <option name="healthScore" value="80" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="The method checks startLine and endLine bounds but doesn't validate that endLine &lt;= lines.length, potentially creating invalid ranges." />
+                          <option name="impact" value="Incorrect text extraction leading to regex matching failures or UI display errors when line ranges exceed file length." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Add validation that endLine &lt;= lines.length before extraction, or clamp endLine to lines.length if it exceeds bounds." />
+                          <option name="title" value="Incomplete line range validation" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Line range extraction without proper validation" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.addImport" />
+                    <option name="healthScore" value="79" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="The method adds newline after imports but doesn't handle existing whitespace properly, potentially creating inconsistent formatting." />
+                          <option name="impact" value="Poor code formatting that may trigger style checkers or confuse developers reviewing the generated code." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Use a more sophisticated approach to preserve existing whitespace patterns or use IntelliJ's code formatting API for consistent results." />
+                          <option name="title" value="Inconsistent whitespace handling in import insertion" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Import insertion without proper whitespace handling" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.findImportForClass" />
+                    <option name="healthScore" value="78" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="The method uses executeOnPooledThread but wraps ReadAction.compute() which may still block if PSI operations are heavy. Should use ProgressManager for long-running operations." />
+                          <option name="impact" value="UI freezing during batch class lookups, especially with large projects or network dependencies." />
+                          <option name="issueCategory" value="Concurrency" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Wrap the ReadAction.compute() in ProgressManager.getInstance().runProcessWithProgressSynchronously() with proper progress indicator and cancellation support." />
+                          <option name="title" value="EDT blocking risk in batch class lookup" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Batch class lookup with potential EDT blocking" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.applyRegexFix" />
+                    <option name="healthScore" value="75" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="The method calculates actualMatchStart but doesn't validate it against the original matcher's positions, risking replacement at wrong location if regex has overlapping matches." />
+                          <option name="impact" value="Incorrect code modification that could break test functionality or introduce syntax errors." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add validation that matcher.start() == actualMatchStart before replacement, or use a more robust position tracking mechanism." />
+                          <option name="title" value="Offset mismatch in regex replacement" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Regex replacement with potential offset mismatch" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.findImportForClassesInternal" />
+                    <option name="healthScore" value="82" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.95" />
+                          <option name="description" value="The code assumes psiClass.getContainingFile() is never null, but it can be null for synthetic or library classes without source files." />
+                          <option name="impact" value="NullPointerException during class lookup, causing batch failures and misleading error messages." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add null check before accessing getContainingFile().getVirtualFile().getPath() to handle synthetic/library classes gracefully." />
+                          <option name="title" value="Null pointer risk on PsiClass.getContainingFile()" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Potential NPE on PsiClass.getContainingFile()" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.extractLineRange" />
+                    <option name="healthScore" value="80" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="The method checks startLine and endLine bounds but doesn't validate that endLine &lt;= lines.length, potentially creating invalid ranges." />
+                          <option name="impact" value="Incorrect text extraction leading to regex matching failures or UI display errors when line ranges exceed file length." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Add validation that endLine &lt;= lines.length before extraction, or clamp endLine to lines.length if it exceeds bounds." />
+                          <option name="title" value="Incomplete line range validation" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Line range extraction without proper validation" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.addImport" />
+                    <option name="healthScore" value="79" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="The method adds newline after imports but doesn't handle existing whitespace properly, potentially creating inconsistent formatting." />
+                          <option name="impact" value="Poor code formatting that may trigger style checkers or confuse developers reviewing the generated code." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Use a more sophisticated approach to preserve existing whitespace patterns or use IntelliJ's code formatting API for consistent results." />
+                          <option name="title" value="Inconsistent whitespace handling in import insertion" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Import insertion without proper whitespace handling" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.findImportForClass" />
+                    <option name="healthScore" value="78" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="The method uses executeOnPooledThread but wraps ReadAction.compute() which may still block if PSI operations are heavy. Should use ProgressManager for long-running operations." />
+                          <option name="impact" value="UI freezing during batch class lookups, especially with large projects or network dependencies." />
+                          <option name="issueCategory" value="Concurrency" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Wrap the ReadAction.compute() in ProgressManager.getInstance().runProcessWithProgressSynchronously() with proper progress indicator and cancellation support." />
+                          <option name="title" value="EDT blocking risk in batch class lookup" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Batch class lookup with potential EDT blocking" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.applyRegexFix" />
+                    <option name="healthScore" value="75" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="The method calculates actualMatchStart but doesn't validate it against the original matcher's positions, risking replacement at wrong location if regex has overlapping matches." />
+                          <option name="impact" value="Incorrect code modification that could break test functionality or introduce syntax errors." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add validation that matcher.start() == actualMatchStart before replacement, or use a more robust position tracking mechanism." />
+                          <option name="title" value="Offset mismatch in regex replacement" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Regex replacement with potential offset mismatch" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.findImportForClassesInternal" />
+                    <option name="healthScore" value="82" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.95" />
+                          <option name="description" value="The code assumes psiClass.getContainingFile() is never null, but it can be null for synthetic or library classes without source files." />
+                          <option name="impact" value="NullPointerException during class lookup, causing batch failures and misleading error messages." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add null check before accessing getContainingFile().getVirtualFile().getPath() to handle synthetic/library classes gracefully." />
+                          <option name="title" value="Null pointer risk on PsiClass.getContainingFile()" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Potential NPE on PsiClass.getContainingFile()" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.extractLineRange" />
+                    <option name="healthScore" value="80" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="The method checks startLine and endLine bounds but doesn't validate that endLine &lt;= lines.length, potentially creating invalid ranges." />
+                          <option name="impact" value="Incorrect text extraction leading to regex matching failures or UI display errors when line ranges exceed file length." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Add validation that endLine &lt;= lines.length before extraction, or clamp endLine to lines.length if it exceeds bounds." />
+                          <option name="title" value="Incomplete line range validation" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Line range extraction without proper validation" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.addImport" />
+                    <option name="healthScore" value="79" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="The method adds newline after imports but doesn't handle existing whitespace properly, potentially creating inconsistent formatting." />
+                          <option name="impact" value="Poor code formatting that may trigger style checkers or confuse developers reviewing the generated code." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Use a more sophisticated approach to preserve existing whitespace patterns or use IntelliJ's code formatting API for consistent results." />
+                          <option name="title" value="Inconsistent whitespace handling in import insertion" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Import insertion without proper whitespace handling" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.findImportForClass" />
+                    <option name="healthScore" value="78" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="The method uses executeOnPooledThread but wraps ReadAction.compute() which may still block if PSI operations are heavy. Should use ProgressManager for long-running operations." />
+                          <option name="impact" value="UI freezing during batch class lookups, especially with large projects or network dependencies." />
+                          <option name="issueCategory" value="Concurrency" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Wrap the ReadAction.compute() in ProgressManager.getInstance().runProcessWithProgressSynchronously() with proper progress indicator and cancellation support." />
+                          <option name="title" value="EDT blocking risk in batch class lookup" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Batch class lookup with potential EDT blocking" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.applyRegexFix" />
+                    <option name="healthScore" value="75" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="The method calculates actualMatchStart but doesn't validate it against the original matcher's positions, risking replacement at wrong location if regex has overlapping matches." />
+                          <option name="impact" value="Incorrect code modification that could break test functionality or introduce syntax errors." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add validation that matcher.start() == actualMatchStart before replacement, or use a more robust position tracking mechanism." />
+                          <option name="title" value="Offset mismatch in regex replacement" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Regex replacement with potential offset mismatch" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.findImportForClassesInternal" />
+                    <option name="healthScore" value="82" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.95" />
+                          <option name="description" value="The code assumes psiClass.getContainingFile() is never null, but it can be null for synthetic or library classes without source files." />
+                          <option name="impact" value="NullPointerException during class lookup, causing batch failures and misleading error messages." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add null check before accessing getContainingFile().getVirtualFile().getPath() to handle synthetic/library classes gracefully." />
+                          <option name="title" value="Null pointer risk on PsiClass.getContainingFile()" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Potential NPE on PsiClass.getContainingFile()" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.extractLineRange" />
+                    <option name="healthScore" value="80" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="The method checks startLine and endLine bounds but doesn't validate that endLine &lt;= lines.length, potentially creating invalid ranges." />
+                          <option name="impact" value="Incorrect text extraction leading to regex matching failures or UI display errors when line ranges exceed file length." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Add validation that endLine &lt;= lines.length before extraction, or clamp endLine to lines.length if it exceeds bounds." />
+                          <option name="title" value="Incomplete line range validation" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Line range extraction without proper validation" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.addImport" />
+                    <option name="healthScore" value="79" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.8" />
+                          <option name="description" value="The method adds newline after imports but doesn't handle existing whitespace properly, potentially creating inconsistent formatting." />
+                          <option name="impact" value="Poor code formatting that may trigger style checkers or confuse developers reviewing the generated code." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="3" />
+                          <option name="suggestedFix" value="Use a more sophisticated approach to preserve existing whitespace patterns or use IntelliJ's code formatting API for consistent results." />
+                          <option name="title" value="Inconsistent whitespace handling in import insertion" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Import insertion without proper whitespace handling" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.findImportForClass" />
+                    <option name="healthScore" value="78" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="The method uses executeOnPooledThread but wraps ReadAction.compute() which may still block if PSI operations are heavy. Should use ProgressManager for long-running operations." />
+                          <option name="impact" value="UI freezing during batch class lookups, especially with large projects or network dependencies." />
+                          <option name="issueCategory" value="Concurrency" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Wrap the ReadAction.compute() in ProgressManager.getInstance().runProcessWithProgressSynchronously() with proper progress indicator and cancellation support." />
+                          <option name="title" value="EDT blocking risk in batch class lookup" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Batch class lookup with potential EDT blocking" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.testgen.agents.AITestMergerAgent.applyRegexFix" />
+                    <option name="healthScore" value="75" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="The method calculates actualMatchStart but doesn't validate it against the original matcher's positions, risking replacement at wrong location if regex has overlapping matches." />
+                          <option name="impact" value="Incorrect code modification that could break test functionality or introduce syntax errors." />
+                          <option name="issueCategory" value="Logic" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add validation that matcher.start() == actualMatchStart before replacement, or use a more robust position tracking mechanism." />
+                          <option name="title" value="Offset mismatch in regex replacement" />
+                          <option name="verificationReason" value="Verified through PARTIAL_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Regex replacement with potential offset mismatch" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.langchain4j.naive_service.NaiveLLMService.executeQueryAsync" />
                     <option name="healthScore" value="75" />
                     <option name="issues">
                       <list>
                         <SerializableHealthIssue>
                           <option name="confidence" value="0.9" />
-                          <option name="description" value="Background thread doesn't remove PreviewSession from previewSessions on error, causing memory leak and stale session references." />
-                          <option name="impact" value="Memory leaks accumulate over time, potentially exhausting heap space after multiple failed preview generations, impacting application stability." />
-                          <option name="issueCategory" value="Resource" />
+                          <option name="description" value="Uses fixed READ_TIMEOUT_MS instead of per-request timeout from LLMQueryParams, causing inconsistent behavior for different use cases." />
+                          <option name="impact" value="Long-running requests may be unnecessarily killed, or short requests may wait too long, reducing responsiveness." />
+                          <option name="issueCategory" value="Performance" />
                           <option name="severity" value="4" />
-                          <option name="suggestedFix" value="Add previewSessions.remove(sessionId) in the catch block after setting session.status = ERROR to ensure cleanup of failed sessions." />
-                          <option name="title" value="No cleanup for failed background sessions" />
+                          <option name="suggestedFix" value="Use params.getTimeoutMs() instead of READ_TIMEOUT_MS when setting request timeout in HttpRequest.Builder." />
+                          <option name="title" value="Hardcoded timeout in async request" />
                           <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
                           <option name="verified" value="true" />
                         </SerializableHealthIssue>
                       </list>
                     </option>
                     <option name="modificationCount" value="1" />
-                    <option name="summary" value="Starts preview file groups generation asynchronously" />
+                    <option name="summary" value="HTTP request timeout not configurable per request" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.langchain4j.naive_service.NaiveLLMService.fetchAndStoreUsername" />
+                    <option name="healthScore" value="70" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="HttpURLConnection is not closed in finally block when exception occurs during response processing, leading to resource leaks." />
+                          <option name="impact" value="Socket exhaustion, connection pool depletion, eventual service unavailability under sustained load." />
+                          <option name="issueCategory" value="Resource" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Wrap connection usage in try-finally or use try-with-resources to ensure disconnect() is always called." />
+                          <option name="title" value="Connection leak on exception" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="HTTP connection not properly closed on error" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.langchain4j.naive_service.NaiveLLMService.queryWithRetry" />
+                    <option name="healthScore" value="70" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.95" />
+                          <option name="description" value="Thread.sleep() in retry loop blocks the calling thread, which can freeze UI or block other operations in IntelliJ plugin context." />
+                          <option name="impact" value="UI freeze during retries, degraded plugin responsiveness, potential thread starvation if multiple concurrent calls." />
+                          <option name="issueCategory" value="Concurrency" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Replace Thread.sleep() with non-blocking delay using CompletableFuture or ScheduledExecutorService for async retries." />
+                          <option name="title" value="Blocking sleep in retry loop" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Retry logic with thread sleep blocks execution" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.langchain4j.naive_service.NaiveLLMService.executeQueryWithRetryAsync" />
+                    <option name="healthScore" value="65" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.9" />
+                          <option name="description" value="Uses Thread.sleep() inside exception handler of CompletableFuture, which blocks the async thread pool, reducing throughput." />
+                          <option name="impact" value="Thread pool exhaustion under load, degraded performance, potential timeouts for other async operations." />
+                          <option name="issueCategory" value="Concurrency" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Use CompletableFuture.delayedExecutor() or ScheduledExecutorService to schedule retries without blocking threads." />
+                          <option name="title" value="Blocking sleep in async retry chain" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Recursive retry with blocking sleep" />
+                  </SerializableMethodResult>
+                  <SerializableMethodResult>
+                    <option name="fqn" value="com.zps.zest.langchain4j.naive_service.NaiveLLMService.runDualEvaluationAsync" />
+                    <option name="healthScore" value="60" />
+                    <option name="issues">
+                      <list>
+                        <SerializableHealthIssue>
+                          <option name="confidence" value="0.85" />
+                          <option name="description" value="Iterates over all models without timeout or cancellation, potentially hanging indefinitely if models are unresponsive." />
+                          <option name="impact" value="Thread pool exhaustion, UI freeze if called from EDT, excessive resource consumption during dual evaluation." />
+                          <option name="issueCategory" value="Performance" />
+                          <option name="severity" value="4" />
+                          <option name="suggestedFix" value="Add timeout per model query and overall operation, use CompletableFuture.orTimeout() or cancellation tokens." />
+                          <option name="title" value="Unbounded model evaluation loop" />
+                          <option name="verificationReason" value="Verified through WHOLE_FILE analysis" />
+                          <option name="verified" value="true" />
+                        </SerializableHealthIssue>
+                      </list>
+                    </option>
+                    <option name="modificationCount" value="1" />
+                    <option name="summary" value="Unbounded model iteration without cancellation" />
                   </SerializableMethodResult>
                 </list>
               </option>

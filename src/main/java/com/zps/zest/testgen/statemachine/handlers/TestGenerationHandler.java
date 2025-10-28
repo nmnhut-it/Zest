@@ -299,6 +299,15 @@ public class TestGenerationHandler extends AbstractStateHandler {
         }
     }
     
+    @Override
+    public void cancel() {
+        super.cancel();
+        if (testWriterAgent != null) {
+            testWriterAgent.cancel();
+            LOG.info("Cancelled TestWriterAgent");
+        }
+    }
+
     /**
      * Get the test writer agent (direct access instead of session data)
      */

@@ -32,6 +32,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -48,13 +49,18 @@ public final class NaiveLLMService implements Disposable {
 
     private final Project project;
     private final ConfigurationManager config;
-    
+
     // HTTP client with connection pooling (new)
     private final HttpClient httpClient;
     private final ExecutorService executorService;
-    
+
     // Connection statistics (new)
     private final ConnectionStats connectionStats = new ConnectionStats();
+
+    // Cancellation support
+    private volatile boolean cancelled = false;
+    private final Set<HttpURLConnection> activeConnections = ConcurrentHashMap.newKeySet();
+    private final Set<CompletableFuture<?>> activeFutures = ConcurrentHashMap.newKeySet();
 
     // Configuration constants
     private static final int CONNECTION_TIMEOUT_MS = 30_000;
@@ -247,6 +253,13 @@ public final class NaiveLLMService implements Disposable {
             if (envApiKey != null && !envApiKey.isEmpty()) {
                 // Use OpenAI configuration from .env
                 apiUrl = envBaseUrl;
+                // Ensure URL ends with /chat/completions for OpenAI-compatible APIs
+                if (!apiUrl.endsWith("/chat/completions")) {
+                    if (!apiUrl.endsWith("/")) {
+                        apiUrl += "/";
+                    }
+                    apiUrl += "chat/completions";
+                }
                 authToken = envApiKey;
 
                 // Override model if env var is set
@@ -326,6 +339,13 @@ public final class NaiveLLMService implements Disposable {
         if (envApiKey != null && !envApiKey.isEmpty()) {
             // Use OpenAI configuration from .env
             apiUrl = envBaseUrl;
+            // Ensure URL ends with /chat/completions for OpenAI-compatible APIs
+            if (!apiUrl.endsWith("/chat/completions")) {
+                if (!apiUrl.endsWith("/")) {
+                    apiUrl += "/";
+                }
+                apiUrl += "chat/completions";
+            }
             authToken = envApiKey;
 
             // Override model if env var is set
@@ -371,13 +391,24 @@ public final class NaiveLLMService implements Disposable {
      * Execute query with retry logic asynchronously (new)
      */
     private CompletableFuture<String> executeQueryWithRetryAsync(
-            String apiUrl, 
-            String authToken, 
-            LLMQueryParams params, 
+            String apiUrl,
+            String authToken,
+            LLMQueryParams params,
             ChatboxUtilities.EnumUsage enumUsage,
             int attempt) {
-        
-        return executeQueryAsync(apiUrl, authToken, params, enumUsage)
+
+        // Check cancellation before starting
+        if (cancelled) {
+            return CompletableFuture.failedFuture(new IOException("LLM service has been cancelled"));
+        }
+
+        CompletableFuture<String> future = executeQueryAsync(apiUrl, authToken, params, enumUsage);
+        activeFutures.add(future);
+
+        // Remove from tracking when complete
+        future.whenComplete((result, error) -> activeFutures.remove(future));
+
+        return future
             .exceptionally(throwable -> {
                 LOG.warn("  LLM query attempt " + attempt + " failed: " + throwable.getMessage());
 
@@ -503,6 +534,11 @@ public final class NaiveLLMService implements Disposable {
      * Executes the actual HTTP request to the LLM API (original implementation).
      */
     private String executeQuery(String apiUrl, String authToken, LLMQueryParams params, ChatboxUtilities.EnumUsage enumUsage) throws IOException {
+        // Check cancellation before starting request
+        if (cancelled) {
+            throw new IOException("LLM service has been cancelled");
+        }
+
         if (enumUsage == ChatboxUtilities.EnumUsage.INLINE_COMPLETION) {
             if (isWithinOfficeHours()) {
                 LOG.info("Office hours: redirecting to litellm for inline completion (executeQuery)");
@@ -543,6 +579,7 @@ public final class NaiveLLMService implements Disposable {
         long elapsed = System.currentTimeMillis();
 
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        activeConnections.add(connection); // Track this connection
 
         try {
             // Setup connection
@@ -597,6 +634,7 @@ public final class NaiveLLMService implements Disposable {
             return response;
 
         } finally {
+            activeConnections.remove(connection);
             connection.disconnect();
         }
     }
@@ -968,8 +1006,56 @@ public final class NaiveLLMService implements Disposable {
         }
     }
 
+    /**
+     * Cancel all active LLM requests and close HTTP connections
+     */
+    public void cancelAll() {
+        LOG.info("Cancelling all active LLM requests (" + activeConnections.size() + " connections, " + activeFutures.size() + " futures)");
+        cancelled = true;
+
+        // Cancel all active CompletableFutures
+        for (CompletableFuture<?> future : activeFutures) {
+            if (!future.isDone()) {
+                future.cancel(true);
+            }
+        }
+        activeFutures.clear();
+
+        // Disconnect all active HttpURLConnections
+        for (HttpURLConnection connection : activeConnections) {
+            try {
+                connection.disconnect();
+            } catch (Exception e) {
+                LOG.warn("Error disconnecting HttpURLConnection", e);
+            }
+        }
+        activeConnections.clear();
+
+        LOG.info("All active LLM requests cancelled and connections closed");
+    }
+
+    /**
+     * Reset cancellation state for new requests
+     */
+    public void reset() {
+        cancelled = false;
+        activeConnections.clear();
+        activeFutures.clear();
+        LOG.info("LLMService reset - ready for new requests");
+    }
+
+    /**
+     * Check if this service has been cancelled
+     */
+    public boolean isCancelled() {
+        return cancelled;
+    }
+
     @Override
     public void dispose() {
+        // Cancel any active requests first
+        cancelAll();
+
         // Shutdown executor service (new)
         executorService.shutdown();
         try {

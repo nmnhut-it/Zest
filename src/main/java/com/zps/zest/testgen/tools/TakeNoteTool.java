@@ -3,17 +3,15 @@ package com.zps.zest.testgen.tools;
 import dev.langchain4j.agent.tool.Tool;
 import org.jetbrains.annotations.NotNull;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
  * Tool for recording important observations, insights, and context during code exploration.
  * Notes are preserved and included in the final test generation context.
+ * Notes should include file:line location for traceability.
  */
 public class TakeNoteTool {
     private final List<String> contextNotes;
-    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     public TakeNoteTool(@NotNull List<String> contextNotes) {
         this.contextNotes = contextNotes;
@@ -37,34 +35,32 @@ public class TakeNoteTool {
         - Security or validation requirements
         
         The note will be:
-        - Timestamped for reference
         - Included in the final test context
         - Available for the test generation phase
+        - Used by test planning and generation agents
         
         Best practices:
+        - Include file:line location at the start for traceability
+        - Use category tags: [USAGE], [ERROR], [SCHEMA], [INTEGRATION], [EDGE_CASE], [PATTERN]
         - Be specific and actionable
-        - Include file/class references when relevant
         - Explain WHY something is important
         - Suggest concrete test scenarios when applicable
-        
+
         Example usage:
-        - takeNote("UserService depends on external API at config.apiUrl - mock this in tests")
-        - takeNote("OrderProcessor uses async processing - test both success and timeout scenarios")
-        - takeNote("Authentication uses JWT tokens with 1hr expiry - test token expiration handling")
-        - takeNote("Database transactions in PaymentService - test rollback on failure")
+        - takeNote("[UserService.java:45] [USAGE] depends on external API at config.apiUrl - mock this in tests")
+        - takeNote("[OrderProcessor.java:123] [INTEGRATION] uses async processing - test both success and timeout scenarios")
+        - takeNote("[AuthFilter.java:67] [ERROR] JWT tokens with 1hr expiry - test token expiration handling")
+        - takeNote("[PaymentService.java:89] [INTEGRATION] Database transactions - test rollback on failure")
         """)
     public String takeNote(String note) {
         if (note == null || note.trim().isEmpty()) {
             return "❌ Note cannot be empty. Please provide meaningful context or observations.";
         }
 
-        // Add timestamp to the note for better tracking
-        String timestamp = LocalDateTime.now().format(TIME_FORMAT);
-        String formattedNote = String.format("[%s] %s", timestamp, note.trim());
-        
-        // Store the note
+        // Store the note as-is (caller should include file:line if relevant)
+        String formattedNote = note.trim();
         contextNotes.add(formattedNote);
-        
+
         // Provide feedback with note number
         int noteNumber = contextNotes.size();
         return String.format("✅ Note #%d recorded successfully:\n" +

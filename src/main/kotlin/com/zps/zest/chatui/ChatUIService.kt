@@ -67,9 +67,10 @@ class ChatUIService(private val project: Project) : Disposable {
     private val readFiles = mutableMapOf<String, String>()
     private val searchResults = mutableListOf<String>()
     private val analyzedClasses = mutableSetOf<String>()
+    private val pathToFQN = HashMap<String, String>() // Maps file path -> FQN
     private val readFileTool = ReadFileTool(project, readFiles)
     private val searchTool = RipgrepCodeTool(project, mutableSetOf(), searchResults)
-    private val analyzeClassTool = AnalyzeClassTool(project, HashMap())
+    private val analyzeClassTool = AnalyzeClassTool(project, HashMap(), pathToFQN)
     private val listFilesTool = ListFilesTool(project)
     private val lookupMethodTool = LookupMethodTool(project)
     private val lookupClassTool = LookupClassTool(project)

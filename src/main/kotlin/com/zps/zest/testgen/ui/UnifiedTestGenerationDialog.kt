@@ -131,7 +131,6 @@ class UnifiedTestGenerationDialog(
                 classMethods.forEach { method ->
                     val methodPanel = createMethodPanel(method)
                     methodsPanel.add(methodPanel)
-                    methodsPanel.add(Box.createVerticalStrut(5))
                 }
 
                 methodsPanel.add(Box.createVerticalStrut(10))
@@ -164,12 +163,27 @@ class UnifiedTestGenerationDialog(
     }
 
     private fun createMethodPanel(method: PsiMethod): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.background = UIUtil.getPanelBackground()
-        panel.border = EmptyBorder(5, 20, 5, 10)
+        val outerPanel = JPanel(BorderLayout())
+        outerPanel.background = if (UIUtil.isUnderDarcula()) {
+            Color(60, 63, 65)
+        } else {
+            Color(250, 250, 250)
+        }
+        outerPanel.border = JBUI.Borders.compound(
+            JBUI.Borders.customLine(UIUtil.getBoundsColor(), 0, 0, 1, 0),
+            EmptyBorder(8, 20, 8, 10)
+        )
+
+        val panelBg = outerPanel.background
+        val contentPanel = JPanel()
+        contentPanel.layout = BoxLayout(contentPanel, BoxLayout.Y_AXIS)
+        contentPanel.background = panelBg
 
         val methodSignature = buildMethodSignature(method)
         val checkBox = JBCheckBox(methodSignature)
+        checkBox.font = checkBox.font.deriveFont(Font.BOLD, 13f)
+        checkBox.toolTipText = buildFullMethodSignature(method)
+        checkBox.isOpaque = false
 
         // Preselect logic
         if (preselectedElement != null && isMethodContainsElement(method, preselectedElement)) {
@@ -184,11 +198,30 @@ class UnifiedTestGenerationDialog(
 
         checkBox.addActionListener { updateSelectAllState() }
         methodCheckBoxes[method] = checkBox
-        panel.add(checkBox, BorderLayout.WEST)
 
-        // Method info
-        val infoPanel = JPanel(FlowLayout(FlowLayout.LEFT, 10, 0))
-        infoPanel.background = UIUtil.getPanelBackground()
+        checkBox.alignmentX = Component.LEFT_ALIGNMENT
+        contentPanel.add(checkBox)
+
+        val detailsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 2))
+        detailsPanel.background = panelBg
+        detailsPanel.alignmentX = Component.LEFT_ALIGNMENT
+        detailsPanel.border = EmptyBorder(2, 25, 0, 0)
+
+        val paramDetails = buildParameterDetails(method)
+        val returnType = method.returnType?.presentableText ?: "void"
+        val detailsText = "$paramDetails → $returnType"
+
+        val detailsLabel = JBLabel(detailsText)
+        detailsLabel.foreground = UIUtil.getContextHelpForeground()
+        detailsLabel.font = detailsLabel.font.deriveFont(11f)
+        detailsPanel.add(detailsLabel)
+
+        contentPanel.add(detailsPanel)
+
+        val badgesPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 2))
+        badgesPanel.background = panelBg
+        badgesPanel.alignmentX = Component.LEFT_ALIGNMENT
+        badgesPanel.border = EmptyBorder(2, 25, 0, 0)
 
         val visibility = when {
             method.modifierList.hasModifierProperty(PsiModifier.PUBLIC) -> "public"
@@ -204,8 +237,8 @@ class UnifiedTestGenerationDialog(
             "private" -> Color(244, 67, 54)
             else -> UIUtil.getLabelForeground()
         }
-        visibilityLabel.font = visibilityLabel.font.deriveFont(10f)
-        infoPanel.add(visibilityLabel)
+        visibilityLabel.font = visibilityLabel.font.deriveFont(Font.BOLD, 10f)
+        badgesPanel.add(visibilityLabel)
 
         val complexity = estimateMethodComplexity(method)
         if (complexity > 0) {
@@ -216,20 +249,39 @@ class UnifiedTestGenerationDialog(
                 else -> Color(244, 67, 54)
             }
             complexityLabel.font = complexityLabel.font.deriveFont(10f)
-            infoPanel.add(complexityLabel)
+            badgesPanel.add(complexityLabel)
         }
 
-        panel.add(infoPanel, BorderLayout.CENTER)
+        contentPanel.add(badgesPanel)
 
-        return panel
+        outerPanel.add(contentPanel, BorderLayout.CENTER)
+
+        return outerPanel
     }
 
     private fun buildMethodSignature(method: PsiMethod): String {
+        val paramCount = method.parameterList.parametersCount
+        val paramText = when (paramCount) {
+            0 -> ""
+            1 -> "1 param"
+            else -> "$paramCount params"
+        }
+        return "${method.name}($paramText)"
+    }
+
+    private fun buildFullMethodSignature(method: PsiMethod): String {
         val params = method.parameterList.parameters.joinToString(", ") { param ->
             "${param.type.presentableText} ${param.name}"
         }
         val returnType = method.returnType?.presentableText ?: "void"
         return "${method.name}($params): $returnType"
+    }
+
+    private fun buildParameterDetails(method: PsiMethod): String {
+        if (method.parameterList.parametersCount == 0) return "(no parameters)"
+        return method.parameterList.parameters.joinToString(", ") { param ->
+            "${param.type.presentableText} ${param.name}"
+        }
     }
 
     private fun findMethods(psiFile: PsiFile): List<PsiMethod> {

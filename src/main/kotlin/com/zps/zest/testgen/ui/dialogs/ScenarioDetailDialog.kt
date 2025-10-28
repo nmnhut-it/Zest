@@ -96,26 +96,50 @@ class ScenarioDetailDialog(
             }
         }
 
-        // Expected complexity
-        addSection(content, "Expected Complexity", scenario.expectedComplexity)
-        
+        // Lifecycle Section Header
+        content.add(Box.createVerticalStrut(10))
+        content.add(JSeparator())
+        content.add(Box.createVerticalStrut(10))
+
+        // Prerequisites
+        if (scenario.prerequisites.isNotEmpty()) {
+            addListSection(content, "Prerequisites", scenario.prerequisites)
+            content.add(Box.createVerticalStrut(10))
+        }
+
         // Setup steps
         if (scenario.setupSteps.isNotEmpty()) {
-            content.add(Box.createVerticalStrut(10))
             addListSection(content, "Setup Steps", scenario.setupSteps)
+            content.add(Box.createVerticalStrut(10))
         }
-        
+
         // Execution steps
         if (scenario.executionSteps.isNotEmpty()) {
-            content.add(Box.createVerticalStrut(10))
             addListSection(content, "Execution Steps", scenario.executionSteps)
+            content.add(Box.createVerticalStrut(10))
         }
-        
+
         // Assertions
         if (scenario.assertions.isNotEmpty()) {
-            content.add(Box.createVerticalStrut(10))
             addListSection(content, "Expected Assertions", scenario.assertions)
+            content.add(Box.createVerticalStrut(10))
         }
+
+        // Teardown steps
+        if (scenario.teardownSteps.isNotEmpty()) {
+            addListSection(content, "Teardown Steps", scenario.teardownSteps)
+            content.add(Box.createVerticalStrut(10))
+        }
+
+        // Footer Section
+        content.add(JSeparator())
+        content.add(Box.createVerticalStrut(10))
+
+        // Isolation strategy
+        addSection(content, "Test Isolation", scenario.isolationStrategy)
+
+        // Expected complexity
+        addSection(content, "Expected Complexity", scenario.expectedComplexity)
         
         val scrollPane = JBScrollPane(content)
         scrollPane.border = BorderFactory.createEmptyBorder()

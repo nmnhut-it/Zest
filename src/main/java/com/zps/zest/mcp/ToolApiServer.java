@@ -55,7 +55,7 @@ public class ToolApiServer {
 
         this.readFileTool = new ReadFileTool(project, readFiles);
         this.ripgrepTool = new RipgrepCodeTool(project, relatedFiles, usagePatterns);
-        this.analyzeClassTool = new AnalyzeClassTool(project, new HashMap<>());
+        this.analyzeClassTool = new AnalyzeClassTool(project, new HashMap<>(), new HashMap<>());
         this.listFilesTool = new ListFilesTool(project);
         this.lookupMethodTool = new LookupMethodTool(project);
         this.lookupClassTool = new LookupClassTool(project);

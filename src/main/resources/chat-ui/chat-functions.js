@@ -67,6 +67,9 @@ function createMessageElement(chunk) {
         }
     }
 
+    // Make code blocks collapsible
+    makeCodeBlocksCollapsible(contentDiv);
+
     // Tool badges
     if (chunk.toolCalls && chunk.toolCalls.length > 0) {
         const badges = createToolBadges(chunk.toolCalls);
@@ -270,6 +273,9 @@ function updateLastMessageStreaming(newContent) {
         contentDiv.textContent = newContent;
     }
 
+    // Make code blocks collapsible
+    makeCodeBlocksCollapsible(contentDiv);
+
     // Re-append badges if they existed
     if (badgesContainer) {
         contentDiv.appendChild(badgesContainer);
@@ -374,6 +380,133 @@ function scrollToBottom() {
     window.scrollTo({
         top: document.body.scrollHeight,
         behavior: 'smooth'
+    });
+}
+
+/**
+ * Make code blocks collapsible with headers and controls
+ */
+function makeCodeBlocksCollapsible(container) {
+    const COLLAPSE_THRESHOLD = 15; // Lines
+    const COLLAPSED_HEIGHT = 200; // pixels (~8 lines)
+
+    const preElements = container.querySelectorAll('pre');
+
+    preElements.forEach(function(pre) {
+        // Skip if already wrapped
+        if (pre.parentElement.classList.contains('code-block-wrapper')) {
+            return;
+        }
+
+        const code = pre.querySelector('code');
+        if (!code) return;
+
+        // Detect language from highlight.js class
+        let language = 'text';
+        const classList = code.className.split(' ');
+        for (let i = 0; i < classList.length; i++) {
+            const cls = classList[i];
+            if (cls.startsWith('language-') || cls.startsWith('hljs-')) {
+                language = cls.replace('language-', '').replace('hljs-', '');
+                break;
+            }
+        }
+
+        // Count lines
+        const codeText = code.textContent || code.innerText;
+        const lineCount = codeText.split('\n').length;
+
+        // Create wrapper
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block-wrapper';
+
+        // Create header
+        const header = document.createElement('div');
+        header.className = 'code-block-header';
+
+        const headerLeft = document.createElement('div');
+        headerLeft.className = 'code-block-header-left';
+        headerLeft.innerHTML = '<span class="code-lang-icon">📄</span> ' +
+                               '<span class="code-lang-name">' + escapeHtml(language) + '</span>' +
+                               '<span class="code-line-count">' + lineCount + ' lines</span>';
+
+        const headerRight = document.createElement('div');
+        headerRight.className = 'code-block-header-right';
+
+        // Copy button
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'code-copy-btn';
+        copyBtn.textContent = '📋 Copy';
+        copyBtn.onclick = function(e) {
+            e.stopPropagation();
+            navigator.clipboard.writeText(codeText).then(function() {
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = '✓ Copied!';
+                setTimeout(function() {
+                    copyBtn.textContent = originalText;
+                }, 2000);
+            });
+        };
+
+        // Toggle button
+        const toggleBtn = document.createElement('button');
+        toggleBtn.className = 'code-block-toggle';
+
+        headerRight.appendChild(copyBtn);
+        headerRight.appendChild(toggleBtn);
+
+        header.appendChild(headerLeft);
+        header.appendChild(headerRight);
+
+        // Create content wrapper
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'code-block-content';
+
+        // Move pre into content wrapper
+        pre.parentNode.insertBefore(wrapper, pre);
+        contentWrapper.appendChild(pre);
+        wrapper.appendChild(header);
+        wrapper.appendChild(contentWrapper);
+
+        // Auto-collapse if lines > threshold
+        if (lineCount > COLLAPSE_THRESHOLD) {
+            contentWrapper.classList.add('collapsed');
+            toggleBtn.textContent = '▶ Expand';
+
+            // Add fade overlay
+            const fade = document.createElement('div');
+            fade.className = 'code-block-fade';
+            contentWrapper.appendChild(fade);
+        } else {
+            toggleBtn.textContent = '▼ Collapse';
+        }
+
+        // Toggle collapse on header click
+        header.onclick = function(e) {
+            // Don't toggle if clicking copy button
+            if (e.target === copyBtn || e.target.closest('.code-copy-btn')) {
+                return;
+            }
+
+            const isCollapsed = contentWrapper.classList.contains('collapsed');
+
+            if (isCollapsed) {
+                contentWrapper.classList.remove('collapsed');
+                toggleBtn.textContent = '▼ Collapse';
+
+                // Remove fade overlay
+                const fade = contentWrapper.querySelector('.code-block-fade');
+                if (fade) fade.remove();
+            } else {
+                contentWrapper.classList.add('collapsed');
+                toggleBtn.textContent = '▶ Expand';
+
+                // Add fade overlay
+                const fade = document.createElement('div');
+                fade.className = 'code-block-fade';
+                contentWrapper.appendChild(fade);
+            }
+        };
     });
 }
 

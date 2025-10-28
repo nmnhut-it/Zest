@@ -136,9 +136,11 @@ tasks {
     withType<JavaCompile> {
         sourceCompatibility = "17"
         targetCompatibility = "17"
+        options.compilerArgs.add("-parameters")  // Preserve parameter names for reflection
     }
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         kotlinOptions.jvmTarget = "17"
+        kotlinOptions.javaParameters = true  // Preserve parameter names for Kotlin
     }
 
     // Add this to ensure resources are properly packaged

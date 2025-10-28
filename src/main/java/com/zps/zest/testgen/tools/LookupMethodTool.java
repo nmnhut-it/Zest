@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.search.PsiShortNamesCache;
 import dev.langchain4j.agent.tool.Tool;
 
 /**
@@ -50,8 +51,8 @@ public class LookupMethodTool {
                     PsiClass psiClass = facade.findClass(className, GlobalSearchScope.allScope(project));
 
                     if (psiClass == null) {
-                        return "❌ Class not found: " + className +
-                               "\n\nTip: Make sure the class name is fully qualified (e.g., java.util.List, not just List)";
+                        return "❌ Class not found: " + className + "\n\n" +
+                               suggestFullyQualifiedNames(className);
                     }
 
                     PsiMethod[] methods = psiClass.findMethodsByName(methodName, true);
@@ -139,5 +140,59 @@ public class LookupMethodTool {
             count++;
         }
         return result.toString();
+    }
+
+    /**
+     * Suggest fully qualified names when class is not found.
+     * Uses PsiShortNamesCache to search by simple class name.
+     */
+    private String suggestFullyQualifiedNames(String className) {
+        // Extract simple name (last part after dot, or whole string if no dot)
+        String simpleName = className.contains(".") ?
+            className.substring(className.lastIndexOf('.') + 1) :
+            className;
+
+        // Search using PsiShortNamesCache
+        PsiShortNamesCache cache = PsiShortNamesCache.getInstance(project);
+        PsiClass[] matches = cache.getClassesByName(simpleName, GlobalSearchScope.allScope(project));
+
+        if (matches.length == 0) {
+            return "💡 No classes found with name '" + simpleName + "'.\n" +
+                   "   → This might be a missing dependency or typo.\n" +
+                   "   → Check if the class exists in your project or dependencies.";
+        }
+
+        // Build suggestion list
+        StringBuilder result = new StringBuilder();
+        result.append("💡 Did you mean one of these?\n\n");
+
+        for (int i = 0; i < Math.min(matches.length, 5); i++) {
+            PsiClass match = matches[i];
+            String fqn = match.getQualifiedName();
+            String location = isFromLibrary(match) ? "library" : "project";
+            result.append("   ").append(i + 1).append(". ").append(fqn)
+                  .append(" [").append(location).append("]\n");
+        }
+
+        if (matches.length > 5) {
+            result.append("   ... and ").append(matches.length - 5).append(" more\n");
+        }
+
+        result.append("\n💡 Try again with the fully qualified name, e.g.:\n");
+        result.append("   lookupMethod(\"").append(matches[0].getQualifiedName()).append("\", \"methodName\")");
+
+        return result.toString();
+    }
+
+    /**
+     * Check if a class is from a library (JAR) or from project source
+     */
+    private boolean isFromLibrary(PsiClass psiClass) {
+        PsiFile containingFile = psiClass.getContainingFile();
+        if (containingFile == null || containingFile.getVirtualFile() == null) {
+            return false;
+        }
+        String filePath = containingFile.getVirtualFile().getPath();
+        return filePath.contains(".jar") || filePath.contains(".class");
     }
 }

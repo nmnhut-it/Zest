@@ -313,22 +313,40 @@ public final class StateMachineTestGenerationService {
         streamingCallbacks.remove(sessionId);
 
         if (stateMachine != null) {
-            // Reset any agents to release HTTP connections
+            // Cancel the state machine first to kill any ongoing operations
+            if (!stateMachine.getCurrentState().isTerminal()) {
+                LOG.info("Cancelling non-terminal session during cleanup: " + sessionId);
+                stateMachine.cancel("Cleanup requested");
+            }
+
+            // Cancel any agents to kill active HTTP connections
             try {
                 StateHandler currentHandler = stateMachine.getCurrentHandler(AbstractStateHandler.class);
                 if (currentHandler instanceof ContextGatheringHandler) {
                     ContextAgent contextAgent = ((ContextGatheringHandler) currentHandler).getContextAgent();
                     if (contextAgent != null) {
-                        contextAgent.reset();
+                        contextAgent.cancel();
                     }
                 } else if (currentHandler instanceof TestPlanningHandler) {
                     CoordinatorAgent coordinatorAgent = ((TestPlanningHandler) currentHandler).getCoordinatorAgent();
                     if (coordinatorAgent != null) {
-                        coordinatorAgent.reset();
+                        coordinatorAgent.cancel();
+                    }
+                } else if (currentHandler instanceof com.zps.zest.testgen.statemachine.handlers.TestGenerationHandler) {
+                    com.zps.zest.testgen.agents.TestWriterAgent testWriterAgent =
+                        ((com.zps.zest.testgen.statemachine.handlers.TestGenerationHandler) currentHandler).getTestWriterAgent();
+                    if (testWriterAgent != null) {
+                        testWriterAgent.cancel();
+                    }
+                } else if (currentHandler instanceof TestMergingHandler) {
+                    com.zps.zest.testgen.agents.AITestMergerAgent mergerAgent =
+                        ((TestMergingHandler) currentHandler).getAITestMergerAgent();
+                    if (mergerAgent != null) {
+                        mergerAgent.cancel();
                     }
                 }
             } catch (Exception e) {
-                LOG.warn("Error resetting agents during session cleanup", e);
+                LOG.warn("Error cancelling agents during session cleanup", e);
             }
 
             LOG.info("Cleaned up session: " + sessionId);

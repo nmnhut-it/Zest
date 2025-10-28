@@ -357,6 +357,8 @@ public class MessageDetailDialog(
     private val chatMemory: ChatMemory? = null
 ) : DialogWrapper(project) {
 
+    private var chatPanel: com.zps.zest.chatui.JCEFChatPanel? = null
+
     init {
         title = "Message Details - $agentName"
         init()
@@ -444,17 +446,33 @@ public class MessageDetailDialog(
         }
 
         // Create JCEFChatPanel with the populated temporary memory
-        val chatPanel = com.zps.zest.chatui.JCEFChatPanel(
+        chatPanel = com.zps.zest.chatui.JCEFChatPanel(
             project,
             tempMemory
         )
-        chatPanel.preferredSize = JBUI.size(800, 600)
+        chatPanel!!.preferredSize = JBUI.size(800, 600)
 
-        return chatPanel
+        // Register chatPanel for automatic disposal when dialog closes
+        com.intellij.openapi.util.Disposer.register(disposable, chatPanel!!)
+
+        return chatPanel!!
     }
 
     override fun createActions(): Array<Action> {
         return arrayOf(okAction)
+    }
+
+    override fun dispose() {
+        // Dispose chatPanel explicitly for defensive cleanup
+        chatPanel?.let {
+            try {
+                com.intellij.openapi.util.Disposer.dispose(it)
+            } catch (e: Exception) {
+                // Ignore errors, it may already be disposed via Disposer.register()
+            }
+            chatPanel = null
+        }
+        super.dispose()
     }
 }
 
@@ -645,6 +663,12 @@ class ChatMemoryPanel(
         footerPanel.add(JSeparator(JSeparator.VERTICAL).apply {
             preferredSize = Dimension(1, 20)
         })
+
+        // Insert user message button
+        val insertMessageButton = JButton("💬 Insert Message")
+        insertMessageButton.toolTipText = "Insert a user message to guide the AI"
+        insertMessageButton.addActionListener { insertUserMessage() }
+        footerPanel.add(insertMessageButton)
 
         val refreshButton = JButton("Refresh")
         refreshButton.addActionListener { refresh() }
@@ -856,6 +880,62 @@ class ChatMemoryPanel(
             "Export Complete",
             JOptionPane.INFORMATION_MESSAGE
         )
+    }
+
+    /**
+     * Insert a user message into the chat memory to guide the AI.
+     * Useful for providing mid-conversation instructions or corrections.
+     */
+    private fun insertUserMessage() {
+        // Check if chat memory is available and writable
+        if (chatMemory == null) {
+            JOptionPane.showMessageDialog(
+                this,
+                "Chat memory is not available",
+                "Cannot Insert Message",
+                JOptionPane.WARNING_MESSAGE
+            )
+            return
+        }
+
+        // Show input dialog for user message
+        val input = JOptionPane.showInputDialog(
+            this,
+            "Enter your guidance for the AI:\n" +
+            "(This will be inserted into the conversation history)",
+            "Insert User Message",
+            JOptionPane.QUESTION_MESSAGE
+        )
+
+        // Check if user provided input
+        if (input.isNullOrBlank()) {
+            return
+        }
+
+        // Insert the user message into chat memory
+        try {
+            chatMemory?.add(UserMessage.from(input))
+
+            // Refresh the display and scroll to bottom
+            refresh()
+            scheduleScrollToBottom()
+
+            // Show success notification
+            JOptionPane.showMessageDialog(
+                this,
+                "User message inserted successfully.\n" +
+                "The AI will consider this guidance in future responses.",
+                "Message Inserted",
+                JOptionPane.INFORMATION_MESSAGE
+            )
+        } catch (e: Exception) {
+            JOptionPane.showMessageDialog(
+                this,
+                "Failed to insert message: ${e.message}",
+                "Error",
+                JOptionPane.ERROR_MESSAGE
+            )
+        }
     }
 
     private fun getMessageTypeName(message: ChatMessage): String {

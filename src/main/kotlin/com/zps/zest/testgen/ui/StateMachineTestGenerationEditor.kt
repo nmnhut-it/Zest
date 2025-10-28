@@ -61,7 +61,6 @@ class StateMachineTestGenerationEditor(
     private lateinit var stateDescription: JBLabel
     private lateinit var statusIndicator: JLabel
     private lateinit var actionPrompt: JLabel
-    private lateinit var logArea: JBTextArea
     
     // Real-time display panels
     private lateinit var contextDisplayPanel: ContextDisplayPanel
@@ -491,11 +490,8 @@ class StateMachineTestGenerationEditor(
         topPanel.add(createStateDisplayPanel(), BorderLayout.CENTER)
         component.add(topPanel, BorderLayout.NORTH)
         
-        // Center with tabbed pane and compact log area
-        val splitter = com.intellij.ui.JBSplitter(true, 0.85f)
-        splitter.firstComponent = createTabbedPane()
-        splitter.secondComponent = createLogPanel()
-        component.add(splitter, BorderLayout.CENTER)
+        // Center with tabbed pane (log removed for cleaner UI - activity logged internally)
+        component.add(createTabbedPane(), BorderLayout.CENTER)
         
         // Bottom with simplified control buttons
         component.add(createControlPanel(), BorderLayout.SOUTH)
@@ -576,41 +572,7 @@ class StateMachineTestGenerationEditor(
         
         return stateDisplayPanel
     }
-    
-    private fun createLogPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.border = EmptyBorder(0, 15, 0, 15)
-        
-        // Header for log area
-        val headerPanel = JPanel(BorderLayout())
-        headerPanel.background = UIUtil.getPanelBackground()
-        
-        val titleLabel = JBLabel("📋 Activity Log (Key Events)")
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, 12f)
-        titleLabel.foreground = UIUtil.getContextHelpForeground()
-        headerPanel.add(titleLabel, BorderLayout.WEST)
-        
-        val infoLabel = JBLabel("💬 Use Chat buttons for detailed debugging")
-        infoLabel.font = infoLabel.font.deriveFont(10f)
-        infoLabel.foreground = UIUtil.getContextHelpForeground()
-        headerPanel.add(infoLabel, BorderLayout.EAST)
-        
-        panel.add(headerPanel, BorderLayout.NORTH)
-        
-        logArea = JBTextArea()
-        logArea.isEditable = false
-        logArea.font = Font(Font.MONOSPACED, Font.PLAIN, 11) // Slightly smaller font
-        logArea.background = UIUtil.getTextFieldBackground()
-        logArea.text = "[${java.time.LocalTime.now().toString().substring(0, 8)}] Test generation editor initialized\n"
-        
-        val scrollPane = JBScrollPane(logArea)
-        scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
-        scrollPane.preferredSize = JBUI.size(400, 120) // Compact height
-        panel.add(scrollPane, BorderLayout.CENTER)
-        
-        return panel
-    }
-    
+
     private fun createControlPanel(): JComponent {
         val panel = JPanel(BorderLayout())
         panel.background = UIUtil.getPanelBackground()
@@ -635,12 +597,6 @@ class StateMachineTestGenerationEditor(
         cancelButton.addActionListener { cancelGeneration() }
         cancelButton.isVisible = false
         cancelPanel.add(cancelButton)
-        
-        // Add a clear log button in the corner (small, unobtrusive)  
-        val clearLogButton = JButton("Clear Log")
-        clearLogButton.addActionListener { logArea.text = "" }
-        clearLogButton.font = clearLogButton.font.deriveFont(10f)
-        cancelPanel.add(clearLogButton)
         
         panel.add(statusPanel, BorderLayout.WEST)
         panel.add(actionPanel, BorderLayout.CENTER)
@@ -700,15 +656,8 @@ class StateMachineTestGenerationEditor(
      */
     private fun processStreamingText(text: String) {
         SwingUtilities.invokeLater {
-            // Filter verbose streaming output - only show key events in log
-            if (shouldLogStreamingText(text)) {
-                logArea.append(text)
-                // Apply line limiting after each append
-                limitLogLines(100)
-                logArea.caretPosition = logArea.document.length
-            }
-            
-            // Always process with streaming helper for real-time panel updates
+            // Process streaming text with helper for real-time panel updates
+            // (Activity log removed from UI - events logged via LOG.debug if needed)
             streamingHelper.processStreamingText(text)
         }
     }
@@ -1048,25 +997,9 @@ class StateMachineTestGenerationEditor(
     
     
     private fun logEvent(message: String) {
+        // Log to IntelliJ's log for debugging (UI log area removed for cleaner interface)
         val timestamp = java.time.LocalTime.now().toString().substring(0, 8)
-        logArea.append("[$timestamp] $message\n")
-        
-        // Limit log area to last 100 lines for better performance
-        limitLogLines(100)
-        
-        // Auto-scroll to bottom
-        logArea.caretPosition = logArea.document.length
-    }
-    
-    /**
-     * Limit log area to specified number of lines, removing oldest entries
-     */
-    private fun limitLogLines(maxLines: Int) {
-        val lines = logArea.text.split("\n")
-        if (lines.size > maxLines) {
-            val keepLines = lines.takeLast(maxLines)
-            logArea.text = keepLines.joinToString("\n")
-        }
+        LOG.debug("[$timestamp] $message")
     }
     
     /**
@@ -1253,7 +1186,17 @@ class StateMachineTestGenerationEditor(
     override fun removePropertyChangeListener(listener: PropertyChangeListener) {}
     override fun getCurrentLocation(): FileEditorLocation? = null
     override fun dispose() {
-        currentSessionId?.let { testGenService.cleanupSession(it) }
+        currentSessionId?.let { sessionId ->
+            // Cancel any ongoing generation first to kill HTTP connections
+            val currentState = testGenService.getCurrentState(sessionId)
+            if (currentState != null && !currentState.isTerminal) {
+                LOG.info("Cancelling ongoing test generation during editor disposal")
+                testGenService.cancelGeneration(sessionId, "Editor closed")
+            }
+
+            // Then cleanup the session
+            testGenService.cleanupSession(sessionId)
+        }
 
         // Close any open chat memory dialog
         mergerChatDialog?.close(DialogWrapper.CANCEL_EXIT_CODE)

@@ -118,6 +118,10 @@ public class TestPlan {
         private final List<String> inputs;
         private final String expectedOutcome;
         private final Priority priority;
+        private final List<String> prerequisites;
+        private final List<String> setupSteps;
+        private final List<String> teardownSteps;
+        private final TestIsolation isolationStrategy;
         
         public enum Type {
             UNIT("Unit Test"),
@@ -140,21 +144,38 @@ public class TestPlan {
             HIGH(3, "High"),
             MEDIUM(2, "Medium"),
             LOW(1, "Low");
-            
+
             private final int level;
             private final String displayName;
-            
+
             Priority(int level, String displayName) {
                 this.level = level;
                 this.displayName = displayName;
             }
-            
+
             public int getLevel() {
                 return level;
             }
-            
+
             public String getDisplayName() {
                 return displayName;
+            }
+        }
+
+        public enum TestIsolation {
+            INDEPENDENT("Each test is self-contained with no shared state"),
+            SHARED_FIXTURE("Tests share setup but clean up after"),
+            RESET_BETWEEN("Reset shared resources between tests"),
+            SEPARATE_INSTANCE("Each test gets fresh instances of dependencies");
+
+            private final String description;
+
+            TestIsolation(String description) {
+                this.description = description;
+            }
+
+            public String getDescription() {
+                return description;
             }
         }
         
@@ -163,13 +184,32 @@ public class TestPlan {
                           @NotNull Type type,
                           @NotNull List<String> inputs,
                           @NotNull String expectedOutcome,
-                          @NotNull Priority priority) {
+                          @NotNull Priority priority,
+                          @NotNull List<String> prerequisites,
+                          @NotNull List<String> setupSteps,
+                          @NotNull List<String> teardownSteps,
+                          @NotNull TestIsolation isolationStrategy) {
             this.name = name;
             this.description = description;
             this.type = type;
             this.inputs = new ArrayList<>(inputs);
             this.expectedOutcome = expectedOutcome;
             this.priority = priority;
+            this.prerequisites = prerequisites != null ? new ArrayList<>(prerequisites) : new ArrayList<>();
+            this.setupSteps = setupSteps != null ? new ArrayList<>(setupSteps) : new ArrayList<>();
+            this.teardownSteps = teardownSteps != null ? new ArrayList<>(teardownSteps) : new ArrayList<>();
+            this.isolationStrategy = isolationStrategy != null ? isolationStrategy : TestIsolation.INDEPENDENT;
+        }
+
+        // Backward compatibility constructor
+        public TestScenario(@NotNull String name,
+                          @NotNull String description,
+                          @NotNull Type type,
+                          @NotNull List<String> inputs,
+                          @NotNull String expectedOutcome,
+                          @NotNull Priority priority) {
+            this(name, description, type, inputs, expectedOutcome, priority,
+                 new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), TestIsolation.INDEPENDENT);
         }
         
         @NotNull
@@ -201,13 +241,34 @@ public class TestPlan {
         public Priority getPriority() {
             return priority;
         }
-        
+
+        @NotNull
+        public List<String> getPrerequisites() {
+            return new ArrayList<>(prerequisites);
+        }
+
+        @NotNull
+        public List<String> getSetupSteps() {
+            return new ArrayList<>(setupSteps);
+        }
+
+        @NotNull
+        public List<String> getTeardownSteps() {
+            return new ArrayList<>(teardownSteps);
+        }
+
+        @NotNull
+        public TestIsolation getIsolationStrategy() {
+            return isolationStrategy;
+        }
+
         @Override
         public String toString() {
             return "TestScenario{" +
                    "name='" + name + '\'' +
                    ", type=" + type +
                    ", priority=" + priority +
+                   ", isolation=" + isolationStrategy +
                    '}';
         }
     }

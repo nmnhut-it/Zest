@@ -92,6 +92,11 @@ public class TestMergingHandler extends AbstractStateHandler {
                 uiEventListener.onMergerAgentCreated(aiMerger);
             }
 
+            // Initialize contextTools in mergingTools (completes the "passed later" initialization from AITestMergerAgent line 47)
+            if (contextTools != null) {
+                aiMerger.getMergingTools().setContextTools(contextTools);
+            }
+
             // Execute phased workflow with explicit checkpoints
             MergedTestClass mergedTestClass = executePhasedMerging(stateMachine, aiMerger, result, contextTools);
             

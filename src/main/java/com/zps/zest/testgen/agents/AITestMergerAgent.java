@@ -45,7 +45,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                             @NotNull TestFixStrategy fixStrategy) {
         super(project, langChainService, naiveLlmService, "AITestMergerAgent");
         this.fixStrategy = fixStrategy;
-        this.mergingTools = new TestMergingTools(project, this::sendToUI, null); // contextTools passed later
+        this.mergingTools = new TestMergingTools(project, this::sendToUI, null); // contextTools set via setContextTools() by TestMergingHandler
 
         // Build the agent with streaming support
         this.chatMemory = MessageWindowChatMemory.withMaxMessages(200);

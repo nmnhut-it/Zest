@@ -35,6 +35,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
     private final TestPlanningTools planningTools;
     private final TestPlanningAssistant assistant;
+    private final StreamingTestPlanningAssistant streamingAssistant;
     private final ChatMemory chatMemory;
     private final ContextAgent.ContextGatheringTools contextTools;
 
@@ -52,6 +53,14 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 .agentBuilder(TestPlanningAssistant.class)
                 .chatModel(getChatModelWithStreaming()) // Use wrapped model for streaming
                 .maxSequentialToolsInvocations(50) // Allow multiple tool calls in one response
+                .chatMemory(chatMemory)
+                .tools(planningTools)
+                .build();
+
+        // Build streaming assistant for real-time UI updates
+        this.streamingAssistant = dev.langchain4j.service.AiServices
+                .builder(StreamingTestPlanningAssistant.class)
+                .streamingChatModel(getStreamingChatModel())
                 .chatMemory(chatMemory)
                 .tools(planningTools)
                 .build();
@@ -222,8 +231,58 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         @dev.langchain4j.agentic.Agent
         String planTests(String request);
     }
-    
-    
+
+    /**
+     * Streaming interface - generates all scenarios with real-time token streaming
+     */
+    public interface StreamingTestPlanningAssistant {
+        @dev.langchain4j.service.SystemMessage("""
+        You are a test planning assistant that creates comprehensive test plans.
+
+        CRITICAL: Generate test scenarios ONLY for the methods that were selected by the user. Do NOT generate tests for other methods you see in the code, even if they seem related or important. Focus exclusively on the user-selected methods.
+
+        PROCESS (Reasoning → Tools):
+
+        PHASE 1: REASONING (text response - think before acting)
+
+        🔙 STEP-BACK ANALYSIS:
+        Before diving into specific scenarios, step back and analyze the big picture:
+        - What is the CORE PURPOSE of the selected method(s)?
+        - What are REALISTIC failure modes based on signatures, parameters, return types?
+        - What did the CONTEXT ANALYSIS reveal about how these methods are actually used?
+        - What CATEGORIES of risks exist? (validation errors, null handling, boundary conditions, state management, integration issues)
+
+        Share your step-back analysis (2-3 sentences).
+
+        💭 SCENARIO BRAINSTORMING:
+        List potential scenarios by category (brief bullet points):
+        ✅ Happy Path: [1-2 key normal scenarios]
+        ⚠️ Error Handling: [2-3 error/exception scenarios]
+        🎯 Edge Cases: [1-2 boundary/corner cases]
+        🔄 Integration: [1-2 scenarios if method has external dependencies]
+
+        📊 PRIORITIZATION REASONING:
+        Explain your HIGH/MEDIUM/LOW priority choices based on:
+        - User impact (crashes, data loss, wrong results vs minor issues)
+        - Usage frequency (from context analysis - what's called often?)
+        - Business criticality (financial, security, core functionality)
+
+        PHASE 2: TOOL EXECUTION
+
+        1. Call setTargetClass with fully qualified class name
+        2. Call addTestScenarios with ALL scenarios at once (based on your brainstorming above)
+        3. Call setTestingNotes with testing approach recommendations
+
+        CRITICAL: Both phases are REQUIRED. Don't skip the reasoning - it helps users understand your testing strategy.
+
+        Remember: This is a SINGLE response workflow - reason thoroughly, then execute all tools in sequence. User sees real-time streaming during this process.
+
+        The number of test scenarios to generate will be specified in the user's request - follow that guideline.
+        """)
+        @dev.langchain4j.agentic.Agent
+        dev.langchain4j.service.TokenStream planTests(String request);
+    }
+
     /**
      * Set callback for test plan updates
      */
@@ -248,7 +307,6 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 LOG.debug("Starting test planning with LangChain4j orchestration");
                 
                 // Notify UI
-                notifyStart();
                 sendToUI("🎯 Planning comprehensive test scenarios...\n\n");
                 
                 // Reset planning tools for new session
@@ -267,40 +325,79 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 // Build the planning request
                 String planRequest = buildPlanningRequest(request);
 
-                // Send the request to UI
-                sendToUI("📋 Request:\n" + planRequest + "\n\n");
-                sendToUI("🤖 Assistant Response:\n");
-                sendToUI("-".repeat(40) + "\n");
+                // Stream the system message to UI to show activity while AI processes
+                String systemMessage = getSystemMessage();
+                streamTextAsync("📋 System Instructions:\n\n" + systemMessage + "\n\n" + "-".repeat(60) + "\n\n");
+                streamTextAsync("📝 User Request:\n\n" + planRequest + "\n\n" + "-".repeat(60) + "\n\n");
+                streamTextAsync("🧠 AI Response:\n\n");
 
                 // Check cancellation before making assistant call
                 checkCancellation();
 
-                // Let LangChain4j handle the entire planning with all tool calls
-                // The assistant will make ALL scenario additions in one response
-                String response = assistant.planTests(planRequest);
-                
-                // Send response to UI
-                sendToUI(response);
-                sendToUI("\n" + "-".repeat(40) + "\n");
-                
-                // Build the test plan from accumulated tool data
-                TestPlan testPlan = planningTools.buildTestPlan();
-                
-                // Summary
-                sendToUI("\n📊 Test Plan Summary:\n");
-                sendToUI("  - Target: " + testPlan.getTargetClass() + "." + String.join(", ", testPlan.getTargetMethods()) + "\n");
-                sendToUI("  - Overall Type: " + testPlan.getRecommendedTestType().getDescription() + "\n");
-                
-                // Count unit vs integration scenarios
-                long unitScenarios = testPlan.getTestScenarios().stream().mapToLong(s -> s.getType() == TestPlan.TestScenario.Type.UNIT ? 1 : 0).sum();
-                long integrationScenarios = testPlan.getTestScenarios().stream().mapToLong(s -> s.getType() == TestPlan.TestScenario.Type.INTEGRATION ? 1 : 0).sum();
-                
-                sendToUI("  - Scenarios: " + testPlan.getScenarioCount() + " total (" + unitScenarios + " unit, " + integrationScenarios + " integration)\n");
-                notifyComplete();
-                
-                LOG.debug("Test planning complete: " + testPlan.getScenarioCount() + " scenarios");
+                // Use streaming assistant with TokenStream for real-time UI updates
+                final java.util.concurrent.CompletableFuture<TestPlan> planFuture = new java.util.concurrent.CompletableFuture<>();
+                final StringBuilder responseBuilder = new StringBuilder();
 
-                return testPlan;
+                // Start streaming
+                dev.langchain4j.service.TokenStream tokenStream = streamingAssistant.planTests(planRequest);
+
+                tokenStream
+                    .onPartialResponse(partialResponse -> {
+                        // Accumulate response text
+                        responseBuilder.append(partialResponse);
+
+                        // Stream text asynchronously to UI (queued with ForkJoinPool)
+                        streamTextAsync(partialResponse);
+                    })
+                    .onIntermediateResponse(response -> {
+                        // AI finished reasoning text, about to execute tools
+                        streamTextAsync("\n\n🔧 Executing tools...\n");
+                        LOG.info("Intermediate response: " + response.aiMessage().toolExecutionRequests().size() + " tools to execute");
+                    })
+                    .beforeToolExecution(beforeToolExecution -> {
+                        // Tool execution already handled by planningTools.notifyTool()
+                        LOG.info("Tool execution starting: " + beforeToolExecution.request().name());
+                    })
+                    .onToolExecuted(toolExecution -> {
+                        // Tool results already sent to UI via planningTools callback
+                        LOG.info("Tool execution completed: " + toolExecution.request().name());
+                    })
+                    .onCompleteResponse(response -> {
+                        String fullResponse = responseBuilder.toString();
+                        streamTextAsync("\n\n" + "-".repeat(40) + "\n");
+
+                        // Build the test plan from accumulated tool data
+                        TestPlan testPlan = planningTools.buildTestPlan();
+
+                        // Summary
+                        sendToUI("\n📊 Test Plan Summary:\n");
+                        sendToUI("  - Target: " + testPlan.getTargetClass() + "." + String.join(", ", testPlan.getTargetMethods()) + "\n");
+                        sendToUI("  - Overall Type: " + testPlan.getRecommendedTestType().getDescription() + "\n");
+
+                        // Count unit vs integration scenarios
+                        long unitScenarios = testPlan.getTestScenarios().stream()
+                                .filter(s -> s.getType() == TestPlan.TestScenario.Type.UNIT)
+                                .count();
+                        long integrationScenarios = testPlan.getTestScenarios().stream()
+                                .filter(s -> s.getType() == TestPlan.TestScenario.Type.INTEGRATION)
+                                .count();
+
+                        sendToUI("  - Scenarios: " + testPlan.getScenarioCount() + " total (" +
+                                unitScenarios + " unit, " + integrationScenarios + " integration)\n");
+
+                        LOG.debug("Test planning complete: " + testPlan.getScenarioCount() + " scenarios");
+
+                        planFuture.complete(testPlan);
+                    })
+                    .onError(error -> {
+                        LOG.error("Streaming failed", error);
+                        sendToUI("\n❌ Test planning failed: " + error.getMessage() + "\n");
+                        planFuture.completeExceptionally(error);
+                    })
+                    .start();
+
+                // Wait for completion
+                return planFuture.get();
 
             } catch (java.util.concurrent.CancellationException e) {
                 LOG.info("Test planning cancelled by user");
@@ -914,5 +1011,76 @@ public class CoordinatorAgent extends StreamingBaseAgent {
     @NotNull
     public ChatMemory getChatMemory() {
         return chatMemory;
+    }
+
+    /**
+     * Get the system message from StreamingTestPlanningAssistant annotation
+     */
+    private static final String SYSTEM_MESSAGE = """
+        You are a test planning assistant that creates comprehensive test plans.
+
+        CRITICAL: Generate test scenarios ONLY for the methods that were selected by the user. Do NOT generate tests for other methods you see in the code, even if they seem related or important. Focus exclusively on the user-selected methods.
+
+        PROCESS (Reasoning → Tools):
+
+        PHASE 1: REASONING (text response - think before acting)
+
+        🔙 STEP-BACK ANALYSIS:
+        Before diving into specific scenarios, step back and analyze the big picture:
+        - What is the CORE PURPOSE of the selected method(s)?
+        - What are REALISTIC failure modes based on signatures, parameters, return types?
+        - What did the CONTEXT ANALYSIS reveal about how these methods are actually used?
+        - What CATEGORIES of risks exist? (validation errors, null handling, boundary conditions, state management, integration issues)
+
+        Share your step-back analysis (2-3 sentences).
+
+        💭 SCENARIO BRAINSTORMING:
+        List potential scenarios by category (brief bullet points):
+        ✅ Happy Path: [1-2 key normal scenarios]
+        ⚠️ Error Handling: [2-3 error/exception scenarios]
+        🎯 Edge Cases: [1-2 boundary/corner cases]
+        🔄 Integration: [1-2 scenarios if method has external dependencies]
+
+        📊 PRIORITIZATION REASONING:
+        Explain your HIGH/MEDIUM/LOW priority choices based on:
+        - User impact (crashes, data loss, wrong results vs minor issues)
+        - Usage frequency (from context analysis - what's called often?)
+        - Business criticality (financial, security, core functionality)
+
+        PHASE 2: TOOL EXECUTION
+
+        1. Call setTargetClass with fully qualified class name
+        2. Call addTestScenarios with ALL scenarios at once (based on your brainstorming above)
+        3. Call setTestingNotes with testing approach recommendations
+
+        CRITICAL: Both phases are REQUIRED. Don't skip the reasoning - it helps users understand your testing strategy.
+
+        Remember: This is a SINGLE response workflow - reason thoroughly, then execute all tools in sequence. User sees real-time streaming during this process.
+
+        The number of test scenarios to generate will be specified in the user's request - follow that guideline.
+        """;
+
+    private String getSystemMessage() {
+        return SYSTEM_MESSAGE;
+    }
+
+    /**
+     * Stream text asynchronously using ForkJoinPool, character by character for realistic typing effect
+     */
+    private void streamTextAsync(String text) {
+        java.util.concurrent.ForkJoinPool.commonPool().submit(() -> {
+            int chunkSize = 50;
+            for (int i = 0; i < text.length(); i += chunkSize) {
+                int end = Math.min(i + chunkSize, text.length());
+                String chunk = text.substring(i, end);
+                sendToUI(chunk);
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        });
     }
 }

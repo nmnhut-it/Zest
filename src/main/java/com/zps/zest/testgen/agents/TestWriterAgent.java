@@ -67,7 +67,6 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 LOG.debug("Generating tests for: " + testPlan.getTargetClass());
 
                 // Notify UI
-                notifyStart();
                 sendToUI(UIMessageConstants.GENERATING_TESTS.getMessage());
 
                 // Build the test writing request with system prompt
@@ -150,7 +149,6 @@ public class TestWriterAgent extends StreamingBaseAgent {
                 sendToUI(UIMessageConstants.SUMMARY_FRAMEWORK.append(result.getFramework() + "\n"));
                 sendToUI(UIMessageConstants.SUMMARY_METHOD_COUNT.append(result.getMethodCount() + "\n"));
                 sendToUI(UIMessageConstants.SUMMARY_LOC.append(result.getCompleteTestClass().split("\n").length + "\n"));
-                notifyComplete();
 
                 LOG.debug("Test generation complete: " + result.getMethodCount() + " test(s)");
 

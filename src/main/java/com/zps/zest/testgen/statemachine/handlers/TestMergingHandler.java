@@ -36,6 +36,11 @@ public class TestMergingHandler extends AbstractStateHandler {
         this.uiEventListener = uiEventListener;
         this.stateMachine = stateMachine;
     }
+
+    @Override
+    protected com.zps.zest.testgen.ui.StreamingEventListener getEventListener() {
+        return uiEventListener;
+    }
     
     @NotNull
     @Override
@@ -164,6 +169,7 @@ public class TestMergingHandler extends AbstractStateHandler {
 
         // ============ PHASE 1: Find Existing Test (Java - No AI) ============
         logToolActivity(stateMachine, "Phase1", "Finding existing test");
+        notifyToolActivity("Finding existing test", targetClass);
         if (streamingCallback != null) {
             streamingCallback.accept("\n**PHASE 1: Finding Existing Test (Java)**\n");
         }
@@ -207,6 +213,7 @@ public class TestMergingHandler extends AbstractStateHandler {
 
         // ============ PHASE 4: Validate (Java) ============
         logToolActivity(stateMachine, "Phase4", "Validating test code");
+        notifyToolActivity("Validating", testClassName);
         if (streamingCallback != null) {
             streamingCallback.accept("\n**PHASE 4: Validation (Java)**\n");
         }

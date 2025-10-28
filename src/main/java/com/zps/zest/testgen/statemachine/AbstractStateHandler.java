@@ -96,12 +96,32 @@ public abstract class AbstractStateHandler implements StateHandler {
     }
     
     /**
-     * Log tool call activity during state execution
+     * Log tool call activity during state execution and update UI
      */
     protected final void logToolActivity(@NotNull TestGenerationStateMachine stateMachine,
                                         @NotNull String toolName, @NotNull String description) {
         LOG.info("🔧 " + toolName + ": " + description);
         stateMachine.logActivity("🔧 " + toolName + ": " + description);
+    }
+
+    /**
+     * Notify UI about manual tool activity (called from Java code)
+     * Subclasses should override getEventListener() to provide access
+     */
+    protected final void notifyToolActivity(@NotNull String toolName, @NotNull String detail) {
+        com.zps.zest.testgen.ui.StreamingEventListener listener = getEventListener();
+        if (listener != null) {
+            listener.onManualToolActivity(toolName, detail);
+        }
+    }
+
+    /**
+     * Get the UI event listener for this handler.
+     * Subclasses should override this to provide access to their event listener.
+     */
+    @Nullable
+    protected com.zps.zest.testgen.ui.StreamingEventListener getEventListener() {
+        return null; // Default implementation - subclasses override
     }
     
     /**

@@ -10,7 +10,10 @@ import com.zps.zest.util.EnvLoader;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.chat.Capability;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.listener.ChatModelErrorContext;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
+import dev.langchain4j.model.chat.listener.ChatModelRequestContext;
+import dev.langchain4j.model.chat.listener.ChatModelResponseContext;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -40,7 +43,7 @@ public class ZestChatLanguageModel implements ChatModel {
     private final ChatboxUtilities.EnumUsage usage;
     private final ConfigurationManager config;
     private final com.zps.zest.langchain4j.http.CancellableJdkHttpClient cancellableHttpClient;
-//    private final TokenUsageTracker tokenTracker;
+    private com.zps.zest.testgen.ui.StreamingEventListener eventListener;
 
     // Rate limiting configuration - now configurable via environment variables
     private static final long DEFAULT_MIN_DELAY_MS = 3000; // Default 3 seconds between requests (more conservative)
@@ -284,6 +287,7 @@ public class ZestChatLanguageModel implements ChatModel {
                 .user(username != null && !username.isEmpty() ? username : null)
                 .logRequests(true)
                 .logResponses(true)
+                .listeners(List.of(new TokenTrackingListener(ZestChatLanguageModel.this)))
                 .timeout(Duration.ofSeconds(1200))
                 .httpClientBuilder(httpClientBuilder);
 
@@ -448,6 +452,64 @@ public class ZestChatLanguageModel implements ChatModel {
         this.cancelled = false;
         if (cancellableHttpClient != null) {
             cancellableHttpClient.reset();
+        }
+    }
+
+    public void setEventListener(com.zps.zest.testgen.ui.StreamingEventListener listener) {
+        this.eventListener = listener;
+    }
+
+    private class TokenTrackingListener implements ChatModelListener {
+        private final ZestChatLanguageModel parent;
+
+        public TokenTrackingListener(ZestChatLanguageModel parent) {
+            this.parent = parent;
+        }
+
+        @Override
+        public void onRequest(ChatModelRequestContext requestContext) {
+            LOG.debug("LLM request sent");
+        }
+
+        @Override
+        public void onResponse(ChatModelResponseContext responseContext) {
+            if (responseContext.chatResponse() != null) {
+                var response = responseContext.chatResponse();
+
+                // Extract token usage
+                if (response.metadata() != null && response.metadata().tokenUsage() != null) {
+                    var tokenUsage = response.metadata().tokenUsage();
+                    LOG.info("LLM response: " + tokenUsage.inputTokenCount() + " → " +
+                            tokenUsage.outputTokenCount() + " tokens");
+
+                    if (parent.eventListener != null) {
+                        parent.eventListener.onLLMCallCompleted(
+                            tokenUsage.inputTokenCount(),
+                            tokenUsage.outputTokenCount(),
+                            0L
+                        );
+                    }
+                }
+
+                // Extract actual tool execution requests from AI message
+                if (response.aiMessage() != null && response.aiMessage().hasToolExecutionRequests()) {
+                    List<String> executedToolNames = new java.util.ArrayList<>();
+                    response.aiMessage().toolExecutionRequests().forEach(toolReq ->
+                        executedToolNames.add(toolReq.name())
+                    );
+
+                    LOG.info("LLM requested tool executions: " + executedToolNames);
+
+                    if (parent.eventListener != null && !executedToolNames.isEmpty()) {
+                        parent.eventListener.onToolExecutionDetected(executedToolNames);
+                    }
+                }
+            }
+        }
+
+        @Override
+        public void onError(ChatModelErrorContext errorContext) {
+            LOG.warn("LLM error: " + errorContext.error().getMessage());
         }
     }
 }

@@ -41,6 +41,10 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
         add(placeholderPanel, BorderLayout.CENTER)
     }
 
+    fun showActivity(message: String) {
+        // Context panel shows chat memory, activity not needed here
+    }
+
     /**
      * Clear the panel
      */

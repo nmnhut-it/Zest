@@ -21,12 +21,13 @@ import javax.swing.border.EmptyBorder
  * Shows checkboxes for scenario selection and links to view details.
  */
 class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()) {
-    
+
     private var currentPlan: TestPlanDisplayData? = null
     private val scenarioCheckboxes = mutableMapOf<String, JCheckBox>()
     private val scenariosPanel = JPanel()
     private val headerLabel = JBLabel("Test plans are not available yet")
     private val summaryLabel = JBLabel("")
+    private val activityLabel = JBLabel("")
     private var selectionListener: ((Set<String>) -> Unit)? = null
     private var planningAgentMemory: dev.langchain4j.memory.ChatMemory? = null
     private var planningAgentName: String = "Planning Agent"
@@ -38,11 +39,35 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
 
     // Testing notes editor
     private val testingNotesArea = JTextArea()
+
+    // Streaming text area for AI reasoning during generation
+    private val streamingTextArea = JTextArea()
+    private val streamingScrollPane: JBScrollPane
+
+    // CardLayout for switching between streaming and structured views
+    private val contentCardPanel = JPanel(CardLayout())
+    private val STREAMING_VIEW = "streaming"
+    private val STRUCTURED_VIEW = "structured"
+
     // Removed confirmSelectionCallback - using direct selection
     
     // Removed confirmation UI - using main editor button instead
-    
+
     init {
+        // Initialize streaming text area
+        streamingTextArea.apply {
+            isEditable = false
+            lineWrap = true
+            wrapStyleWord = true
+            font = Font("Monospaced", Font.PLAIN, 13)
+            background = UIUtil.getTextFieldBackground()
+            foreground = UIUtil.getLabelForeground()
+            border = EmptyBorder(10, 10, 10, 10)
+        }
+        streamingScrollPane = JBScrollPane(streamingTextArea)
+        streamingScrollPane.border = BorderFactory.createEmptyBorder()
+        streamingScrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+
         setupUI()
     }
     
@@ -56,10 +81,21 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
         
         headerLabel.font = headerLabel.font.deriveFont(Font.BOLD, 14f)
         headerPanel.add(headerLabel, BorderLayout.NORTH)
-        
+
+        val labelsPanel = JPanel()
+        labelsPanel.layout = BoxLayout(labelsPanel, BoxLayout.Y_AXIS)
+        labelsPanel.isOpaque = false
+
         summaryLabel.foreground = UIUtil.getContextHelpForeground()
         summaryLabel.border = EmptyBorder(5, 0, 0, 0)
-        headerPanel.add(summaryLabel, BorderLayout.CENTER)
+        labelsPanel.add(summaryLabel)
+
+        activityLabel.foreground = UIUtil.getInactiveTextColor()
+        activityLabel.font = activityLabel.font.deriveFont(Font.ITALIC, 12f)
+        activityLabel.border = EmptyBorder(3, 0, 0, 0)
+        labelsPanel.add(activityLabel)
+
+        headerPanel.add(labelsPanel, BorderLayout.CENTER)
         
         // Control buttons
         val controlPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
@@ -109,20 +145,42 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
         }
 
         val notesScrollPane = JBScrollPane(testingNotesArea)
-        notesScrollPane.preferredSize = Dimension(0, 80)
+        notesScrollPane.preferredSize = Dimension(400, 100)
+        notesScrollPane.minimumSize = Dimension(300, 80)
         testingNotesPanel.add(notesScrollPane, BorderLayout.CENTER)
 
         mainContentPanel.add(testingNotesPanel, BorderLayout.NORTH)
 
-        // Scenarios panel
+        // Setup CardLayout with two views: streaming and structured
+        contentCardPanel.background = UIUtil.getPanelBackground()
+
+        // Streaming view - shows AI reasoning text
+        val streamingPanel = JPanel(BorderLayout())
+        streamingPanel.background = UIUtil.getPanelBackground()
+        streamingPanel.add(streamingScrollPane, BorderLayout.CENTER)
+        contentCardPanel.add(streamingPanel, STREAMING_VIEW)
+
+        // Structured view - shows test plan with checkboxes
         scenariosPanel.layout = BoxLayout(scenariosPanel, BoxLayout.Y_AXIS)
         scenariosPanel.background = UIUtil.getPanelBackground()
         scenariosPanel.border = EmptyBorder(0, 10, 10, 10)
+        scenariosPanel.minimumSize = Dimension(400, 200)
+        scenariosPanel.preferredSize = Dimension(800, 400)
 
         val scrollPane = JBScrollPane(scenariosPanel)
         scrollPane.border = BorderFactory.createEmptyBorder()
         scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
-        mainContentPanel.add(scrollPane, BorderLayout.CENTER)
+
+        val structuredPanel = JPanel(BorderLayout())
+        structuredPanel.background = UIUtil.getPanelBackground()
+        structuredPanel.add(scrollPane, BorderLayout.CENTER)
+        contentCardPanel.add(structuredPanel, STRUCTURED_VIEW)
+
+        // Add the CardLayout panel to main content
+        mainContentPanel.add(contentCardPanel, BorderLayout.CENTER)
+
+        // Start with structured view by default
+        showStructuredView()
 
         add(mainContentPanel, BorderLayout.CENTER)
         
@@ -185,78 +243,69 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
             headerLabel.text = "⚠️ USER ACTION REQUIRED: Review Test Plan for ${testPlan.targetClass}"
             summaryLabel.text = "✏️ Edit testing approach below and select scenarios, then click 'Generate Selected Tests' button to proceed"
 
-            revalidate()
-            repaint()
+            // Switch to structured view (show checkboxes)
+            showStructuredView()
+
+            // Properly revalidate the entire component tree
+            scenariosPanel.revalidate()
+            SwingUtilities.invokeLater {
+                revalidate()
+                repaint()
+            }
         }
     }
     
     // Callback removed - using direct selection via main editor button
-    
+
+    fun showActivity(message: String) {
+        SwingUtilities.invokeLater {
+            activityLabel.text = "⏳ $message"
+            activityLabel.isVisible = true
+        }
+    }
+
+    fun hideActivity() {
+        SwingUtilities.invokeLater {
+            activityLabel.text = ""
+            activityLabel.isVisible = false
+        }
+    }
+
     /**
      * Update the test plan display (during agent generation)
+     * NOTE: During generation, streaming text is shown instead of partial scenarios
      */
     fun updateTestPlan(plan: TestPlanDisplayData) {
         SwingUtilities.invokeLater {
+            hideActivity() // Clear activity indicator when data arrives
             currentPlan = plan
-            scenarioCheckboxes.clear()
-            scenariosPanel.removeAll()
 
             // During generation, testing notes area is not editable and has normal background
             testingNotesArea.isEditable = false
             testingNotesArea.background = UIUtil.getTextFieldBackground()
 
             // Show planning in progress
-            testingNotesArea.text = "Planning in progress..."
+            testingNotesArea.text = "Planning in progress - see AI reasoning below..."
 
             // Update header - show that agent is still working
             headerLabel.text = "🔄 Generating Test Plan: ${plan.targetClass}"
-            summaryLabel.text = buildString {
-                append("Agent is analyzing code and identifying test scenarios... ")
-                if (plan.totalScenarios > 0) {
-                    append("${plan.totalScenarios} scenario(s) found")
-                }
-            }
+            summaryLabel.text = "Agent is analyzing code and thinking through test scenarios..."
 
-            // Show progress indicator or placeholder while generating
-            if (plan.scenarios.isEmpty()) {
-                // Show a loading/progress message
-                val loadingPanel = JPanel(BorderLayout())
-                loadingPanel.background = UIUtil.getPanelBackground()
-                loadingPanel.border = EmptyBorder(50, 20, 50, 20)
-
-                val loadingLabel = JBLabel("🤖 CoordinatorAgent is analyzing your code...")
-                loadingLabel.horizontalAlignment = SwingConstants.CENTER
-                loadingLabel.font = loadingLabel.font.deriveFont(14f)
-                loadingPanel.add(loadingLabel, BorderLayout.CENTER)
-
-                val detailsLabel = JBLabel("Please wait while test scenarios are being identified")
-                detailsLabel.horizontalAlignment = SwingConstants.CENTER
-                detailsLabel.foreground = UIUtil.getContextHelpForeground()
-                loadingPanel.add(detailsLabel, BorderLayout.SOUTH)
-
-                scenariosPanel.add(loadingPanel)
-            } else {
-                // Add scenarios as they come in
-                plan.scenarios.forEach { scenario ->
-                    addScenarioRow(scenario, plan.isScenarioSelected(scenario.id))
-                }
-            }
-
-            scenariosPanel.revalidate()
-            scenariosPanel.repaint()
+            // Show streaming view with AI reasoning text
+            showStreamingView()
         }
     }
-    
+
     /**
      * Add a scenario row with checkbox and details link
      */
     private fun addScenarioRow(scenario: ScenarioDisplayData, selected: Boolean) {
         val rowPanel = JPanel(BorderLayout())
-        rowPanel.maximumSize = Dimension(Integer.MAX_VALUE, 60)
+        rowPanel.preferredSize = Dimension(Integer.MAX_VALUE, 48)
         rowPanel.background = UIUtil.getPanelBackground()
         rowPanel.border = BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 0, 1, 0, UIUtil.getBoundsColor()),
-            EmptyBorder(12, 8, 12, 8)
+            EmptyBorder(10, 8, 10, 8)
         )
         
         // Left: Checkbox with scenario name
@@ -586,5 +635,55 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
     private fun openPlanningChatDialog() {
         val dialog = ChatMemoryDialog(project, planningAgentMemory, planningAgentName)
         DialogManager.showDialog(dialog)
+    }
+
+    /**
+     * Start streaming - clear text area and show streaming view
+     */
+    fun startStreaming() {
+        SwingUtilities.invokeLater {
+            streamingTextArea.text = ""
+            showStreamingView()
+        }
+    }
+
+    /**
+     * Append streaming text from the AI during test plan generation
+     */
+    fun appendStreamingText(text: String) {
+        SwingUtilities.invokeLater {
+            streamingTextArea.append(text)
+            // Auto-scroll to bottom
+            streamingTextArea.caretPosition = streamingTextArea.document.length
+        }
+    }
+
+    /**
+     * Clear streaming text area
+     */
+    fun clearStreamingText() {
+        SwingUtilities.invokeLater {
+            streamingTextArea.text = ""
+        }
+    }
+
+    /**
+     * Show streaming view (AI reasoning text)
+     */
+    fun showStreamingView() {
+        SwingUtilities.invokeLater {
+            val layout = contentCardPanel.layout as CardLayout
+            layout.show(contentCardPanel, STREAMING_VIEW)
+        }
+    }
+
+    /**
+     * Show structured view (test plan with checkboxes)
+     */
+    fun showStructuredView() {
+        SwingUtilities.invokeLater {
+            val layout = contentCardPanel.layout as CardLayout
+            layout.show(contentCardPanel, STRUCTURED_VIEW)
+        }
     }
 }

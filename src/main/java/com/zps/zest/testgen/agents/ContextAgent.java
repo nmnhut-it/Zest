@@ -188,9 +188,34 @@ public class ContextAgent extends StreamingBaseAgent {
                             sendToUI("\n📍 **Status Check**\n" + preHook + "\n\n");
                         }
 
-                        // For first iteration, use full context request; for subsequent iterations, just continue
-                        String promptToUse = (iteration == 1) ? contextRequest :
-                            "Continue gathering context. Remember to call markContextCollectionDone when you have sufficient context.";
+                        // For first iteration, use full context request; for subsequent iterations, be explicit
+                        String promptToUse;
+                        if (iteration == 1) {
+                            promptToUse = contextRequest;
+                        } else {
+                            // Build explicit continuation prompt with remaining plan items
+                            StringBuilder continuation = new StringBuilder();
+                            continuation.append("Continue with your exploration plan.\n\n");
+
+                            // Get incomplete plan items
+                            java.util.List<String> incompletePlanItems = contextTools.explorationPlanningTool.getIncompletePlanItems();
+                            if (!incompletePlanItems.isEmpty()) {
+                                continuation.append("**Remaining Plan Items:**\n");
+                                for (String item : incompletePlanItems) {
+                                    continuation.append("- ").append(item).append("\n");
+                                }
+                                continuation.append("\n");
+                            }
+
+                            continuation.append("**Your Task:**\n");
+                            continuation.append("1. Review the incomplete items above\n");
+                            continuation.append("2. For each item: execute the investigation, take notes with findings\n");
+                            continuation.append("3. Use completePlanItems() to mark multiple items done at once (saves tokens)\n");
+                            continuation.append("4. If you already completed items but forgot to mark them done, call completePlanItems() NOW with all findings\n");
+                            continuation.append("5. When ALL plan items are complete, call markContextCollectionDone()\n");
+
+                            promptToUse = continuation.toString();
+                        }
 
                         // Append pre-hook to prompt if available
                         if (!preHook.isEmpty() && iteration > 1) {
@@ -297,6 +322,8 @@ public class ContextAgent extends StreamingBaseAgent {
         Map<String, com.zps.zest.testgen.analysis.UsageContext> methodUsages = contextTools.getMethodUsages();
         if (!methodUsages.isEmpty()) {
             prompt.append("### Method Usage Patterns\n\n");
+//            prompt.append("This is an exhaustive list of static references. If usages of method under test are of uttermost");
+//            prompt.append("importance, try searching for implicit call. Otherwise, use this list only.");
             for (Map.Entry<String, com.zps.zest.testgen.analysis.UsageContext> entry : methodUsages.entrySet()) {
                 com.zps.zest.testgen.analysis.UsageContext usageContext = entry.getValue();
                 prompt.append(usageContext.formatForLLM());
@@ -968,7 +995,11 @@ public class ContextAgent extends StreamingBaseAgent {
                 if (!incomplete.isEmpty()) {
                     return "❌ Cannot mark done - Exploration plan incomplete.\n\n" +
                            "Remaining items:\n" + String.join("\n", incomplete) + "\n\n" +
-                           "Complete all plan items or explain why they're not needed.";
+                           "**What to do:**\n" +
+                           "1. Review each remaining item above\n" +
+                           "2. If you ALREADY completed items but forgot to mark them done, use completePlanItems() NOW (batch operation saves tokens)\n" +
+                           "3. If items are NOT yet done, execute investigations, take notes, then use completePlanItems() to mark multiple at once\n" +
+                           "4. Only after ALL items are marked complete can you call markContextCollectionDone()";
                 }
             }
 

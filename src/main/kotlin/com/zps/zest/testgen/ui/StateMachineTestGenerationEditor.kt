@@ -72,6 +72,7 @@ class StateMachineTestGenerationEditor(
     // Simplified control system
     private lateinit var primaryActionButton: JButton
     private lateinit var cancelButton: JButton
+    private var totalTokensUsed = 0
     
     // Action banner components
     private lateinit var actionBanner: JPanel
@@ -111,11 +112,7 @@ class StateMachineTestGenerationEditor(
             if (currentSessionId != null && event.sessionId != currentSessionId) return
 
             SwingUtilities.invokeLater {
-                // Show activity in the log
                 logEvent("Activity: ${event.message}")
-                
-                // Update status indicator and clear action prompts
-                statusIndicator.text = "🔄 ${event.message}"
                 clearActionPrompt()
             }
         }
@@ -126,9 +123,10 @@ class StateMachineTestGenerationEditor(
 
             SwingUtilities.invokeLater {
                 updateControlButtons()
-                logEvent("ERROR: ${event.errorMessage}" + 
+                updateTokenDisplay()
+                logEvent("ERROR: ${event.errorMessage}" +
                         if (event.isRecoverable) " (recoverable)" else " (fatal)")
-                
+
                 if (event.isRecoverable) {
                     // Show recoverable error prompt
                     val result = Messages.showYesNoDialog(
@@ -164,8 +162,9 @@ class StateMachineTestGenerationEditor(
 
             SwingUtilities.invokeLater {
                 updateControlButtons()
+                updateTokenDisplay()
                 logEvent("✓ Completed: ${event.summary}")
-                
+
                 // Auto-show preview dialog when fixing completes
                 if (event.completedState == TestGenerationState.FIXING_TESTS) {
                     showFinalResult()
@@ -264,24 +263,24 @@ class StateMachineTestGenerationEditor(
         override fun onFileAnalyzed(data: ContextDisplayData) {
             SwingUtilities.invokeLater {
                 contextDisplayPanel.addFile(data)
-                // Switch to context tab to show new data
                 tabbedPane.selectedIndex = 0
+                updateTokenDisplay()
             }
         }
-        
+
         override fun onTestPlanUpdated(data: TestPlanDisplayData) {
             SwingUtilities.invokeLater {
                 testPlanDisplayPanel.updateTestPlan(data)
-                // Switch to test plan tab
                 tabbedPane.selectedIndex = 1
+                updateTokenDisplay()
             }
         }
-        
+
         override fun onTestGenerated(data: GeneratedTestDisplayData) {
             SwingUtilities.invokeLater {
                 generatedTestsPanel.addGeneratedTest(data)
-                // Switch to generated tests tab
                 tabbedPane.selectedIndex = 2
+                updateTokenDisplay()
             }
         }
 
@@ -289,8 +288,8 @@ class StateMachineTestGenerationEditor(
         override fun onTestGenerationStreamingStarted(className: String) {
             SwingUtilities.invokeLater {
                 generatedTestsPanel.startStreaming(className)
-                // Switch to generated tests tab to show streaming
                 tabbedPane.selectedIndex = 2
+                updateTokenDisplay()
             }
         }
 
@@ -303,6 +302,28 @@ class StateMachineTestGenerationEditor(
         override fun onTestGenerationStreamingComplete() {
             SwingUtilities.invokeLater {
                 generatedTestsPanel.finalizeStreaming()
+                updateTokenDisplay()
+            }
+        }
+
+        override fun onLLMCallCompleted(inputTokens: Int, outputTokens: Int, durationMs: Long) {
+            SwingUtilities.invokeLater {
+                totalTokensUsed += inputTokens + outputTokens
+                statusIndicator.text = "${formatTokenCount(totalTokensUsed)} tokens"
+            }
+        }
+
+        override fun onToolExecutionDetected(toolNames: List<String>) {
+            SwingUtilities.invokeLater {
+                val lastTool = toolNames.lastOrNull() ?: return@invokeLater
+                statusIndicator.text = "🔧 $lastTool | ${formatTokenCount(totalTokensUsed)} tokens"
+            }
+        }
+
+        override fun onManualToolActivity(toolName: String, detail: String) {
+            SwingUtilities.invokeLater {
+                val message = if (detail.isNotEmpty()) "$toolName: $detail" else toolName
+                statusIndicator.text = "⚙️ $message | ${formatTokenCount(totalTokensUsed)} tokens"
             }
         }
         
@@ -387,13 +408,19 @@ class StateMachineTestGenerationEditor(
         override fun onStatusChanged(status: String) {
             SwingUtilities.invokeLater {
                 logEvent("Status: $status")
+
+                // Start streaming when test planning begins
+                if (status.contains("Generating test plan", ignoreCase = true) ||
+                    status.contains("Planning", ignoreCase = true)) {
+                    testPlanDisplayPanel.startStreaming()
+                    testPlanDisplayPanel.appendStreamingText("⏳ Initializing CoordinatorAgent...\n\nPreparing to analyze code and generate test plan...\n\n")
+                    tabbedPane.selectedIndex = 1
+                }
             }
         }
         
         override fun onProgressChanged(percent: Int, message: String) {
             SwingUtilities.invokeLater {
-                // Legacy method - now just show status
-                statusIndicator.text = "🔄 $message"
                 logEvent("Status: $message")
             }
         }
@@ -455,10 +482,24 @@ class StateMachineTestGenerationEditor(
         override fun onPhaseStarted(phase: com.zps.zest.testgen.statemachine.TestGenerationState) {
             SwingUtilities.invokeLater {
                 val tabIndex = when (phase) {
-                    com.zps.zest.testgen.statemachine.TestGenerationState.GATHERING_CONTEXT -> 0
-                    com.zps.zest.testgen.statemachine.TestGenerationState.PLANNING_TESTS -> 1
-                    com.zps.zest.testgen.statemachine.TestGenerationState.GENERATING_TESTS -> 2
-                    com.zps.zest.testgen.statemachine.TestGenerationState.MERGING_TESTS -> 3
+                    com.zps.zest.testgen.statemachine.TestGenerationState.GATHERING_CONTEXT -> {
+                        contextDisplayPanel.showActivity("Gathering context...")
+                        0
+                    }
+                    com.zps.zest.testgen.statemachine.TestGenerationState.PLANNING_TESTS -> {
+                        testPlanDisplayPanel.showActivity("Generating test plan...")
+                        testPlanDisplayPanel.startStreaming()
+                        testPlanDisplayPanel.appendStreamingText("⏳ CoordinatorAgent starting...\n\nInitializing test plan generation...\n\n")
+                        1
+                    }
+                    com.zps.zest.testgen.statemachine.TestGenerationState.GENERATING_TESTS -> {
+                        generatedTestsPanel.showActivity("Generating tests...")
+                        2
+                    }
+                    com.zps.zest.testgen.statemachine.TestGenerationState.MERGING_TESTS -> {
+                        testMergingPanel.showActivity("Merging and validating tests...")
+                        3
+                    }
                     else -> return@invokeLater
                 }
                 tabbedPane.selectedIndex = tabIndex
@@ -492,8 +533,8 @@ class StateMachineTestGenerationEditor(
         
         // Center with tabbed pane (log removed for cleaner UI - activity logged internally)
         component.add(createTabbedPane(), BorderLayout.CENTER)
-        
-        // Bottom with simplified control buttons
+
+        // Bottom with control buttons
         component.add(createControlPanel(), BorderLayout.SOUTH)
     }
     
@@ -532,7 +573,7 @@ class StateMachineTestGenerationEditor(
         
         return actionBanner
     }
-    
+
     private fun createStateDisplayPanel(): JComponent {
         stateDisplayPanel = JPanel(BorderLayout())
         stateDisplayPanel.border = EmptyBorder(15, 15, 10, 15)
@@ -601,10 +642,10 @@ class StateMachineTestGenerationEditor(
         panel.add(statusPanel, BorderLayout.WEST)
         panel.add(actionPanel, BorderLayout.CENTER)
         panel.add(cancelPanel, BorderLayout.EAST)
-        
+
         return panel
     }
-    
+
     private fun createTabbedPane(): JComponent {
         tabbedPane = JBTabbedPane()
         
@@ -1037,7 +1078,11 @@ class StateMachineTestGenerationEditor(
             val coordinatorAgent = planningHandler?.getCoordinatorAgent()
             testPlanDisplayPanel.setChatMemory(coordinatorAgent?.getChatMemory(), "Coordinator")
 
-            
+            // Wire up streaming consumer to show AI reasoning text in real-time
+            coordinatorAgent?.setStreamingConsumer { text ->
+                testPlanDisplayPanel.appendStreamingText(text)
+            }
+
             // AITestMergerAgent is now accessed directly in onMergedTestClassUpdated
             
             // Only log when there are significant changes
@@ -1099,7 +1144,6 @@ class StateMachineTestGenerationEditor(
     private fun clearActionPrompt() {
         stopBlinking()
         actionPrompt.text = ""
-        statusIndicator.text = "🔄 Processing..."
         hideActionBanner()
     }
     
@@ -1175,7 +1219,17 @@ class StateMachineTestGenerationEditor(
         }
         flashTimer.start()
     }
-    
+
+    private fun formatTokenCount(count: Int): String {
+        return String.format("%,d", count)
+    }
+
+    private fun updateTokenDisplay() {
+        if (totalTokensUsed > 0 && !statusIndicator.text.contains("tokens")) {
+            statusIndicator.text = "${formatTokenCount(totalTokensUsed)} tokens"
+        }
+    }
+
     // FileEditor implementation
     override fun getComponent(): JComponent = component
     override fun getPreferredFocusedComponent(): JComponent? = component

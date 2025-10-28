@@ -106,7 +106,6 @@ Complete ALL tool usage before giving your final explanation. Do not provide the
                 LOG.debug("Starting code explanation for: " + filePath);
                 
                 // Notify UI that we're starting
-                notifyStart();
                 sendToUI("🔍 Analyzing code and finding related components...\n\n");
 
                 // Reset tools for new session
@@ -127,7 +126,6 @@ Complete ALL tool usage before giving your final explanation. Do not provide the
                     response = assistant.explainCode(explanationRequest);
                     sendToUI(response);
                     sendToUI("\n" + "-".repeat(50) + "\n");
-                    notifyComplete();
                 } catch (Exception e) {
                     LOG.warn("Code explanation agent encountered an error", e);
                     sendToUI("\n⚠️ Explanation agent stopped: " + e.getMessage());

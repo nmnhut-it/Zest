@@ -150,6 +150,10 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
     /**
      * Finalize the streaming content
      */
+    fun showActivity(message: String) {
+        // Activity shown via streaming, no separate indicator needed
+    }
+
     fun finalizeStreaming() {
         SwingUtilities.invokeLater {
             // The streaming content is already displayed, just update status

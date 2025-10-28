@@ -378,6 +378,13 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
     }
     
+    fun showActivity(message: String) {
+        SwingUtilities.invokeLater {
+            statusLabel.text = "⏳ $message"
+            statusLabel.foreground = UIUtil.getInactiveTextColor()
+        }
+    }
+
     /**
      * Clear display
      */

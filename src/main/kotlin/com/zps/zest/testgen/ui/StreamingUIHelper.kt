@@ -32,6 +32,14 @@ interface StreamingEventListener {
     fun onTestGenerationStreamingStarted(className: String) {}  // When test generation streaming starts
     fun onTestGenerationToken(token: String) {}  // Each streaming token
     fun onTestGenerationStreamingComplete() {}  // When streaming completes
+
+    // LLM and tool tracking events
+    fun onLLMCallStarted(operation: String, toolCount: Int) {}
+    fun onLLMCallCompleted(inputTokens: Int, outputTokens: Int, durationMs: Long) {}
+    fun onToolExecutionDetected(toolNames: List<String>) {}
+
+    // Manual tool activity (called from Java code, not LLM)
+    fun onManualToolActivity(toolName: String, detail: String = "") {}
 }
 
 /**

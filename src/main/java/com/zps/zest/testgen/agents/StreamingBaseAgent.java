@@ -29,6 +29,7 @@ public abstract class StreamingBaseAgent {
     protected final NaiveLLMService naiveLlmService;
     protected final String agentName;
     protected ChatModel chatModel;
+    protected com.zps.zest.langchain4j.ZestStreamingChatLanguageModel streamingChatModel;
 
     // Consumer for UI updates (sends complete responses)
     public Consumer<String> streamingConsumer;
@@ -50,8 +51,9 @@ public abstract class StreamingBaseAgent {
         // Create chat model using ZestChatLanguageModel with agent-specific usage
         com.zps.zest.browser.utils.ChatboxUtilities.EnumUsage usage = determineUsageForAgent(agentName);
         this.chatModel = new ZestChatLanguageModel(naiveLlmService, usage);
-        
-        LOG.info("[" + agentName + "] Initialized with LangChain4j chat model using " + usage.name());
+        this.streamingChatModel = new com.zps.zest.langchain4j.ZestStreamingChatLanguageModel(naiveLlmService, usage);
+
+        LOG.info("[" + agentName + "] Initialized with LangChain4j chat model and streaming model using " + usage.name());
     }
     
     /**
@@ -92,6 +94,10 @@ public abstract class StreamingBaseAgent {
     public void setEventListener(@Nullable StreamingEventListener listener) {
         this.eventListener = listener;
         LOG.info("[" + agentName + "] Event listener set: " + (listener != null));
+
+        if (chatModel instanceof com.zps.zest.langchain4j.ZestChatLanguageModel) {
+            ((com.zps.zest.langchain4j.ZestChatLanguageModel) chatModel).setEventListener(listener);
+        }
     }
     
     /**
@@ -100,7 +106,14 @@ public abstract class StreamingBaseAgent {
     protected ChatModel getChatModelWithStreaming() {
         return chatModel;
     }
-    
+
+    /**
+     * Get the StreamingChatModel for use with AgenticServices streaming.
+     */
+    protected com.zps.zest.langchain4j.ZestStreamingChatLanguageModel getStreamingChatModel() {
+        return streamingChatModel;
+    }
+
     /**
      * Send output to the UI consumer if available.
      */
@@ -108,79 +121,6 @@ public abstract class StreamingBaseAgent {
         if (streamingConsumer != null) {
             streamingConsumer.accept(message);
         }
-    }
-    
-    /**
-     * Notify about agent starting.
-     */
-    protected void notifyStart() {
-        sendToUI(createAgentHeader());
-    }
-    
-    /**
-     * Notify about agent completion.
-     */
-    protected void notifyComplete() {
-        sendToUI(createAgentFooter());
-    }
-    
-    /**
-     * Notify about tool calls with detailed logging and special formatting.
-     */
-    protected void notifyToolCall(@NotNull String toolName) {
-        notifyToolCall(toolName, null, null);
-    }
-    
-    /**
-     * Notify about tool calls with parameters and results.
-     */
-    protected void notifyToolCall(@NotNull String toolName, @Nullable String parameters, @Nullable String result) {
-        StringBuilder logMessage = new StringBuilder();
-        logMessage.append("\n🔧 Tool Call: ").append(toolName);
-        
-        if (parameters != null && !parameters.isEmpty()) {
-            logMessage.append("\n   Parameters: ").append(parameters);
-        }
-        
-        if (result != null && !result.isEmpty()) {
-            String truncatedResult = result.length() > 200 ? result.substring(0, 200) + "..." : result;
-            logMessage.append("\n   Result: ").append(truncatedResult);
-        }
-        
-        logMessage.append("\n");
-        sendToUI(logMessage.toString());
-        
-        // Also log to IntelliJ's log
-        LOG.info("[" + agentName + "] Tool call: " + toolName + 
-                (parameters != null ? " with params: " + parameters : ""));
-    }
-    
-    /**
-     * Log tool call execution with timing information.
-     */
-    protected void logToolExecution(@NotNull String toolName, long durationMs, boolean success) {
-        String status = success ? "✅" : "❌";
-        String message = String.format("\n%s Tool %s completed in %dms\n", status, toolName, durationMs);
-        sendToUI(message);
-        LOG.info("[" + agentName + "] Tool " + toolName + " executed in " + durationMs + "ms, success: " + success);
-    }
-    
-    /**
-     * Create a formatted agent header for output.
-     */
-    protected String createAgentHeader() {
-        return "\n" + "=".repeat(60) + "\n" +
-               "🤖 " + agentName + " Starting\n" +
-               "=".repeat(60) + "\n\n";
-    }
-    
-    /**
-     * Create a formatted agent footer for output.
-     */
-    protected String createAgentFooter() {
-        return "\n" + "=".repeat(60) + "\n" +
-               "✅ " + agentName + " Complete\n" +
-               "=".repeat(60) + "\n\n";
     }
     
     /**
@@ -265,6 +205,11 @@ public abstract class StreamingBaseAgent {
         if (chatModel instanceof com.zps.zest.langchain4j.ZestChatLanguageModel) {
             ((com.zps.zest.langchain4j.ZestChatLanguageModel) chatModel).cancelAll();
         }
+
+        // Cancel streaming model
+        if (streamingChatModel != null) {
+            streamingChatModel.cancelAll();
+        }
     }
 
     /**
@@ -281,6 +226,9 @@ public abstract class StreamingBaseAgent {
         this.cancelled = false;
         if (chatModel instanceof com.zps.zest.langchain4j.ZestChatLanguageModel) {
             ((com.zps.zest.langchain4j.ZestChatLanguageModel) chatModel).reset();
+        }
+        if (streamingChatModel != null) {
+            streamingChatModel.reset();
         }
     }
 

@@ -18,12 +18,12 @@ public class TakeNoteTool {
     }
 
     @Tool("""
-        Record an important note, observation, or insight discovered during code exploration.
+        Record multiple notes at once about important findings during code exploration.
         Use this tool to capture information that should be considered during test generation.
-        
+
         Parameters:
-        - note: The observation or insight to record. Should be clear and actionable.
-        
+        - notes: List of observations or insights to record. Each should be clear and actionable.
+
         What to record:
         - Important patterns or conventions in the codebase
         - Dependencies between components
@@ -33,12 +33,7 @@ public class TakeNoteTool {
         - Potential edge cases or error conditions
         - Performance or resource considerations
         - Security or validation requirements
-        
-        The note will be:
-        - Included in the final test context
-        - Available for the test generation phase
-        - Used by test planning and generation agents
-        
+
         Best practices:
         - Include file:line location at the start for traceability
         - Use category tags: [USAGE], [ERROR], [SCHEMA], [INTEGRATION], [EDGE_CASE], [PATTERN]
@@ -46,29 +41,36 @@ public class TakeNoteTool {
         - Explain WHY something is important
         - Suggest concrete test scenarios when applicable
 
-        Example usage:
-        - takeNote("[UserService.java:45] [USAGE] depends on external API at config.apiUrl - mock this in tests")
-        - takeNote("[OrderProcessor.java:123] [INTEGRATION] uses async processing - test both success and timeout scenarios")
-        - takeNote("[AuthFilter.java:67] [ERROR] JWT tokens with 1hr expiry - test token expiration handling")
-        - takeNote("[PaymentService.java:89] [INTEGRATION] Database transactions - test rollback on failure")
+        Example:
+        takeNotes([
+          "[UserService.java:45] [USAGE] depends on external API at config.apiUrl - mock this in tests",
+          "[OrderProcessor.java:123] [INTEGRATION] uses async processing - test both success and timeout scenarios",
+          "[AuthFilter.java:67] [ERROR] JWT tokens with 1hr expiry - test token expiration handling",
+          "[PaymentService.java:89] [INTEGRATION] Database transactions - test rollback on failure"
+        ])
         """)
-    public String takeNote(String note) {
-        if (note == null || note.trim().isEmpty()) {
-            return "❌ Note cannot be empty. Please provide meaningful context or observations.";
+    public String takeNotes(List<String> notes) {
+        if (notes == null || notes.isEmpty()) {
+            return "❌ Notes list cannot be empty.";
         }
 
-        // Store the note as-is (caller should include file:line if relevant)
-        String formattedNote = note.trim();
-        contextNotes.add(formattedNote);
+        int added = 0;
+        StringBuilder result = new StringBuilder();
+        result.append("✅ Batch note recording:\n\n");
 
-        // Provide feedback with note number
-        int noteNumber = contextNotes.size();
-        return String.format("✅ Note #%d recorded successfully:\n" +
-                           "📝 %s\n" +
-                           "\n" +
-                           "This note will be included in the test generation context.\n" +
-                           "Total notes recorded: %d",
-                           noteNumber, note.trim(), noteNumber);
+        for (String note : notes) {
+            if (note != null && !note.trim().isEmpty()) {
+                contextNotes.add(note.trim());
+                added++;
+                result.append(String.format("📝 Note #%d: %s\n", contextNotes.size(),
+                    note.length() > 60 ? note.substring(0, 60) + "..." : note));
+            }
+        }
+
+        result.append(String.format("\n✅ Recorded %d notes successfully. Total notes: %d",
+            added, contextNotes.size()));
+
+        return result.toString();
     }
 
     /**

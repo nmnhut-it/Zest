@@ -35,7 +35,7 @@ Execute plan items systematically:
 
 **After each tool**:
 - ✅ Found: [Key discoveries]
-- 📝 Note: Use `takeNote()` with proper category
+- 📝 Note: Use `takeNotes([...])` with proper categories (batch operation)
 - 🔧 Tool calls: X/Y (Z% of budget)
 - ⚡ Next: [Specific next action]
 

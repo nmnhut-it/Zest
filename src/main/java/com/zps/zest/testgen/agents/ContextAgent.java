@@ -920,15 +920,30 @@ public class ContextAgent extends StreamingBaseAgent {
             }
         }
 
-        @Tool("Record project-specific findings for test generation. " +
-                "Capture ACTUAL patterns from THIS codebase with specific examples.\n\n" +
-                "Categories: [DEPENDENCY] libraries/tools, [TEST] test patterns, [ERROR] error handling, " +
-                "[PATTERN] code structure, [NAMING] conventions, [CONFIG] configuration, " +
-                "[VALIDATION] input validation, [BUSINESS] domain rules, [INTEGRATION] component interaction.\n\n" +
-                "Focus on 'this project does X' not 'best practice is X'.")
-        public String takeNote(String note) {
-            notifyTool("takeNote", note.length() > 50 ? note.substring(0, 50) + "..." : note);
-            String result = takeNoteTool.takeNote(note);
+        @Tool("""
+            Record project-specific findings for test generation.
+            Capture ACTUAL patterns from THIS codebase with specific examples.
+
+            Categories: [DEPENDENCY] libraries/tools, [TEST] test patterns, [ERROR] error handling,
+            [PATTERN] code structure, [NAMING] conventions, [CONFIG] configuration,
+            [VALIDATION] input validation, [BUSINESS] domain rules, [INTEGRATION] component interaction.
+
+            Focus on 'this project does X' not 'best practice is X'.
+
+            Parameters:
+            - notes: List of notes to record
+
+            Example:
+            takeNotes([
+              "[DEPENDENCY] Uses JUnit 5, Mockito, AssertJ",
+              "[UserService.java:45] [USAGE] depends on external API",
+              "[OrderProcessor.java:123] [INTEGRATION] uses async processing",
+              "[AuthFilter.java:67] [ERROR] JWT tokens with 1hr expiry"
+            ])
+            """)
+        public String takeNotes(List<String> notes) {
+            notifyTool("takeNotes", notes.size() + " notes");
+            String result = takeNoteTool.takeNotes(notes);
             notifyContextUpdate();
             return result;
         }
@@ -1259,11 +1274,11 @@ public class ContextAgent extends StreamingBaseAgent {
 
                 String comprehensiveNote = "[PROJECT_DEPENDENCIES] Complete dependency information from build files:\n" +
                                           allDependencyContent.toString();
-                takeNote(comprehensiveNote);
+                takeNotes(java.util.Collections.singletonList(comprehensiveNote));
             } else {
                 dependencyInfo.append("⚠️ No dependency information found in build files\n");
                 dependencyInfo.append("```\n");
-                takeNote("[WARNING] No build files found - cannot determine project dependencies");
+                takeNotes(java.util.Collections.singletonList("[WARNING] No build files found - cannot determine project dependencies"));
             }
 
             projectDependencies = dependencyInfo.toString();

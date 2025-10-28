@@ -39,6 +39,9 @@ public class CoordinatorAgent extends StreamingBaseAgent {
     private final ChatMemory chatMemory;
     private final ContextAgent.ContextGatheringTools contextTools;
 
+    // Flag to stop system message streaming when AI starts responding
+    private volatile boolean aiResponseStarted = false;
+
     public CoordinatorAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
                           @NotNull NaiveLLMService naiveLlmService,
@@ -325,6 +328,9 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 // Build the planning request
                 String planRequest = buildPlanningRequest(request);
 
+                // Reset AI response flag for new session
+                aiResponseStarted = false;
+
                 // Stream the system message to UI to show activity while AI processes
                 String systemMessage = getSystemMessage();
                 streamTextAsync("📋 System Instructions:\n\n" + systemMessage + "\n\n" + "-".repeat(60) + "\n\n");
@@ -343,11 +349,17 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
                 tokenStream
                     .onPartialResponse(partialResponse -> {
+                        // Mark that AI has started responding (stops system message streaming)
+                        if (!aiResponseStarted) {
+                            aiResponseStarted = true;
+                            LOG.debug("AI response started - system message streaming will stop");
+                        }
+
                         // Accumulate response text
                         responseBuilder.append(partialResponse);
 
-                        // Stream text asynchronously to UI (queued with ForkJoinPool)
-                        streamTextAsync(partialResponse);
+                        // Stream AI response directly (no delay - real-time)
+                        sendToUI(partialResponse);
                     })
                     .onIntermediateResponse(response -> {
                         // AI finished reasoning text, about to execute tools
@@ -1066,11 +1078,18 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
     /**
      * Stream text asynchronously using ForkJoinPool, character by character for realistic typing effect
+     * Stops if AI response has started (to skip remaining system message chunks)
      */
     private void streamTextAsync(String text) {
         java.util.concurrent.ForkJoinPool.commonPool().submit(() -> {
             int chunkSize = 50;
             for (int i = 0; i < text.length(); i += chunkSize) {
+                // Stop streaming if AI has started responding
+                if (aiResponseStarted) {
+                    LOG.debug("Skipping remaining system message - AI response started");
+                    break;
+                }
+
                 int end = Math.min(i + chunkSize, text.length());
                 String chunk = text.substring(i, end);
                 sendToUI(chunk);

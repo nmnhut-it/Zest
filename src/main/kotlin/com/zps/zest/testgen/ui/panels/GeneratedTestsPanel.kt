@@ -34,6 +34,11 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
     private val streamingContent = StringBuilder()
     private var currentStreamingClass: String? = null
 
+    // Smooth streaming buffer and timer
+    private val tokenBuffer = StringBuilder()
+    private var smoothStreamingTimer: javax.swing.Timer? = null
+    private var bufferPosition = 0
+
     // Completed tests storage
     private val testClassEditors = mutableListOf<EditorEx>()
     private val testClasses = mutableListOf<GeneratedTestDisplayData>()
@@ -114,8 +119,11 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
         SwingUtilities.invokeLater {
             // Clear previous streaming if any
             clearStreamingEditor()
+            stopSmoothStreaming()
 
             streamingContent.clear()
+            tokenBuffer.clear()
+            bufferPosition = 0
             currentStreamingClass = className
 
             // Create streaming editor panel
@@ -123,27 +131,72 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
 
             statusLabel.text = "Generating test for $className..."
 
+            // Start smooth streaming timer
+            startSmoothStreaming()
+
             mainContainer.revalidate()
             mainContainer.repaint()
         }
     }
 
     /**
-     * Append content to the streaming editor
+     * Start smooth streaming timer - emits buffered characters gradually
+     */
+    private fun startSmoothStreaming() {
+        stopSmoothStreaming()
+
+        // Timer fires every 15ms, emits multiple chars for smooth but fast rendering
+        smoothStreamingTimer = javax.swing.Timer(15) {
+            val charsToEmit = 3 // Emit 10 chars at a time (smooth but not too slow)
+            val currentBuffer = synchronized(tokenBuffer) {
+                val availableChars = tokenBuffer.length - bufferPosition
+                if (availableChars > 0) {
+                    val endPos = minOf(bufferPosition + charsToEmit, tokenBuffer.length)
+                    val chunk = tokenBuffer.substring(bufferPosition, endPos)
+                    bufferPosition = endPos
+                    chunk
+                } else {
+                    null
+                }
+            }
+
+            currentBuffer?.let { chunk ->
+                streamingContent.append(chunk)
+                updateEditorContent()
+            }
+        }.apply {
+            start()
+        }
+    }
+
+    /**
+     * Stop smooth streaming timer
+     */
+    private fun stopSmoothStreaming() {
+        smoothStreamingTimer?.stop()
+        smoothStreamingTimer = null
+    }
+
+    /**
+     * Update editor with current streaming content
+     */
+    private fun updateEditorContent() {
+        streamingEditor?.let { editor ->
+            val document = editor.document
+            com.intellij.openapi.application.ApplicationManager.getApplication().runWriteAction {
+                document.setText(streamingContent.toString())
+            }
+            // Auto-scroll to bottom
+            editor.scrollingModel.scrollVertically(document.textLength)
+        }
+    }
+
+    /**
+     * Append token to buffer (from LLM) - will be smoothly rendered by timer
      */
     fun appendStreamingContent(token: String) {
-        SwingUtilities.invokeLater {
-            streamingContent.append(token)
-
-            streamingEditor?.let { editor ->
-                val document = editor.document
-                com.intellij.openapi.application.ApplicationManager.getApplication().runWriteAction {
-                    document.setText(streamingContent.toString())
-                }
-
-                // Auto-scroll to bottom
-                editor.scrollingModel.scrollVertically(document.textLength)
-            }
+        synchronized(tokenBuffer) {
+            tokenBuffer.append(token)
         }
     }
 
@@ -155,11 +208,19 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
     }
 
     fun finalizeStreaming() {
-        SwingUtilities.invokeLater {
-            // The streaming content is already displayed, just update status
-            updateStatus()
+        // Flush any remaining buffer content immediately
+        synchronized(tokenBuffer) {
+            if (bufferPosition < tokenBuffer.length) {
+                val remaining = tokenBuffer.substring(bufferPosition)
+                streamingContent.append(remaining)
+                bufferPosition = tokenBuffer.length
+            }
+        }
 
-            // Keep the streaming editor visible as the latest generated test
+        SwingUtilities.invokeLater {
+            stopSmoothStreaming()
+            updateEditorContent()
+            updateStatus()
             currentStreamingClass = null
         }
     }

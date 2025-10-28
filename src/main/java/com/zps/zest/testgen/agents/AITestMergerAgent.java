@@ -421,7 +421,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                                   @Nullable ContextAgent.ContextGatheringTools contextTools) {
         try {
             // Initialize working code
-            mergingTools.setNewTestCode(className, newTestCode);
+            mergingTools.updateTestCode(newTestCode, className);
 
             // If no existing test, skip merge (saves LLM call!)
             if (existing == null) {
@@ -952,10 +952,31 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         **FINAL Step - Rewrite:**
 
         1. State what you're changing (category by category)
-        2. Call `updateTestCode()` ONCE with complete fixed code
+        2. Call `updateTestCode()` ONCE with complete fixed code AS THE PARAMETER
         3. Call `validateCurrentTestCode()` to verify
         4. Report before/after error counts
         5. Call `recordMergedResult()` + `markMergingDone()`
+
+        **CRITICAL - How to Use updateTestCode()**:
+
+        ❌ DON'T output code in your response then call tool:
+        ```
+        Here's the fixed code:
+        ```java
+        package com.example;
+        public class Test { ... }
+        ```
+
+        [Then call updateTestCode()]
+        ```
+
+        ✅ DO call tool directly with code as parameter:
+        ```
+        Applying fixes: [brief summary]
+
+        (Call tools to update code)
+
+        The code goes IN THE TOOL PARAMETER. Do not repeat it in your response text.
 
         ---
 
@@ -1028,7 +1049,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         - Change result.getUserId() → result.userId (all 30 occurrences)
         - Cast assertThat((Object) result)
 
-        [Calls updateTestCode with complete fixed code]
+        (Call tool update test code) 
 
         Validating... [validateCurrentTestCode]
         Result: VALIDATION_PASSED - 0 errors
@@ -1158,6 +1179,28 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         - [Continue for all categories]
 
         Then call: updateTestCode(entirelyFixedCode)
+
+        **CRITICAL - How to Use updateTestCode()**:
+
+        ❌ DON'T output the code in your response text:
+        ```
+        Here's the complete fixed test code:
+        ```java
+        package com.example;
+        public class Test { ... }
+        ```
+
+        [Then call updateTestCode()]
+        ```
+
+        ✅ DO call the tool with code as parameter ONLY:
+        ```
+        Applying all fixes...
+
+       (call tool to update code)
+
+        Put the COMPLETE code in the tool parameter. Do NOT output it in response text.
+        The tool handles storing and displaying - you just call it with the code.
 
         **STEP 5: VALIDATE (Observation)**
 
@@ -1454,20 +1497,6 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             }
         }
 
-        @Tool("Set the new test code that needs to be merged")
-        public String setNewTestCode(String className, String testCode) {
-            notifyTool("setNewTestCode", className);
-            currentTestClassName = className;
-            currentWorkingTestCode = testCode;
-
-            // Fire live UI event for immediate display
-            if (uiEventListener != null) {
-                uiEventListener.onTestCodeSet(className, testCode, false);
-            }
-
-            return "New test code set for " + className + " (" + testCode.length() + " characters)";
-        }
-
         @Tool("Get the current working test code")
         public String getCurrentTestCode() {
             notifyTool("getCurrentTestCode", currentTestClassName != null ? currentTestClassName : "none");
@@ -1477,20 +1506,50 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             return currentWorkingTestCode;
         }
 
-        @Tool("Update the current working test code with merged or fixed version")
-        public String updateTestCode(String updatedCode) {
-            notifyTool("updateTestCode", currentTestClassName != null ? currentTestClassName : "updating");
-            if (currentWorkingTestCode == null) {
-                return "ERROR: No current test code to update";
-            }
-            currentWorkingTestCode = updatedCode;
+        @Tool("Replace or initialize the test code. Use this to apply your fixes or set initial code. " +
+              "CRITICAL: Put the COMPLETE Java test class code in the 'completeTestCode' parameter. " +
+              "Do NOT output the code in your response text - it goes ONLY in this tool parameter. " +
+              "The framework will handle storing and displaying it.")
+        public String updateTestCode(
+                @P("The COMPLETE test class code (package, imports, class declaration, all methods). " +
+                   "Include everything needed for a valid Java file. " +
+                   "CRITICAL: Put code HERE in this parameter, NOT in your response text.")
+                String completeTestCode,
 
-            // Fire live UI event for immediate display
-            if (uiEventListener != null && currentTestClassName != null) {
-                uiEventListener.onTestCodeUpdated(currentTestClassName, updatedCode);
+                @P("Optional: Test class name (e.g., 'UserServiceTest'). " +
+                   "Provide this ONLY on first call to initialize the session. " +
+                   "Leave empty/null for subsequent updates.")
+                String className) {
+
+            notifyTool("updateTestCode", className != null ? className : currentTestClassName);
+
+            // Initialize className if provided (first call from framework)
+            if (className != null && !className.isEmpty()) {
+                currentTestClassName = className;
             }
 
-            return "Test code updated (" + updatedCode.length() + " characters)";
+            // Validation
+            if (currentTestClassName == null) {
+                return "ERROR: No class name set. Provide className parameter on first call.";
+            }
+
+            // Store the code
+            currentWorkingTestCode = completeTestCode;
+
+            // Fire appropriate UI event based on whether this is initialization or update
+            if (uiEventListener != null) {
+                if (className != null && !className.isEmpty()) {
+                    // First time - initialization
+                    uiEventListener.onTestCodeSet(currentTestClassName, completeTestCode, false);
+                } else {
+                    // Subsequent update
+                    uiEventListener.onTestCodeUpdated(currentTestClassName, completeTestCode);
+                }
+            }
+
+            String action = (className != null && !className.isEmpty()) ? "initialized" : "updated";
+            return "Test code " + action + " for " + currentTestClassName +
+                   " (" + completeTestCode.length() + " characters)";
         }
 
         @Tool("Find existing test class for the target class if it exists")
@@ -1535,7 +1594,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         public String recordMergedResult(String packageName, String fileName,
                                         String methodCount, String framework) {
             if (currentWorkingTestCode == null || currentTestClassName == null) {
-                return "ERROR: No current test code to record. Use setNewTestCode and merge first.";
+                return "ERROR: No current test code to record. Initialize with updateTestCode first.";
             }
             notifyTool("recordMergedResult", currentTestClassName);
 
@@ -1580,7 +1639,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         @Tool("Validate current working test code using IntelliJ's code analysis")
         public String validateCurrentTestCode() {
             if (currentWorkingTestCode == null || currentTestClassName == null) {
-                return "ERROR: No current test code to validate. Use setNewTestCode first.";
+                return "ERROR: No current test code to validate. Initialize with updateTestCode first.";
             }
             notifyTool("validateCurrentTestCode", currentTestClassName);
 
@@ -1756,7 +1815,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                 @P("Optional: Start line number (1-based, inclusive). Specify to avoid non-unique match errors.") Integer startLine,
                 @P("Optional: End line number (1-based, inclusive). Specify to avoid non-unique match errors.") Integer endLine) {
             if (currentWorkingTestCode == null) {
-                return "ERROR: No current test code to fix. Use setNewTestCode first.";
+                return "ERROR: No current test code to fix. Initialize with updateTestCode first.";
             }
             notifyTool("applySimpleFix", startLine != null ? "Lines " + startLine + "-" + endLine : "Replacing text");
 
@@ -1864,7 +1923,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                 @P("Optional: Start line number (1-based, inclusive). Specify to avoid non-unique match errors.") Integer startLine,
                 @P("Optional: End line number (1-based, inclusive). Specify to avoid non-unique match errors.") Integer endLine) {
             if (currentWorkingTestCode == null) {
-                return "ERROR: No current test code to fix. Use setNewTestCode first.";
+                return "ERROR: No current test code to fix. Initialize with updateTestCode first.";
             }
             notifyTool("applyRegexFix", startLine != null ? "Lines " + startLine + "-" + endLine : "Pattern: " + regexPattern.substring(0, Math.min(regexPattern.length(), 50)));
 
@@ -2010,7 +2069,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
               "Examples: 'java.util.List', 'static org.junit.Assert.*', 'com.example.MyClass'")
         public String addImport(String importStatement) {
             if (currentWorkingTestCode == null || currentTestClassName == null) {
-                return "ERROR: No current test code. Use setNewTestCode first.";
+                return "ERROR: No current test code. Initialize with updateTestCode first.";
             }
             notifyTool("addImport", importStatement);
 
@@ -2150,7 +2209,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
               "Use this AFTER validation passes but BEFORE marking as done to ensure high quality tests.")
         public String reviewTestQuality() {
             if (currentWorkingTestCode == null || currentTestClassName == null) {
-                return "ERROR: No current test code to review. Use setNewTestCode first.";
+                return "ERROR: No current test code to review. Initialize with updateTestCode first.";
             }
             notifyTool("reviewTestQuality", currentTestClassName);
 

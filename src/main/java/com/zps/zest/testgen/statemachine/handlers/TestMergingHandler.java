@@ -190,7 +190,7 @@ public class TestMergingHandler extends AbstractStateHandler {
         mergedCode = aiMerger.autoEnhanceImports(mergedCode, targetClass, result.getFramework(), contextTools);
 
         // Update working code in tools
-        aiMerger.getMergingTools().setNewTestCode(testClassName, mergedCode);
+        aiMerger.getMergingTools().updateTestCode(mergedCode, testClassName);
 
         if (streamingCallback != null) {
             streamingCallback.accept("✅ Imports enhanced\n");

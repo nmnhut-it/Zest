@@ -14,6 +14,7 @@ import dev.langchain4j.model.openai.internal.chat.ToolMessage;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -297,7 +298,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
 
             // Pre-load user code snippets
             if (userCode != null && !userCode.trim().isEmpty()) {
-                contextTools.takeNote("User context: " + userCode);
+                contextTools.takeNotes(Collections.singletonList("User context: \n" + userCode));
                 // User code is accessible via contextTools.getContextNotes()
 
                 if (streamingCallback != null) {
@@ -422,7 +423,7 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             String projectDeps = preComputeDependencies(contextTools);
 
             if (projectDeps != null && !projectDeps.isEmpty()) {
-                contextTools.takeNote("[DEPENDENCY_ANALYSIS] " + projectDeps);
+                contextTools.takeNotes(Collections.singletonList("[DEPENDENCY_ANALYSIS] " + projectDeps));
                 LOG.info("Pre-computed project dependencies: " + projectDeps.length() + " characters");
 
                 if (streamingCallback != null) {

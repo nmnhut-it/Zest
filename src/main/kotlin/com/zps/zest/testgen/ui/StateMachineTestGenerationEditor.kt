@@ -1244,13 +1244,18 @@ class StateMachineTestGenerationEditor(
             // Cancel any ongoing generation first to kill HTTP connections
             val currentState = testGenService.getCurrentState(sessionId)
             if (currentState != null && !currentState.isTerminal) {
-                LOG.info("Cancelling ongoing test generation during editor disposal")
+                LOG.info("Cancelling ongoing test generation during editor disposal: $sessionId")
                 testGenService.cancelGeneration(sessionId, "Editor closed")
             }
 
             // Then cleanup the session
             testGenService.cleanupSession(sessionId)
+            LOG.info("Session cleaned up on editor close: $sessionId")
         }
+
+        // Unregister virtual file from file system
+        TestGenerationFileSystem.INSTANCE.unregisterFile(virtualFile)
+        LOG.info("Virtual file unregistered: ${virtualFile.sessionId}")
 
         // Close any open chat memory dialog
         mergerChatDialog?.close(DialogWrapper.CANCEL_EXIT_CODE)

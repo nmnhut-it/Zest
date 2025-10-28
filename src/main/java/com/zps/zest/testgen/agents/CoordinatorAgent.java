@@ -18,10 +18,7 @@ import org.jetbrains.annotations.Nullable;
 
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import javax.swing.SwingUtilities;
@@ -467,7 +464,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             if (!buildFiles.isEmpty()) {
                 String dependencyNotes = analyzeDependencies(buildFiles, request, contextTools);
                 // Store as context note so it's part of the context
-                contextTools.takeNote(dependencyNotes);
+                contextTools.takeNotes(Collections.singletonList(dependencyNotes));
                 LOG.info("Dependency analysis created and stored as context note");
             } else {
                 LOG.info("No build files found, skipping dependency analysis");

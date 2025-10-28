@@ -14,39 +14,29 @@ import kotlin.streams.toList
 
 /**
  * Virtual file for test generation sessions.
- * Updated to work with TestGenerationRequest model.
+ * Each file has a unique session ID to allow concurrent test generation.
  */
 class TestGenerationVirtualFile(
     private val name: String,
     val request: TestGenerationRequest? = null
 ) : VirtualFile() {
-    
+
     val sessionId: String = UUID.randomUUID().toString()
-    
+
     constructor(request: TestGenerationRequest) : this(
         "TestGen_${request.targetFile.name}_${UUID.randomUUID().toString().take(8)}.testgen",
         request
     )
-    
-    override fun getName(): String = name
-    
-    override fun getFileSystem(): VirtualFileSystem = object : VirtualFileSystem() {
-        override fun getProtocol(): String = "testgen"
-        override fun findFileByPath(path: String): VirtualFile? = null
-        override fun refresh(asynchronous: Boolean) {}
-        override fun refreshAndFindFileByPath(path: String): VirtualFile? = null
-        override fun addVirtualFileListener(listener: VirtualFileListener) {}
-        override fun removeVirtualFileListener(listener: VirtualFileListener) {}
-        override fun deleteFile(requestor: Any?, vFile: VirtualFile) {}
-        override fun moveFile(requestor: Any?, vFile: VirtualFile, newParent: VirtualFile) {}
-        override fun renameFile(requestor: Any?, vFile: VirtualFile, newName: String) {}
-        override fun createChildFile(requestor: Any?, vDir: VirtualFile, fileName: String): VirtualFile = throw UnsupportedOperationException()
-        override fun createChildDirectory(requestor: Any?, vDir: VirtualFile, dirName: String): VirtualFile = throw UnsupportedOperationException()
-        override fun copyFile(requestor: Any?, virtualFile: VirtualFile, newParent: VirtualFile, copyName: String): VirtualFile = throw UnsupportedOperationException()
-        override fun isReadOnly(): Boolean = true
+
+    init {
+        TestGenerationFileSystem.INSTANCE.registerFile(this)
     }
-    
-    override fun getPath(): String = "testgen://$name"
+
+    override fun getName(): String = name
+
+    override fun getFileSystem(): VirtualFileSystem = TestGenerationFileSystem.INSTANCE
+
+    override fun getPath(): String = "${TestGenerationFileSystem.PROTOCOL}://$sessionId/$name"
     
     override fun isWritable(): Boolean = false
     

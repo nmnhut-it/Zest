@@ -1204,7 +1204,7 @@ public class ContextAgent extends StreamingBaseAgent {
             dependencyInfo.append("```\n");
 
             // Find build files using existing findFiles tool
-            String buildFilePatterns = "pom.xml,build.gradle,build.gradle.kts,settings.gradle,*.iml,build.xml,.classpath,package.json,requirements.txt";
+            String buildFilePatterns = "pom.xml,build.gradle,build.gradle.kts,settings.gradle,*.iml,build.xml,.classpath";
             String buildFilesFound = findFiles(buildFilePatterns);
 
             if (buildFilesFound.contains("No files found")) {

@@ -18,20 +18,94 @@ WORKFLOW
 - ✅ Testing framework detected
 - ✅ Target class structure analyzed
 
-**Your job**: Review the pre-computed analysis in your prompt, then build an exploration plan for GAPS in understanding.
+**What Pre-Computed Analysis Already Captures**:
+
+The usage analyzer and class analyzer have already discovered:
+- ✅ All DIRECT references to target methods (static analysis)
+- ✅ All callers with method signatures and surrounding code (10 lines before/after)
+- ✅ Classes that use the target class (dependencies)
+- ✅ Classes that the target class uses (imports, fields, method calls)
+- ✅ Error handling at call sites (try-catch, null checks)
+
+**What Pre-Computed Analysis Does NOT Capture** (you might need to explore):
+- ❌ INDIRECT references (observer patterns, event listeners, reflection)
+- ❌ String-based references (file paths, resource names, SQL table names)
+- ❌ External files referenced in code (schemas, configs, SQL files)
+- ❌ Runtime behavior patterns (DI, factory creation, dynamic proxies)
+
+**Tool Usage Guidelines**:
+- ❌ DO NOT call `analyzeMethodUsage()` - already in pre-computed data
+- ❌ DO NOT call `analyzeClass()` for target class - already analyzed
+- ✅ DO use `searchCode()` with 10-15 before/after lines for deeper caller context
+- ✅ DO use `readFile()` to investigate external files (SQL, configs)
+- ✅ DO use `searchCode()` to find indirect references (string patterns, annotations)
+
+**Your job**: Review the pre-computed analysis in your prompt, acknowledge what's available, then build an exploration plan for GAPS.
 
 1. **Review** the "Pre-Computed Analysis" section in your prompt
 2. Call `createExplorationPlan(targetInfo, toolBudget)`
-3. Build complete plan with `addPlanItems()` in ONE call focusing on what's NOT yet known:
-   - **DEPENDENCY** - Specific library usage details (how dependencies are used, not what they are)
-   - **USAGE** - Additional callers/patterns beyond pre-analyzed methods
-   - **SCHEMA** - Database schemas/config files referenced in code
-   - **TESTS** - Existing test patterns to match
-   - **ERROR** - Additional error handling not covered in usage analysis
-   - **INTEGRATION** - Component interactions and contracts
-   - **VALIDATION** - Input validation patterns
+3. **Present your plan to the user** in TWO parts:
+
+   **PART 1 - What's Already Known** (acknowledge pre-computed data):
+   - Which methods have usage patterns analyzed (mention call site counts)
+   - Which classes/frameworks are detected
+   - What direct references were found
+
+   **PART 2 - Investigation Plan** (GAPS only):
+   Use `addPlanItems([...])` to create plan for what's NOT yet known:
+
+   ALREADY KNOWN (don't re-investigate):
+   - Direct method callers (usage analysis captured them)
+   - Target class structure (already analyzed)
+   - Project dependencies (already found)
+
+   MIGHT NEED TO EXPLORE (only if crucial for testing):
+   - **SCHEMA** - External files referenced in code (SQL, configs, resources)
+   - **USAGE** - Indirect callers (reflection, observers, event handlers)
+   - **INTEGRATION** - Runtime patterns (DI, factories, dynamic proxies)
+   - **TESTS** - Existing test patterns to match style
+   - **ERROR** - Additional error scenarios not in pre-computed call sites
+
+   Before adding investigation items, ask yourself:
+   "Is this information CRUCIAL for writing tests, or just nice-to-have?"
+   "Can I write good tests with pre-computed data alone?"
+
+   **You can skip exploration entirely if:**
+   - Pre-computed usage analysis shows sufficient direct callers with clear patterns
+   - No implicit references detected (no string paths, reflection, observers in pre-computed code)
+   - Target methods are straightforward with clear inputs/outputs
+   - You can achieve testing goals with available data
+
+   **When to skip**: If pre-computed data is sufficient, create an empty plan or minimal plan,
+   acknowledge what's available, and proceed directly to `markContextCollectionDone()`.
 
 **Batching saves tool calls**: Use `addPlanItems([...])` instead of multiple `addPlanItem()` calls.
+
+**SKIP EXPLORATION WORKFLOW** (when pre-computed data is sufficient):
+
+If you determine pre-computed data is sufficient for testing:
+
+1. Call `createExplorationPlan(targetInfo, toolBudget)`
+2. In your response, present:
+   - **PART 1**: List what's in pre-computed analysis (usage patterns, frameworks, callers)
+   - **PART 2**: State "Pre-computed data is sufficient for testing [method names]. No additional exploration needed."
+3. Immediately call `markContextCollectionDone()` without creating plan items
+
+Example response:
+```
+**What's Already Known:**
+- getProfile() has 5 call sites with clear usage patterns
+- saveProfile() has 3 call sites, all with try-catch error handling
+- JUnit 5 + Mockito detected
+- ProfileStorageService class structure analyzed
+
+**Investigation Plan:**
+Pre-computed data is sufficient for testing getProfile() and saveProfile().
+Direct callers show clear patterns, error handling is documented, no implicit
+references detected. Proceeding to test generation.
+```
+
+Then call `markContextCollectionDone()`.
 
 **Phase 2: Systematic Investigation**
 

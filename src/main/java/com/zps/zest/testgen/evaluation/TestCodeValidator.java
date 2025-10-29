@@ -88,7 +88,7 @@ public class TestCodeValidator {
     public static ValidationResult validate(@NotNull Project project, @NotNull String testCode, @NotNull String className) {
         try {
             FileType javaFileType = FileTypeManager.getInstance().getFileTypeByExtension("java");
-            VirtualFile testSourceRoot = findTestSourceRoot(project);
+            VirtualFile testSourceRoot = com.zps.zest.testgen.util.TestSourceRootUtil.findBestTestSourceRootVirtualFile(project);
 
             LightVirtualFile virtualFile = new LightVirtualFile(
                     className + ".java",
@@ -164,39 +164,4 @@ public class TestCodeValidator {
         }
     }
 
-    /**
-     * Find the best test source root as a VirtualFile for proper classpath context
-     */
-    @Nullable
-    private static VirtualFile findTestSourceRoot(@NotNull Project project) {
-        // Try to find test roots from project modules using content entries
-        ModuleManager moduleManager = ModuleManager.getInstance(project);
-        for (Module module : moduleManager.getModules()) {
-            ModuleRootManager rootManager = ModuleRootManager.getInstance(module);
-            // Iterate through content entries to find test source folders
-            for (ContentEntry contentEntry : rootManager.getContentEntries()) {
-                for (SourceFolder sourceFolder : contentEntry.getSourceFolders()) {
-                    // Check if this is a test source root
-                    if (sourceFolder.isTestSource() && sourceFolder.getFile() != null) {
-                        return sourceFolder.getFile();
-                    }
-                }
-            }
-        }
-
-        // Fallback: try to find by conventional path
-        String basePath = project.getBasePath();
-        if (basePath != null) {
-            VirtualFile testRoot = LocalFileSystem.getInstance().findFileByPath(basePath + "/src/test/java");
-            if (testRoot != null) {
-                return testRoot;
-            }
-            testRoot = LocalFileSystem.getInstance().findFileByPath(basePath + "/src/test/kotlin");
-            if (testRoot != null) {
-                return testRoot;
-            }
-        }
-
-        return null; // No test source root found
-    }
 }

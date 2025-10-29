@@ -102,81 +102,6 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         return mergingTools;
     }
 
-    /**
-     * Find the best test source root from project modules
-     */
-    private String findBestTestSourceRoot() {
-        // Try to find test roots from project modules using content entries
-        com.intellij.openapi.module.ModuleManager moduleManager = com.intellij.openapi.module.ModuleManager.getInstance(project);
-        for (com.intellij.openapi.module.Module module : moduleManager.getModules()) {
-            com.intellij.openapi.roots.ModuleRootManager rootManager = com.intellij.openapi.roots.ModuleRootManager.getInstance(module);
-            // Iterate through content entries to find test source folders
-            for (com.intellij.openapi.roots.ContentEntry contentEntry : rootManager.getContentEntries()) {
-                for (com.intellij.openapi.roots.SourceFolder sourceFolder : contentEntry.getSourceFolders()) {
-                    // Check if this is a test source root
-                    if (sourceFolder.isTestSource() && sourceFolder.getFile() != null) {
-                        return sourceFolder.getFile().getPath();
-                    }
-                }
-            }
-        }
-
-        // Fallback to conventional paths
-        String basePath = project.getBasePath();
-        if (basePath == null) {
-            return "src/test/java"; // Last resort fallback
-        }
-
-        // Check common test directories using File to handle separators correctly
-        java.io.File baseDir = new java.io.File(basePath);
-
-        java.io.File srcTestJava = new java.io.File(baseDir, "src/test/java");
-        if (srcTestJava.exists()) {
-            return srcTestJava.getAbsolutePath();
-        }
-
-        java.io.File srcTestKotlin = new java.io.File(baseDir, "src/test/kotlin");
-        if (srcTestKotlin.exists()) {
-            return srcTestKotlin.getAbsolutePath();
-        }
-
-        java.io.File testJava = new java.io.File(baseDir, "test/java");
-        if (testJava.exists()) {
-            return testJava.getAbsolutePath();
-        }
-
-        java.io.File test = new java.io.File(baseDir, "test");
-        if (test.exists()) {
-            return test.getAbsolutePath();
-        }
-
-        // Default to standard Maven/Gradle structure
-        return new java.io.File(baseDir, "src/test/java").getAbsolutePath();
-    }
-
-    /**
-     * Find the best test source root as a VirtualFile for proper classpath context
-     */
-    private com.intellij.openapi.vfs.VirtualFile findBestTestSourceRootVirtualFile() {
-        // Try to find test roots from project modules using content entries
-        com.intellij.openapi.module.ModuleManager moduleManager = com.intellij.openapi.module.ModuleManager.getInstance(project);
-        for (com.intellij.openapi.module.Module module : moduleManager.getModules()) {
-            com.intellij.openapi.roots.ModuleRootManager rootManager = com.intellij.openapi.roots.ModuleRootManager.getInstance(module);
-            // Iterate through content entries to find test source folders
-            for (com.intellij.openapi.roots.ContentEntry contentEntry : rootManager.getContentEntries()) {
-                for (com.intellij.openapi.roots.SourceFolder sourceFolder : contentEntry.getSourceFolders()) {
-                    // Check if this is a test source root
-                    if (sourceFolder.isTestSource() && sourceFolder.getFile() != null) {
-                        return sourceFolder.getFile();
-                    }
-                }
-            }
-        }
-
-        // Fallback: try to find by path
-        String testRootPath = findBestTestSourceRoot();
-        return com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(testRootPath);
-    }
 
     /**
      * Count the number of @Test methods in the code
@@ -1656,7 +1581,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                     com.intellij.openapi.fileTypes.FileTypeManager.getInstance().getFileTypeByExtension("java");
 
                 // Find test source root for proper classpath context
-                com.intellij.openapi.vfs.VirtualFile testSourceRoot = findBestTestSourceRootVirtualFile();
+                com.intellij.openapi.vfs.VirtualFile testSourceRoot = com.zps.zest.testgen.util.TestSourceRootUtil.findBestTestSourceRootVirtualFile(project);
 
                 // Create virtual file for validation with test source root as parent
                 // This ensures IntelliJ uses test classpath (with JUnit, Mockito, etc.)
@@ -2524,7 +2449,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             }
 
             // Find the best test source root
-            String testSourceRoot = findBestTestSourceRoot();
+            String testSourceRoot = com.zps.zest.testgen.util.TestSourceRootUtil.findBestTestSourceRoot(project);
 
             // Build the full path
             java.io.File testDir = new java.io.File(testSourceRoot);

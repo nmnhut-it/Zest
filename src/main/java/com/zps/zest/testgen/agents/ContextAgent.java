@@ -800,6 +800,7 @@ public class ContextAgent extends StreamingBaseAgent {
             """)
         public String analyzeClass(String filePathOrClassName) {
             notifyTool("analyzeClass", filePathOrClassName);
+            explorationPlanningTool.recordToolUse();
             String result = analyzeClassTool.analyzeClass(filePathOrClassName);
 
             // Create and send ContextDisplayData object directly to UI
@@ -847,6 +848,7 @@ public class ContextAgent extends StreamingBaseAgent {
                 }
 
                 notifyTool("listFiles", directoryPath + " (level=" + recursiveLevel + ")");
+                explorationPlanningTool.recordToolUse();
                 return listFilesTool.listFiles(directoryPath, recursiveLevel);
             } catch (Exception e) {
                 LOG.error("Error in listFiles tool", e);
@@ -864,6 +866,7 @@ public class ContextAgent extends StreamingBaseAgent {
             """)
         public String findFiles(String pattern) {
             notifyTool("findFiles", pattern);
+            explorationPlanningTool.recordToolUse();
             return ripgrepCodeTool.findFiles(pattern);
         }
 
@@ -913,6 +916,7 @@ public class ContextAgent extends StreamingBaseAgent {
 
                 notifyTool("searchCode", String.format("query=%s, filePattern=%s, excludePattern=%s, before=%d, after=%d, multiline=%s",
                                                        query, filePattern, excludePattern, beforeLines, afterLines, multiline));
+                explorationPlanningTool.recordToolUse();
                 return ripgrepCodeTool.searchCode(query, filePattern, excludePattern, beforeLines, afterLines, multiline);
             } catch (Exception e) {
                 LOG.error("Error in searchCode tool", e);
@@ -943,6 +947,7 @@ public class ContextAgent extends StreamingBaseAgent {
             """)
         public String takeNotes(List<String> notes) {
             notifyTool("takeNotes", notes.size() + " notes");
+            explorationPlanningTool.recordToolUse();
             String result = takeNoteTool.takeNotes(notes);
             notifyContextUpdate();
             return result;
@@ -951,6 +956,7 @@ public class ContextAgent extends StreamingBaseAgent {
         @Tool("Read the complete content of any file in the project")
         public String readFile(String filePath) {
             notifyTool("readFile", filePath);
+            explorationPlanningTool.recordToolUse();
 
             // Use ReadFileTool with JsonObject parameter
             com.google.gson.JsonObject params = new com.google.gson.JsonObject();
@@ -1041,13 +1047,17 @@ public class ContextAgent extends StreamingBaseAgent {
             }
 
             // VALIDATION 4: Check minimum depth of investigation
+            // Allow completion without notes if plan is empty (pre-computed data sufficient)
             int totalNotes = contextNotes.size();
             int totalFiles = readFiles.size() + analyzedClasses.size();
+            boolean hasExplorationPlan = !explorationPlanningTool.getIncompletePlanItems().isEmpty() ||
+                                        explorationPlanningTool.getToolsUsed() > 1; // More than just createPlan
 
-            if (totalNotes < 1) {
+            if (totalNotes < 1 && hasExplorationPlan) {
                 return "❌ Cannot mark done - Investigation too shallow.\n\n" +
                        "Only " + totalNotes + " notes taken. This suggests insufficient exploration.\n" +
-                       "Use take note tools to take structured notes about:\n" +
+                       "If pre-computed data is sufficient, create an empty plan.\n" +
+                       "Otherwise, use take note tools to take structured notes about:\n" +
                        "- [USAGE] patterns discovered\n" +
                        "- [ERROR] handling approaches\n" +
                        "- [SCHEMA] constraints and structure\n" +
@@ -1178,6 +1188,7 @@ public class ContextAgent extends StreamingBaseAgent {
             """)
         public String lookupMethod(String className, String methodName) {
             notifyTool("lookupMethod", className + "." + methodName);
+            explorationPlanningTool.recordToolUse();
             return lookupMethodTool.lookupMethod(className, methodName);
         }
 
@@ -1191,6 +1202,7 @@ public class ContextAgent extends StreamingBaseAgent {
             """)
         public String lookupClass(String className) {
             notifyTool("lookupClass", className);
+            explorationPlanningTool.recordToolUse();
             return lookupClassTool.lookupClass(className);
         }
 
@@ -1198,6 +1210,7 @@ public class ContextAgent extends StreamingBaseAgent {
               "This should be called at the start to understand what testing libraries are available in the project.")
         public String findProjectDependencies(String dummyParams) {
             notifyTool("findProjectDependencies", "Searching for build files");
+            explorationPlanningTool.recordToolUse();
 
             StringBuilder dependencyInfo = new StringBuilder();
             dependencyInfo.append("**PROJECT DEPENDENCIES**\n");

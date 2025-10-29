@@ -88,8 +88,7 @@ public class UsageContext {
             int limit = Math.min(5, callSites.size()); // Limit to first 5 for brevity
             for (int i = 0; i < limit; i++) {
                 CallSite site = callSites.get(i);
-                formatted.append(String.format("\n%d. Called from %s\n", i + 1, site.getCallerDescription()));
-                formatted.append(String.format("   Context: %s\n", site.getContextDescription()));
+                formatted.append(String.format("\n%d. %s\n", i + 1, site.getCallerDescription()));
 
                 // Show code snippet if available
                 if (site.getCodeSnippet() != null && !site.getCodeSnippet().isEmpty()) {

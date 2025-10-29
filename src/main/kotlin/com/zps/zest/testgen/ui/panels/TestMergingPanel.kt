@@ -409,37 +409,6 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
     }
     
-    /**
-     * Find the best test source root from project modules
-     */
-    private fun findBestTestSourceRoot(): String {
-        // Try to find test roots from project modules using content entries
-        val moduleManager = ModuleManager.getInstance(project)
-        for (module in moduleManager.modules) {
-            val rootManager = ModuleRootManager.getInstance(module)
-            // Iterate through content entries to find test source folders
-            for (contentEntry in rootManager.contentEntries) {
-                for (sourceFolder in contentEntry.sourceFolders) {
-                    // Check if this is a test source root
-                    if (sourceFolder.isTestSource) {
-                        return sourceFolder.file?.path ?: continue
-                    }
-                }
-            }
-        }
-
-        // Fallback to conventional paths
-        val basePath = project.basePath ?: return "src/test/java"
-
-        // Check common test directories
-        return when {
-            File("$basePath/src/test/java").exists() -> "$basePath/src/test/java"
-            File("$basePath/src/test/kotlin").exists() -> "$basePath/src/test/kotlin"
-            File("$basePath/test/java").exists() -> "$basePath/test/java"
-            File("$basePath/test").exists() -> "$basePath/test"
-            else -> "$basePath/src/test/java" // Default to standard Maven/Gradle structure
-        }
-    }
     
     /**
      * Write merged test to file using IntelliJ's VFS and Document API
@@ -497,7 +466,7 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
             fullPath.substringBeforeLast(File.separator)
         } else {
             // Build path from test root and package
-            val testRoot = findBestTestSourceRoot()
+            val testRoot = com.zps.zest.testgen.util.TestSourceRootUtil.findBestTestSourceRoot(project)
             if (mergedTest.packageName.isNotEmpty()) {
                 val packagePath = mergedTest.packageName.replace('.', File.separatorChar)
                 "$testRoot${File.separator}$packagePath"

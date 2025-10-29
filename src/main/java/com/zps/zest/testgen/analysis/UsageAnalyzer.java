@@ -87,8 +87,8 @@ public class UsageAnalyzer {
                 return;
             }
 
-            // Extract code snippet around the call site (3 lines before, 5 lines after)
-            String codeSnippet = extractCodeSnippet(callElement, 3, 5);
+            // Extract code snippet with method signature and larger context (10 lines before, 10 lines after)
+            String codeSnippet = extractCodeSnippetWithMethodSignature(callElement, callerMethod, 10, 10);
 
             // Build call site information
             CallSite.Builder callSiteBuilder = new CallSite.Builder()
@@ -96,7 +96,6 @@ public class UsageAnalyzer {
                     .callerMethod(callerMethod.getName())
                     .filePath(callElement.getContainingFile().getVirtualFile().getPath())
                     .lineNumber(getLineNumber(callElement))
-                    .context(determineCallContext(callerClass, callerMethod))
                     .codeSnippet(codeSnippet);
 
             // Check for error handling around this call
@@ -142,15 +141,37 @@ public class UsageAnalyzer {
     }
 
     /**
-     * Extract code snippet around the call site showing context.
-     * Returns code with N lines before and M lines after the call.
+     * Extract code snippet with method signature and context around the call site.
+     * Shows the containing method signature, then N lines before and M lines after the call.
      */
     @NotNull
-    private String extractCodeSnippet(@NotNull PsiElement callElement, int linesBefore, int linesAfter) {
+    private String extractCodeSnippetWithMethodSignature(@NotNull PsiElement callElement,
+                                                          @NotNull PsiMethod containingMethod,
+                                                          int linesBefore, int linesAfter) {
         try {
             PsiFile file = callElement.getContainingFile();
             if (file == null) return "";
 
+            StringBuilder snippet = new StringBuilder();
+
+            // Extract method signature
+            String methodSignature = extractMethodSignature(containingMethod);
+            if (methodSignature != null && !methodSignature.isEmpty()) {
+                snippet.append(methodSignature).append("\n");
+
+                // Calculate distance from method start to call
+                int methodStartLine = getLineNumber(containingMethod);
+                int callLine = getLineNumber(callElement);
+                int lineDistance = callLine - methodStartLine;
+
+                // If call is far from method signature (>10 lines), indicate gap
+                if (lineDistance > linesBefore + 2) {
+                    snippet.append("   ... (").append(lineDistance - linesBefore)
+                           .append(" lines omitted)\n");
+                }
+            }
+
+            // Extract context around the call
             String fileText = file.getText();
             int callOffset = callElement.getTextOffset();
 
@@ -181,8 +202,10 @@ public class UsageAnalyzer {
                 }
             }
 
-            String snippet = fileText.substring(lineStart, Math.min(lineEnd, fileText.length()));
-            return snippet.trim();
+            String codeContext = fileText.substring(lineStart, Math.min(lineEnd, fileText.length()));
+            snippet.append(codeContext.trim());
+
+            return snippet.toString();
 
         } catch (Exception e) {
             LOG.debug("Failed to extract code snippet: " + e.getMessage());
@@ -191,42 +214,59 @@ public class UsageAnalyzer {
     }
 
     /**
-     * Determine the context/role of the calling code.
+     * Extract method signature with modifiers, return type, and parameters.
      */
-    @NotNull
-    private CallSite.CallContext determineCallContext(@NotNull PsiClass callerClass, @NotNull PsiMethod callerMethod) {
-        // Check for test annotations
-        if (isTestMethod(callerMethod) || isTestClass(callerClass)) {
-            return CallSite.CallContext.TEST;
-        }
+    @Nullable
+    private String extractMethodSignature(@NotNull PsiMethod method) {
+        try {
+            StringBuilder sig = new StringBuilder();
 
-        // Check class annotations for Spring stereotypes
-        PsiModifierList classModifiers = callerClass.getModifierList();
-        if (classModifiers != null) {
-            if (hasAnnotation(classModifiers, "Controller", "RestController")) {
-                return CallSite.CallContext.CONTROLLER;
+            // Modifiers (public, private, static, etc.)
+            PsiModifierList modifiers = method.getModifierList();
+            String modifierText = modifiers.getText();
+            if (modifierText != null && !modifierText.isEmpty()) {
+                sig.append(modifierText).append(" ");
             }
-            if (hasAnnotation(classModifiers, "Repository")) {
-                return CallSite.CallContext.REPOSITORY;
-            }
-            if (hasAnnotation(classModifiers, "Service", "Component")) {
-                return CallSite.CallContext.SERVICE;
-            }
-            if (hasAnnotation(classModifiers, "Configuration")) {
-                return CallSite.CallContext.CONFIGURATION;
-            }
-        }
 
-        // Check method annotations
-        PsiModifierList methodModifiers = callerMethod.getModifierList();
-        if (hasAnnotation(methodModifiers, "Scheduled")) {
-            return CallSite.CallContext.BACKGROUND_JOB;
-        }
-        if (hasAnnotation(methodModifiers, "EventListener", "KafkaListener", "RabbitListener")) {
-            return CallSite.CallContext.EVENT_LISTENER;
-        }
+            // Return type
+            PsiType returnType = method.getReturnType();
+            if (returnType != null) {
+                sig.append(returnType.getPresentableText()).append(" ");
+            }
 
-        return CallSite.CallContext.UNKNOWN;
+            // Method name
+            sig.append(method.getName()).append("(");
+
+            // Parameters
+            PsiParameter[] params = method.getParameterList().getParameters();
+            for (int i = 0; i < params.length; i++) {
+                if (i > 0) sig.append(", ");
+                PsiType paramType = params[i].getType();
+                sig.append(paramType.getPresentableText());
+                String paramName = params[i].getName();
+                if (paramName != null) {
+                    sig.append(" ").append(paramName);
+                }
+            }
+            sig.append(")");
+
+            // Exceptions
+            PsiReferenceList throwsList = method.getThrowsList();
+            PsiClassType[] exceptions = throwsList.getReferencedTypes();
+            if (exceptions.length > 0) {
+                sig.append(" throws ");
+                for (int i = 0; i < exceptions.length; i++) {
+                    if (i > 0) sig.append(", ");
+                    sig.append(exceptions[i].getPresentableText());
+                }
+            }
+
+            return sig.toString();
+
+        } catch (Exception e) {
+            LOG.debug("Failed to extract method signature: " + e.getMessage());
+            return method.getName() + "(...)";
+        }
     }
 
     /**

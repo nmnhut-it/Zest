@@ -60,16 +60,38 @@ public class ExplorationPlanningTool {
             Target: %s
             Tool budget: %d
 
-            You should now create a detailed plan by listing the specific investigation items.
-            Include items for:
-            - Finding project dependencies
-            - Analyzing method usage patterns
-            - Reading referenced files (SQL, configs)
-            - Researching existing tests
-            - Understanding error handling
-            - Investigating caller patterns
+            ALREADY AVAILABLE (pre-computed):
+            - Direct callers to target methods (static analysis)
+            - Target class structure and dependencies
+            - Project dependencies and testing frameworks
+            - Call site code snippets with error handling (10 lines context)
 
-            Output your plan in your next response so the user can see what you'll investigate.
+            YOUR PLAN SHOULD FOCUS ON GAPS:
+            - External files referenced in code (schemas, configs)
+            - Indirect references NOT found by static analysis
+            - Integration patterns crucial for testing
+
+            Present your plan to the user in TWO parts:
+
+            PART 1 - What's Already Known:
+            Review the "Pre-Computed Analysis" section and list:
+            - Method usage patterns available (mention method names and call site counts)
+            - Testing framework detected
+            - Dependencies found
+            - Classes already analyzed
+
+            PART 2 - Investigation Plan (GAPS):
+            If pre-computed data is sufficient for testing, you can SKIP exploration entirely.
+            Otherwise, use addPlanItems([...]) to create plan for what's NOT yet known.
+            Focus on: referenced files, indirect callers, integration details, schemas.
+
+            Remember: Pre-computed data already has direct callers. Only explore
+            if you need indirect references or external resources crucial for tests.
+
+            If skipping exploration: Acknowledge pre-computed data is sufficient,
+            then proceed directly to markContextCollectionDone().
+
+            Output both parts so the user understands your investigation strategy.
             """, targetInfo, this.toolBudget);
     }
 
@@ -303,10 +325,11 @@ public class ExplorationPlanningTool {
 
     /**
      * Check if all plan items are complete.
+     * Empty plan is considered complete (AI determined no exploration needed).
      */
     public boolean allPlanItemsComplete() {
         if (plan.isEmpty()) {
-            return false; // No plan means not complete
+            return true; // Empty plan means AI determined pre-computed data is sufficient
         }
         return plan.stream().allMatch(i -> i.completed);
     }

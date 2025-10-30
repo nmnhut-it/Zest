@@ -695,6 +695,10 @@ public class ContextAgent extends StreamingBaseAgent {
             return new HashMap<>(analyzedClasses);
         }
 
+        public Map<String, String> getPathToFQN() {
+            return new HashMap<>(pathToFQN);
+        }
+
         /**
          * Get analyzed class by file path or FQN.
          * Tries FQN first, then checks if it's a path and converts to FQN.

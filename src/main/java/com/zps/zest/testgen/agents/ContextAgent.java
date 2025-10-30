@@ -530,6 +530,55 @@ public class ContextAgent extends StreamingBaseAgent {
         // No-op for backward compatibility
     }
 
+    public com.zps.zest.testgen.snapshot.AgentSnapshot exportSnapshot(String sessionId, String description, String originalPrompt) {
+        LOG.info("Exporting ContextAgent snapshot for session: " + sessionId);
+
+        List<dev.langchain4j.data.message.ChatMessage> messages = chatMemory.messages();
+        List<com.zps.zest.testgen.snapshot.SerializableChatMessage> serializedMessages = new ArrayList<>();
+
+        for (dev.langchain4j.data.message.ChatMessage message : messages) {
+            serializedMessages.add(com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.convertChatMessage(message));
+        }
+
+        com.zps.zest.testgen.snapshot.ContextToolsSnapshot toolsState = contextTools.exportState();
+
+        return new com.zps.zest.testgen.snapshot.AgentSnapshot(
+            com.zps.zest.testgen.snapshot.AgentSnapshot.SNAPSHOT_VERSION,
+            com.zps.zest.testgen.snapshot.AgentType.CONTEXT,
+            sessionId,
+            System.currentTimeMillis(),
+            description,
+            originalPrompt,
+            serializedMessages,
+            toolsState,
+            null,
+            null,
+            new HashMap<>()
+        );
+    }
+
+    public void restoreFromSnapshot(com.zps.zest.testgen.snapshot.AgentSnapshot snapshot) {
+        LOG.info("Restoring ContextAgent from snapshot: " + snapshot.getSessionId());
+
+        if (snapshot.getAgentType() != com.zps.zest.testgen.snapshot.AgentType.CONTEXT) {
+            throw new IllegalArgumentException("Cannot restore ContextAgent from snapshot of type: " + snapshot.getAgentType());
+        }
+
+        chatMemory.clear();
+        for (com.zps.zest.testgen.snapshot.SerializableChatMessage serialized : snapshot.getChatMessages()) {
+            dev.langchain4j.data.message.ChatMessage restored =
+                com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.restoreChatMessage(serialized);
+            chatMemory.add(restored);
+        }
+
+        if (snapshot.getContextToolsState() != null) {
+            contextTools.restoreState(snapshot.getContextToolsState());
+        }
+
+        LOG.info("Restored ContextAgent state: " + chatMemory.messages().size() + " messages, " +
+                contextTools.getAnalyzedClasses().size() + " analyzed classes");
+    }
+
     /**
      * Send context file analysis to UI.
      */
@@ -783,6 +832,74 @@ public class ContextAgent extends StreamingBaseAgent {
                 SwingUtilities.invokeLater(() ->
                     contextUpdateCallback.accept(getGatheredData()));
             }
+        }
+
+        public com.zps.zest.testgen.snapshot.ContextToolsSnapshot exportState() {
+            com.google.gson.Gson gson = new com.google.gson.Gson();
+            Map<String, String> serializedUsages = new HashMap<>();
+            for (Map.Entry<String, UsageContext> entry : methodUsages.entrySet()) {
+                serializedUsages.put(entry.getKey(), gson.toJson(entry.getValue()));
+            }
+
+            return new com.zps.zest.testgen.snapshot.ContextToolsSnapshot(
+                new HashMap<>(analyzedClasses),
+                new HashMap<>(pathToFQN),
+                new ArrayList<>(contextNotes),
+                new HashMap<>(readFiles),
+                new HashMap<>(buildFiles),
+                serializedUsages,
+                frameworkInfo,
+                projectDependencies,
+                contextCollectionDone,
+                new HashSet<>(discoveredCallers),
+                new HashSet<>(investigatedCallers),
+                new HashSet<>(referencedFiles)
+            );
+        }
+
+        public void restoreState(com.zps.zest.testgen.snapshot.ContextToolsSnapshot snapshot) {
+            com.google.gson.Gson gson = new com.google.gson.Gson();
+
+            analyzedClasses.clear();
+            analyzedClasses.putAll(snapshot.getAnalyzedClasses());
+
+            pathToFQN.clear();
+            pathToFQN.putAll(snapshot.getPathToFQN());
+
+            contextNotes.clear();
+            contextNotes.addAll(snapshot.getContextNotes());
+
+            readFiles.clear();
+            readFiles.putAll(snapshot.getReadFiles());
+
+            buildFiles.clear();
+            buildFiles.putAll(snapshot.getBuildFiles());
+
+            methodUsages.clear();
+            for (Map.Entry<String, String> entry : snapshot.getMethodUsages().entrySet()) {
+                try {
+                    UsageContext usageContext = gson.fromJson(entry.getValue(), UsageContext.class);
+                    methodUsages.put(entry.getKey(), usageContext);
+                } catch (Exception e) {
+                    LOG.warn("Failed to deserialize usage context for: " + entry.getKey(), e);
+                }
+            }
+
+            frameworkInfo = snapshot.getFrameworkInfo();
+            projectDependencies = snapshot.getProjectDependencies();
+            contextCollectionDone = snapshot.getContextCollectionDone();
+
+            discoveredCallers.clear();
+            discoveredCallers.addAll(snapshot.getDiscoveredCallers());
+
+            investigatedCallers.clear();
+            investigatedCallers.addAll(snapshot.getInvestigatedCallers());
+
+            referencedFiles.clear();
+            referencedFiles.addAll(snapshot.getReferencedFiles());
+
+            LOG.info("Restored context tools state: " + analyzedClasses.size() + " classes, " +
+                    contextNotes.size() + " notes, " + methodUsages.size() + " method usages");
         }
 
         @Tool("""

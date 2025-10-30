@@ -1376,7 +1376,55 @@ public class AITestMergerAgent extends StreamingBaseAgent {
     public MessageWindowChatMemory getChatMemory() {
         return chatMemory;
     }
-    
+
+    public com.zps.zest.testgen.snapshot.AgentSnapshot exportSnapshot(String sessionId, String description, String originalPrompt) {
+        LOG.info("Exporting AITestMergerAgent snapshot for session: " + sessionId);
+
+        java.util.List<dev.langchain4j.data.message.ChatMessage> messages = chatMemory.messages();
+        java.util.List<com.zps.zest.testgen.snapshot.SerializableChatMessage> serializedMessages = new java.util.ArrayList<>();
+
+        for (dev.langchain4j.data.message.ChatMessage message : messages) {
+            serializedMessages.add(com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.convertChatMessage(message));
+        }
+
+        com.zps.zest.testgen.snapshot.MergingToolsSnapshot mergingToolsState = mergingTools.exportState();
+
+        return new com.zps.zest.testgen.snapshot.AgentSnapshot(
+            com.zps.zest.testgen.snapshot.AgentSnapshot.SNAPSHOT_VERSION,
+            com.zps.zest.testgen.snapshot.AgentType.TEST_MERGER,
+            sessionId,
+            System.currentTimeMillis(),
+            description,
+            originalPrompt,
+            serializedMessages,
+            null,
+            null,
+            mergingToolsState,
+            new java.util.HashMap<>()
+        );
+    }
+
+    public void restoreFromSnapshot(com.zps.zest.testgen.snapshot.AgentSnapshot snapshot) {
+        LOG.info("Restoring AITestMergerAgent from snapshot: " + snapshot.getSessionId());
+
+        if (snapshot.getAgentType() != com.zps.zest.testgen.snapshot.AgentType.TEST_MERGER) {
+            throw new IllegalArgumentException("Cannot restore AITestMergerAgent from snapshot of type: " + snapshot.getAgentType());
+        }
+
+        chatMemory.clear();
+        for (com.zps.zest.testgen.snapshot.SerializableChatMessage serialized : snapshot.getChatMessages()) {
+            dev.langchain4j.data.message.ChatMessage restored =
+                com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.restoreChatMessage(serialized);
+            chatMemory.add(restored);
+        }
+
+        if (snapshot.getMergingToolsState() != null) {
+            mergingTools.restoreState(snapshot.getMergingToolsState());
+        }
+
+        LOG.info("Restored AITestMergerAgent state: " + chatMemory.messages().size() + " messages");
+    }
+
     /**
      * Get the last existing test code that was found during merging
      * @return The existing test code or null if no existing test was found
@@ -2354,6 +2402,22 @@ public class AITestMergerAgent extends StreamingBaseAgent {
             currentTestClassName = null;
             mergingComplete = false;
             suppressionPatterns.clear();
+        }
+
+        public com.zps.zest.testgen.snapshot.MergingToolsSnapshot exportState() {
+            return new com.zps.zest.testgen.snapshot.MergingToolsSnapshot(
+                currentWorkingTestCode,
+                null,
+                fixStrategy.name()
+            );
+        }
+
+        public void restoreState(com.zps.zest.testgen.snapshot.MergingToolsSnapshot snapshot) {
+            currentWorkingTestCode = snapshot.getLastExistingTestCode();
+            mergingComplete = false;
+            suppressionPatterns.clear();
+
+            LOG.info("Restored merging tools state");
         }
 
         private int countTestMethods(String testCode) {

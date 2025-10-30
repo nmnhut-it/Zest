@@ -623,7 +623,49 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             reasoning = "";
             testingNotes = "";
         }
-        
+
+        public com.zps.zest.testgen.snapshot.PlanningToolsSnapshot exportState() {
+            com.google.gson.Gson gson = new com.google.gson.Gson();
+            String scenariosJson = gson.toJson(scenarios);
+
+            return new com.zps.zest.testgen.snapshot.PlanningToolsSnapshot(
+                targetClass.isEmpty() ? null : targetClass,
+                new ArrayList<>(targetMethods),
+                scenariosJson,
+                reasoning.isEmpty() ? null : reasoning,
+                testingNotes.isEmpty() ? null : testingNotes
+            );
+        }
+
+        public void restoreState(com.zps.zest.testgen.snapshot.PlanningToolsSnapshot snapshot) {
+            com.google.gson.Gson gson = new com.google.gson.Gson();
+
+            targetClass = snapshot.getTargetClass() != null ? snapshot.getTargetClass() : "";
+
+            targetMethods.clear();
+            targetMethods.addAll(snapshot.getTargetMethods());
+
+            scenarios.clear();
+            if (snapshot.getScenarios() != null) {
+                try {
+                    List<TestPlan.TestScenario> restoredScenarios = gson.fromJson(
+                        snapshot.getScenarios(),
+                        new com.google.gson.reflect.TypeToken<List<TestPlan.TestScenario>>(){}.getType()
+                    );
+                    if (restoredScenarios != null) {
+                        scenarios.addAll(restoredScenarios);
+                    }
+                } catch (Exception e) {
+                    LOG.error("Failed to restore test scenarios", e);
+                }
+            }
+
+            reasoning = snapshot.getReasoning() != null ? snapshot.getReasoning() : "";
+            testingNotes = snapshot.getTestingNotes() != null ? snapshot.getTestingNotes() : "";
+
+            LOG.info("Restored planning tools state: " + scenarios.size() + " scenarios");
+        }
+
         @Tool("Set the target class name for testing. className should be fully qualified name")
         public String setTargetClass(String className) {
             notifyTool("setTargetClass", className);
@@ -1020,6 +1062,61 @@ public class CoordinatorAgent extends StreamingBaseAgent {
     @NotNull
     public ChatMemory getChatMemory() {
         return chatMemory;
+    }
+
+    public com.zps.zest.testgen.snapshot.AgentSnapshot exportSnapshot(String sessionId, String description, String originalPrompt) {
+        LOG.info("Exporting CoordinatorAgent snapshot for session: " + sessionId);
+
+        List<dev.langchain4j.data.message.ChatMessage> messages = chatMemory.messages();
+        List<com.zps.zest.testgen.snapshot.SerializableChatMessage> serializedMessages = new ArrayList<>();
+
+        for (dev.langchain4j.data.message.ChatMessage message : messages) {
+            serializedMessages.add(com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.convertChatMessage(message));
+        }
+
+        com.zps.zest.testgen.snapshot.PlanningToolsSnapshot planningToolsState = planningTools.exportState();
+        com.zps.zest.testgen.snapshot.ContextToolsSnapshot contextToolsState =
+            contextTools != null ? contextTools.exportState() : null;
+
+        return new com.zps.zest.testgen.snapshot.AgentSnapshot(
+            com.zps.zest.testgen.snapshot.AgentSnapshot.SNAPSHOT_VERSION,
+            com.zps.zest.testgen.snapshot.AgentType.COORDINATOR,
+            sessionId,
+            System.currentTimeMillis(),
+            description,
+            originalPrompt,
+            serializedMessages,
+            contextToolsState,
+            planningToolsState,
+            null,
+            new HashMap<>()
+        );
+    }
+
+    public void restoreFromSnapshot(com.zps.zest.testgen.snapshot.AgentSnapshot snapshot) {
+        LOG.info("Restoring CoordinatorAgent from snapshot: " + snapshot.getSessionId());
+
+        if (snapshot.getAgentType() != com.zps.zest.testgen.snapshot.AgentType.COORDINATOR) {
+            throw new IllegalArgumentException("Cannot restore CoordinatorAgent from snapshot of type: " + snapshot.getAgentType());
+        }
+
+        chatMemory.clear();
+        for (com.zps.zest.testgen.snapshot.SerializableChatMessage serialized : snapshot.getChatMessages()) {
+            dev.langchain4j.data.message.ChatMessage restored =
+                com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.restoreChatMessage(serialized);
+            chatMemory.add(restored);
+        }
+
+        if (snapshot.getPlanningToolsState() != null) {
+            planningTools.restoreState(snapshot.getPlanningToolsState());
+        }
+
+        if (snapshot.getContextToolsState() != null && contextTools != null) {
+            contextTools.restoreState(snapshot.getContextToolsState());
+        }
+
+        LOG.info("Restored CoordinatorAgent state: " + chatMemory.messages().size() + " messages, " +
+                planningTools.scenarios.size() + " scenarios");
     }
 
     /**

@@ -130,10 +130,31 @@ public class TestGenerationHandler extends AbstractStateHandler {
                 triggerGeneratedTestUIUpdates(result, selectedScenarios);
             }
             
-            String summary = String.format("Generated %d test methods for %d scenarios", 
+            String summary = String.format("Generated %d test methods for %d scenarios",
                 result.getMethodCount(), selectedScenarios.size());
             LOG.info(summary);
-            
+
+            // Save agent snapshot for debugging and prompt experimentation
+            try {
+                TestGenerationRequest request = stateMachine.getRequest();
+                String promptDescription = request != null ?
+                    "Generate tests for " + request.getTargetFile().getName() +
+                        " (" + request.getTargetMethods().size() + " methods)" :
+                    "Test generation";
+                com.zps.zest.testgen.snapshot.AgentSnapshot snapshot = testWriterAgent.exportSnapshot(
+                    stateMachine.getSessionId(),
+                    "Test generation completed - " + result.getMethodCount() + " test methods generated",
+                    promptDescription
+                );
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveToFile(
+                    snapshot,
+                    getProject(stateMachine)
+                );
+                LOG.info("Saved test writer agent snapshot: " + snapshotFile.getName());
+            } catch (Exception e) {
+                LOG.warn("Failed to save agent snapshot (non-critical)", e);
+            }
+
             return StateResult.success(result, summary, TestGenerationState.MERGING_TESTS);
             
         } catch (Exception e) {

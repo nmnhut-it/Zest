@@ -7,6 +7,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.zps.zest.langchain4j.ui.ChatMemoryDialog
 import com.zps.zest.langchain4j.ui.ChatMemoryPanel
+import com.zps.zest.langchain4j.ui.DialogManager
 import java.awt.*
 import javax.swing.*
 import javax.swing.Timer
@@ -39,6 +40,27 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
         placeholderPanel.add(messageLabel, BorderLayout.CENTER)
 
         add(placeholderPanel, BorderLayout.CENTER)
+
+        // Add button panel at the bottom
+        add(createButtonPanel(), BorderLayout.SOUTH)
+    }
+
+    private fun createButtonPanel(): JPanel {
+        val panel = JPanel(FlowLayout(FlowLayout.CENTER, 10, 10))
+        panel.border = EmptyBorder(5, 5, 5, 5)
+
+        val snapshotButton = JButton("📸 Manage Snapshots")
+        snapshotButton.preferredSize = JBUI.size(180, 40)
+        snapshotButton.addActionListener { showSnapshotManagerDialog() }
+        snapshotButton.toolTipText = "View and manage agent snapshots from this session"
+        panel.add(snapshotButton)
+
+        return panel
+    }
+
+    private fun showSnapshotManagerDialog() {
+        val dialog = com.zps.zest.testgen.snapshot.ui.SnapshotManagerDialog(project)
+        DialogManager.showDialog(dialog)
     }
 
     fun showActivity(message: String) {
@@ -49,20 +71,18 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
      * Clear the panel
      */
     fun clear() {
-        SwingUtilities.invokeLater {
-            // Stop the update timer
-            updateTimer.stop()
+        // Stop the update timer
+        updateTimer.stop()
 
-            // Reset chat memory
-            contextAgentMemory = null
-            chatMemoryPanel = null
+        // Reset chat memory
+        contextAgentMemory = null
+        chatMemoryPanel = null
 
-            // Show placeholder again
-            removeAll()
-            setupUI()
-            revalidate()
-            repaint()
-        }
+        // Show placeholder again
+        removeAll()
+        setupUI()
+        revalidate()
+        repaint()
     }
     
     /**
@@ -78,6 +98,7 @@ class ContextDisplayPanel(private val project: Project) : JPanel(BorderLayout())
                     removeAll()
                     chatMemoryPanel = ChatMemoryPanel(project, chatMemory, "ContextAgent")
                     add(chatMemoryPanel, BorderLayout.CENTER)
+                    add(createButtonPanel(), BorderLayout.SOUTH)
                     revalidate()
                     repaint()
 

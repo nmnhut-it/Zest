@@ -108,6 +108,13 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
         }
         actionsPanel.add(chatButton)
 
+        val snapshotButton = JButton("📸 Manage Snapshots").apply {
+            preferredSize = JBUI.size(180, 40)
+            addActionListener { showSnapshotManagerDialog() }
+            toolTipText = "View and manage agent snapshots from this session"
+        }
+        actionsPanel.add(snapshotButton)
+
         bottomPanel.add(actionsPanel, BorderLayout.EAST)
         add(bottomPanel, BorderLayout.SOUTH)
     }
@@ -505,6 +512,14 @@ class GeneratedTestsPanel(private val project: Project) : JPanel(BorderLayout())
      */
     private fun openTestWriterChatDialog() {
         val dialog = ChatMemoryDialog(project, testWriterMemory, testWriterAgentName)
+        DialogManager.showDialog(dialog)
+    }
+
+    /**
+     * Open snapshot manager dialog
+     */
+    private fun showSnapshotManagerDialog() {
+        val dialog = com.zps.zest.testgen.snapshot.ui.SnapshotManagerDialog(project)
         DialogManager.showDialog(dialog)
     }
 

@@ -750,13 +750,15 @@ class StateMachineTestGenerationEditor(
                     return
                 }
             }
+            // Set a sentinel value immediately to prevent race condition
+            currentSessionId = "STARTING"
         }
-        
+
         logEvent("Starting test generation...")
-        
+
         // Disable button immediately to prevent double-click
         primaryActionButton.isEnabled = false
-        
+
         // Clear all panels and stop any existing timers
         contextDisplayPanel.clear()
         testPlanDisplayPanel.clear()
@@ -764,7 +766,7 @@ class StateMachineTestGenerationEditor(
         testMergingPanel.clear()
         stopChatMemoryPeriodicUpdates() // Stop any existing periodic updates
         streamingHelper.reset()
-        
+
         testGenService.startTestGeneration(request, eventListener, ::processStreamingText).thenAccept { stateMachine ->
             SwingUtilities.invokeLater {
                 synchronized(stateMachineLock) {
@@ -779,10 +781,16 @@ class StateMachineTestGenerationEditor(
             }
         }.exceptionally { throwable ->
             SwingUtilities.invokeLater {
+                synchronized(stateMachineLock) {
+                    currentSessionId = null
+                    currentStateMachine = null
+                }
                 logEvent("ERROR: Failed to start: ${throwable.message}")
-                Messages.showErrorDialog(project, 
-                    "Failed to start test generation: ${throwable.message}", 
+                Messages.showErrorDialog(project,
+                    "Failed to start test generation: ${throwable.message}",
                     "Startup Error")
+                primaryActionButton.isEnabled = true
+                updateControlButtons()
             }
             null
         }
@@ -1149,8 +1157,13 @@ class StateMachineTestGenerationEditor(
     
     private fun handlePrimaryAction() {
         val sessionId = currentSessionId
+        // Don't allow action if currently starting
+        if (sessionId == "STARTING") {
+            logEvent("Test generation is starting, please wait...")
+            return
+        }
         val state = sessionId?.let { testGenService.getCurrentState(it) }
-        
+
         when {
             state == null -> {
                 // Start generation

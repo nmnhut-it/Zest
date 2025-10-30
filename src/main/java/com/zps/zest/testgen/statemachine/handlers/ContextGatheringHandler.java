@@ -130,13 +130,31 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             }
 
             // Context data available via getContextAgent().getContextTools()
-            
-            int totalItems = contextAgent.getContextTools().getAnalyzedClasses().size() + 
-                            contextAgent.getContextTools().getContextNotes().size() + 
+
+            int totalItems = contextAgent.getContextTools().getAnalyzedClasses().size() +
+                            contextAgent.getContextTools().getContextNotes().size() +
                             contextAgent.getContextTools().getReadFiles().size();
             String summary = String.format("Context gathered: %d items analyzed", totalItems);
             LOG.info(summary);
-            
+
+            // Save agent snapshot for debugging and prompt experimentation
+            try {
+                String promptDescription = "Generate tests for " + request.getTargetFile().getName() +
+                    " (" + request.getTargetMethods().size() + " methods)";
+                com.zps.zest.testgen.snapshot.AgentSnapshot snapshot = contextAgent.exportSnapshot(
+                    stateMachine.getSessionId(),
+                    "Context gathering completed - " + totalItems + " items analyzed",
+                    promptDescription
+                );
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveToFile(
+                    snapshot,
+                    getProject(stateMachine)
+                );
+                LOG.info("Saved context agent snapshot: " + snapshotFile.getName());
+            } catch (Exception e) {
+                LOG.warn("Failed to save agent snapshot (non-critical)", e);
+            }
+
             return StateResult.success(null, summary, TestGenerationState.PLANNING_TESTS);
             
         } catch (Exception e) {

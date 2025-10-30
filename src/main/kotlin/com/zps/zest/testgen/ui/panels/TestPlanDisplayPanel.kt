@@ -184,16 +184,22 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
 
         add(mainContentPanel, BorderLayout.CENTER)
         
-        // Bottom panel with chat button
+        // Bottom panel with chat and snapshot buttons
         val bottomPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
         bottomPanel.border = EmptyBorder(5, 10, 5, 10)
         bottomPanel.background = UIUtil.getPanelBackground()
-        
+
         val chatButton = JButton("💬 Planning Chat")
         chatButton.addActionListener { openPlanningChatDialog() }
         chatButton.toolTipText = "View planning agent chat memory"
         bottomPanel.add(chatButton)
-        
+
+        val snapshotButton = JButton("📸 Manage Snapshots")
+        snapshotButton.preferredSize = JBUI.size(180, 40)
+        snapshotButton.addActionListener { showSnapshotManagerDialog() }
+        snapshotButton.toolTipText = "View and manage agent snapshots from this session"
+        bottomPanel.add(snapshotButton)
+
         add(bottomPanel, BorderLayout.SOUTH)
         
         // No confirmation panel needed - using main editor button
@@ -634,6 +640,14 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
      */
     private fun openPlanningChatDialog() {
         val dialog = ChatMemoryDialog(project, planningAgentMemory, planningAgentName)
+        DialogManager.showDialog(dialog)
+    }
+
+    /**
+     * Open snapshot manager dialog
+     */
+    private fun showSnapshotManagerDialog() {
+        val dialog = com.zps.zest.testgen.snapshot.ui.SnapshotManagerDialog(project)
         DialogManager.showDialog(dialog)
     }
 

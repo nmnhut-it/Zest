@@ -123,6 +123,24 @@ public class TestPlanningHandler extends AbstractStateHandler {
             requestUserInput(stateMachine, "test_plan_review",
                 "Please review the test plan and testing approach", testPlan);
 
+            // Save agent snapshot for debugging and prompt experimentation
+            try {
+                String promptDescription = "Generate tests for " + request.getTargetFile().getName() +
+                    " (" + request.getTargetMethods().size() + " methods)";
+                com.zps.zest.testgen.snapshot.AgentSnapshot snapshot = coordinatorAgent.exportSnapshot(
+                    stateMachine.getSessionId(),
+                    "Test planning completed - " + testPlan.getScenarioCount() + " scenarios created",
+                    promptDescription
+                );
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveToFile(
+                    snapshot,
+                    getProject(stateMachine)
+                );
+                LOG.info("Saved coordinator agent snapshot: " + snapshotFile.getName());
+            } catch (Exception e) {
+                LOG.warn("Failed to save agent snapshot (non-critical)", e);
+            }
+
             return StateResult.success(testPlan, summary, nextState);
             
         } catch (Exception e) {

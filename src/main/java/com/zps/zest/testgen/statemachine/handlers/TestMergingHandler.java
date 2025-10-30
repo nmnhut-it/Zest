@@ -136,6 +136,27 @@ public class TestMergingHandler extends AbstractStateHandler {
             // Track unit test metrics
             trackUnitTestMetrics(stateMachine, result, mergedTestClass);
 
+            // Save agent snapshot for debugging and prompt experimentation
+            try {
+                TestGenerationRequest request = stateMachine.getRequest();
+                String promptDescription = request != null ?
+                    "Generate tests for " + request.getTargetFile().getName() +
+                        " (" + request.getTargetMethods().size() + " methods)" :
+                    "Test generation";
+                com.zps.zest.testgen.snapshot.AgentSnapshot snapshot = aiTestMergerAgent.exportSnapshot(
+                    stateMachine.getSessionId(),
+                    "Test merging completed - " + mergedTestClass.getClassName() + " with " + mergedTestClass.getMethodCount() + " methods",
+                    promptDescription
+                );
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveToFile(
+                    snapshot,
+                    getProject(stateMachine)
+                );
+                LOG.info("Saved test merger agent snapshot: " + snapshotFile.getName());
+            } catch (Exception e) {
+                LOG.warn("Failed to save agent snapshot (non-critical)", e);
+            }
+
             // Transition directly to COMPLETED since merging now includes error review and fixing
             return StateResult.success(mergedTestClass, summary, TestGenerationState.COMPLETED);
 

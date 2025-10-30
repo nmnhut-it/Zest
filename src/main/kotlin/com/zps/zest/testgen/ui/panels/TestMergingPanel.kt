@@ -180,6 +180,13 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
         copyButton.toolTipText = "Copy the merged test code to clipboard"
         panel.add(copyButton)
 
+        // Manage Snapshots
+        val snapshotButton = JButton("📸 Manage Snapshots")
+        snapshotButton.preferredSize = JBUI.size(180, 40)
+        snapshotButton.addActionListener { showSnapshotManagerDialog() }
+        snapshotButton.toolTipText = "View and manage agent snapshots from this session"
+        panel.add(snapshotButton)
+
         return panel
     }
     
@@ -218,6 +225,14 @@ class TestMergingPanel(private val project: Project) : JPanel(BorderLayout()) {
                 "No Chat Memory"
             )
         }
+    }
+
+    /**
+     * Show snapshot manager dialog to browse and manage agent snapshots
+     */
+    private fun showSnapshotManagerDialog() {
+        val dialog = com.zps.zest.testgen.snapshot.ui.SnapshotManagerDialog(project)
+        DialogManager.showDialog(dialog)
     }
 
     /**

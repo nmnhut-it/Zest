@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.908</version>
+    <version>1.9.909</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -426,114 +426,47 @@
 
     <!-- Change notes for version updates -->
     <change-notes><![CDATA[
-        <h3>Version 1.9.908</h3>
+        <h3>Version 1.9.909 - Intelligent Test Generation Overhaul 🧪</h3>
+        <h4>🧠 Project-Aware Test Generation</h4>
         <ul>
-            <li><b>🔧 Git UI Dialog:</b> "Open Git UI" in quick action now opens separate dialog (like "Commit and push all") instead of using main browser panel</li>
-            <li><b>📋 Tool Call Format:</b> Enforced "Tool calls so far: X/5" BEFORE every tool call with clear examples and double accountability (before + after)</li>
-            <li><b>📦 Import Handling:</b> Added guidance for AI to check imports with searchCode and use fully qualified names when needed</li>
-            <li><b>🎯 Exact File Search:</b> searchCode now handles specific file paths (e.g., "src/main/java/Service.java") with fallback to glob patterns</li>
-            <li><b>📄 Context Lines Fixed:</b> before/after context lines now properly parsed and displayed from ripgrep JSON output</li>
-            <li><b>🔄 Multiline Regex:</b> Added explicit multiline parameter for cross-line pattern matching (e.g., "private void.*?\\}") - AI has full control</li>
-            <li><b>🪟 Tool Details Modal:</b> Replaced blocking alert() with beautiful modal for tool call details - scrollable, copyable, syntax-highlighted</li>
-            <li><b>✅ Fixed replaceCodeInFile:</b> Tool response now shows NEW code after user accepts (was showing old code due to async timing issue)</li>
+            <li><b>Understands Your Codebase:</b> AI analyzes your actual project classes, methods, and dependencies - not just generic patterns from training data</li>
+            <li><b>Works for Niche Projects:</b> No longer limited by AI's general knowledge - learns your specific domain, frameworks, and custom libraries</li>
+            <li><b>Compile-Ready Output:</b> Generated tests typically compile without errors - AI knows your exact class structures, imports, and types</li>
+            <li><b>Smart Context Collection:</b> Optimized strategy gathers only relevant context - faster execution, better results</li>
         </ul>
 
-        <h3>Version 1.9.907</h3>
+        <h4>⚡ Streaming & Performance</h4>
         <ul>
-            <li><b>🚫 Binary File Exclusion:</b> Images, JARs, executables, and other binary files automatically excluded from AI commit message generation - clearer what AI analyzes</li>
-            <li><b>📊 Full Transparency:</b> Git UI shows file breakdown (code vs binary), size estimates with exclusions, and exactly what files AI analyzed in status messages</li>
-            <li><b>⚡ Performance Boost:</b> Git status cached for 3s (instant on rapid refreshes), debounced size estimation (300ms), auto-refresh after commit with proper timing</li>
-            <li><b>🎯 Large Changeset Handling:</b> AI receives special instruction for >50KB changes to prioritize and summarize effectively - users see "Large changeset" warning</li>
-            <li><b>💬 Chat UI Fixes:</b> Fixed non-streaming mode tool visibility with smart refresh (only when memory changes), preserved scroll position during updates</li>
-            <li><b>🔧 Quick Action Polish:</b> Renamed misleading "Commit and push all" to honest "Open Git UI"</li>
+            <li><b>Real-Time Progress:</b> Watch test generation as it happens with streaming updates - know exactly what the AI is doing</li>
+            <li><b>Faster Execution:</b> Smarter context gathering reduces processing time significantly</li>
+            <li><b>Cancellation Support:</b> Cancel test generation at any time during the process</li>
+            <li><b>Better UX:</b> Clear phase indicators, progress feedback, and status updates throughout</li>
         </ul>
 
-        <h3>Version 1.9.906</h3>
+        <h4>🎯 Enhanced Context Agent</h4>
         <ul>
-            <li><b>🧠 Smart Code Completion:</b> Enhanced "Fill code at cursor" with PSI-based context analysis - AI now knows available methods, variables, types, and imports for much better suggestions</li>
-            <li><b>🎯 Intent Detection:</b> Automatically detects what you're trying to do (method call arguments, variable assignment, return statement, etc.) for context-aware completions</li>
-            <li><b>📏 Massive Context:</b> Increased from 10 to 100 lines before/after cursor - AI sees entire class/file for better pattern understanding</li>
-            <li><b>🔄 Regenerate Feature:</b> Press R in completion dialog to get new options if first batch isn't good - no need to restart</li>
-            <li><b>✅ Quality Validation:</b> Automatic similarity checking prevents duplicate options - ensures you get 2 truly different alternatives (using Levenshtein distance)</li>
-            <li><b>📐 Responsive Dialogs:</b> Completion preview dialog adapts to screen size (75% width × 65% height) - bigger previews on large monitors</li>
-            <li><b>🎨 Better Parsing:</b> Handles markdown code blocks, multiple numbering formats (1. 1) 1:), and AI explanations gracefully</li>
+            <li><b>Structured Investigation:</b> 3-phase workflow - Planning, Investigation, Validation for thorough analysis</li>
+            <li><b>Category-Based Notes:</b> USAGE, ERROR, SCHEMA, INTEGRATION, EDGE_CASE categories for organized findings</li>
+            <li><b>Exploration Planning:</b> Smart tool budget management with follow-through rules</li>
+            <li><b>Better Tool Selection:</b> Discover via searchCode, Understand via readFile, Analyze via analyzeMethodUsage</li>
         </ul>
 
-        <h3>Version 1.9.905</h3>
+        <h4>🔧 Test Generation Stability</h4>
         <ul>
-            <li><b>💬 Chat UI Fixes:</b> Fixed MessageDetailDialog rendering issue - messages now display correctly with proper chat memory initialization</li>
-            <li><b>🚀 Git UI Enhancements:</b> Added smart context limit detection (100KB max), diff size warnings, session timeout tracking, and progress indicators with elapsed time</li>
-            <li><b>⌨️ Quick Action Redesign:</b> Context-aware menu with global actions ("Fill code", "Commit all"), disabled states with explanations, pure keyboard-first UX</li>
-            <li><b>✨ Inline Code Completion:</b> AI-powered completion with 2 options side-by-side, syntax-highlighted preview panels, yellow-highlighted new code, includes open files context</li>
-            <li><b>📊 Enhanced Error Visibility:</b> Better error handling in Git operations - users always know when operations fail and why (timeouts, context limits, etc.)</li>
-            <li><b>🎯 State Management:</b> Improved button states in Git UI with spinners and text changes during operations ("Generating... 5s", "Committing...", "Pushing...")</li>
+            <li><b>Improved File Handling:</b> Better virtual file system integration and test file management</li>
+            <li><b>Enhanced Test Merging:</b> Cleaner UI for reviewing and merging generated tests</li>
+            <li><b>Ripgrep Security:</b> Fixed command injection vulnerabilities, added regex validation</li>
+            <li><b>Comprehensive Testing:</b> 550+ lines of new test coverage for core components</li>
         </ul>
 
-        <h3>Version 1.9.902</h3>
+        <h4>🚀 Additional Improvements</h4>
         <ul>
-            <li><b>🏗️ Architecture Simplification:</b> Replaced complex Javalin proxy with lightweight ToolApiServer - cleaner, faster, easier to maintain</li>
-            <li><b>🛠️ Multi-Project Tool Support:</b> Per-project tool servers with automatic filtering - work on multiple projects without tool conflicts</li>
-            <li><b>🌐 OpenWebUI Integration:</b> Native tool integration with OpenAPI 3.1.0 schema, settings-based registration, and project-aware filtering</li>
-            <li><b>🎯 Enhanced Agent Mode:</b> Added tool budget system (5 exploration tools max), code understanding patterns, and strategic usage guidelines</li>
-            <li><b>💬 Modern Chat UI:</b> Redesigned chat interface with better styling, improved dark mode support, and simplified tool rendering</li>
-            <li><b>🔧 Tool Enhancements:</b> Better file path resolution, improved lookup tools, and more robust code modification capabilities</li>
+            <li><b>Pochi CLI Integration:</b> Custom prompt shortcuts with Shift+1-9 for quick actions</li>
+            <li><b>Side-by-Side Completion:</b> Compare 2 completion options with syntax highlighting</li>
+            <li><b>Lightweight Components:</b> Extracted prompts to .md files, added lightweight JCEF browser</li>
+            <li><b>Windows Support:</b> Bundled ripgrep binaries for better cross-platform compatibility</li>
         </ul>
 
-        <h3>Version 1.9.901</h3>
-        <ul>
-            <li><b>🛠️ Tool-Enabled Chat:</b> Added "Chat with Tools" action in Tools menu - normal chat with powerful code exploration capabilities</li>
-            <li><b>🎨 UI Polish:</b> Reduced code block padding in chat for cleaner, more compact display</li>
-        </ul>
-
-        <h3>Version 1.9.900</h3>
-        <ul>
-            <li><b>🐛 Test Generation Bug Fixes:</b> Fixed duplicate test class display issue - tests now show correctly only once</li>
-            <li><b>💬 Chat Memory Fix:</b> Fixed "View Chat" button functionality - now properly displays conversation history from TestWriterAgent</li>
-            <li><b>🔄 Streaming Improvements:</b> TestWriterAgent now uses ChatUIService for proper real-time streaming display</li>
-            <li><b>🎯 Context Agent Enhancements:</b> Improved context gathering with better prompts and more accurate analysis</li>
-            <li><b>🤝 Human-in-the-Loop:</b> Added user intervention capability during test generation for better control</li>
-            <li><b>🛠️ Test Tools:</b> Enhanced Ripgrep code search with better pattern matching and error handling</li>
-            <li><b>📊 Test UX:</b> Improved test data flow, scenario display, and phase transition notifications</li>
-            <li><b>🧹 Code Quality:</b> Major refactoring of TestWriterAgent for better maintainability and streaming support</li>
-        </ul>
-
-        <h3>Version 1.9.899</h3>
-        <ul>
-            <li><b>Responsive Git UI:</b> Improved responsiveness and performance of the Git interface</li>
-            <li><b>Test Generation:</b> Enhanced phase start notifications and test strategy display in test generation</li>
-            <li><b>Browser Stability:</b> Fixed null mode handling in browser debug logging to prevent crashes</li>
-            <li><b>Project Configuration:</b> Cleaned up IDEA project settings for better maintainability</li>
-            <li><b>Test Scenario Display:</b> Improved test scenario dialog with clearer formatting</li>
-            <li><b>UI Polish:</b> Various small UI improvements in git interface and dialogs</li>
-        </ul>
-
-        <h3>Version 1.9.898</h3>
-        <ul>
-            <li><b>Smart JSON Parsing:</b> Introduced JsonParsingHelper with multiple fallback strategies for handling malformed LLM responses</li>
-            <li><b>Code Health Resilience:</b> Analysis now preserves and displays partial results even when JSON parsing partially fails</li>
-            <li><b>Simplified Completions:</b> Removed complex overlap detection for more predictable and stable code suggestions</li>
-            <li><b>Issue Prioritization:</b> Code Health now shows only the most critical issues (max 5 per file) for better actionability</li>
-            <li><b>Performance & Cleanup:</b> Removed ~400 lines of unnecessary code, all methods now under 20 lines for maintainability</li>
-        </ul>
-
-        <h3>Version 1.9.897</h3>
-        <ul>
-            <li><b>Simplified Completion System:</b> Removed complex overlap detection logic for more predictable completions</li>
-            <li><b>Code Health Storage Fix:</b> Fixed issue where partial analysis results weren't being stored properly</li>
-            <li><b>Better JSON Parsing:</b> Added JsonParsingHelper with multiple fallback strategies for malformed LLM responses</li>
-            <li><b>Improved Resilience:</b> Code Health analysis now preserves partial results even when JSON parsing fails</li>
-            <li><b>Code Cleanup:</b> Removed ~400 lines of unnecessary overlap detector code</li>
-        </ul>
-
-        <h3>Version 1.9.896</h3>
-        <ul>
-            <li><b>Enhanced Code Health Analysis:</b> Improved resilience when parsing LLM responses, ensuring partial results are still displayed</li>
-            <li><b>Focused Issue Reporting:</b> Now shows only the most critical issue per method (max 5 per file) for better actionability</li>
-            <li><b>Better Error Handling:</b> Replaced blocking dialogs with non-intrusive notifications</li>
-            <li><b>Performance:</b> Increased analysis timeout to 5 minutes for complex codebases</li>
-            <li><b>Code Quality:</b> Major refactoring - all methods now under 20 lines for better maintainability</li>
-            <li><b>UI Improvements:</b> Enhanced chat panel scrolling and JCEF stability</li>
-        </ul>
-        <p><i>Bug fixes and stability improvements</i></p>
+        <p><em>Major focus on making test generation actually understand your specific codebase! 🎉</em></p>
     ]]></change-notes>
 </idea-plugin>

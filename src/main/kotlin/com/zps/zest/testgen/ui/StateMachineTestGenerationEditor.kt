@@ -91,13 +91,27 @@ class StateMachineTestGenerationEditor(
         override fun onStateChanged(event: TestGenerationEvent.StateChanged) {
             val eventTime = System.currentTimeMillis()
 
-            // Validate session ID to prevent processing events from old/other sessions
-            if (currentSessionId != null && event.sessionId != currentSessionId) {
+            // CRITICAL BUG FIX: Allow events from real session even if we're in "STARTING" state
+            // The sentinel "STARTING" value blocks all real events until CompletableFuture completes!
+            val isStartingSentinel = currentSessionId == "STARTING"
+            val shouldAccept = currentSessionId == null || event.sessionId == currentSessionId || isStartingSentinel
+
+            if (!shouldAccept) {
                 if (DEBUG_SESSION_VALIDATION) {
                     println("[DEBUG_SESSION] StateChanged IGNORED: received=${event.sessionId}, current=$currentSessionId, state=${event.newState}")
                 }
                 LOG.debug("Ignoring state change event from different session: ${event.sessionId} != $currentSessionId")
                 return
+            }
+
+            // Update currentSessionId if we're in STARTING state
+            if (isStartingSentinel && currentSessionId == "STARTING") {
+                synchronized(stateMachineLock) {
+                    if (WARN_POTENTIAL_ERRORS) {
+                        println("[WARN_SESSION_UPDATE] Updating sessionId from STARTING to ${event.sessionId}")
+                    }
+                    currentSessionId = event.sessionId
+                }
             }
 
             if (DEBUG_SESSION_VALIDATION) {
@@ -137,12 +151,22 @@ class StateMachineTestGenerationEditor(
         }
         
         override fun onActivityLogged(event: TestGenerationEvent.ActivityLogged) {
-            // Validate session ID
-            if (currentSessionId != null && event.sessionId != currentSessionId) {
+            // CRITICAL BUG FIX: Allow events from real session even if we're in "STARTING" state
+            val isStartingSentinel = currentSessionId == "STARTING"
+            val shouldAccept = currentSessionId == null || event.sessionId == currentSessionId || isStartingSentinel
+
+            if (!shouldAccept) {
                 if (DEBUG_SESSION_VALIDATION) {
                     println("[DEBUG_SESSION] ActivityLogged IGNORED: received=${event.sessionId}, current=$currentSessionId")
                 }
                 return
+            }
+
+            // Update currentSessionId if we're in STARTING state
+            if (isStartingSentinel && currentSessionId == "STARTING") {
+                synchronized(stateMachineLock) {
+                    currentSessionId = event.sessionId
+                }
             }
 
             SwingUtilities.invokeLater {
@@ -152,12 +176,22 @@ class StateMachineTestGenerationEditor(
         }
         
         override fun onErrorOccurred(event: TestGenerationEvent.ErrorOccurred) {
-            // Validate session ID
-            if (currentSessionId != null && event.sessionId != currentSessionId) {
+            // CRITICAL BUG FIX: Allow events from real session even if we're in "STARTING" state
+            val isStartingSentinel = currentSessionId == "STARTING"
+            val shouldAccept = currentSessionId == null || event.sessionId == currentSessionId || isStartingSentinel
+
+            if (!shouldAccept) {
                 if (DEBUG_SESSION_VALIDATION) {
                     println("[DEBUG_SESSION] ErrorOccurred IGNORED: received=${event.sessionId}, current=$currentSessionId")
                 }
                 return
+            }
+
+            // Update currentSessionId if we're in STARTING state
+            if (isStartingSentinel && currentSessionId == "STARTING") {
+                synchronized(stateMachineLock) {
+                    currentSessionId = event.sessionId
+                }
             }
 
             if (DEBUG_SESSION_VALIDATION) {
@@ -200,12 +234,22 @@ class StateMachineTestGenerationEditor(
         }
         
         override fun onStepCompleted(event: TestGenerationEvent.StepCompleted) {
-            // Validate session ID
-            if (currentSessionId != null &&  event.sessionId != currentSessionId) {
+            // CRITICAL BUG FIX: Allow events from real session even if we're in "STARTING" state
+            val isStartingSentinel = currentSessionId == "STARTING"
+            val shouldAccept = currentSessionId == null || event.sessionId == currentSessionId || isStartingSentinel
+
+            if (!shouldAccept) {
                 if (DEBUG_SESSION_VALIDATION) {
                     println("[DEBUG_SESSION] StepCompleted IGNORED: received=${event.sessionId}, current=$currentSessionId")
                 }
                 return
+            }
+
+            // Update currentSessionId if we're in STARTING state
+            if (isStartingSentinel && currentSessionId == "STARTING") {
+                synchronized(stateMachineLock) {
+                    currentSessionId = event.sessionId
+                }
             }
 
             SwingUtilities.invokeLater {
@@ -221,12 +265,22 @@ class StateMachineTestGenerationEditor(
         }
         
         override fun onUserInputRequired(event: TestGenerationEvent.UserInputRequired) {
-            // Validate session ID
-            if (currentSessionId != null && event.sessionId != currentSessionId) {
+            // CRITICAL BUG FIX: Allow events from real session even if we're in "STARTING" state
+            val isStartingSentinel = currentSessionId == "STARTING"
+            val shouldAccept = currentSessionId == null || event.sessionId == currentSessionId || isStartingSentinel
+
+            if (!shouldAccept) {
                 if (DEBUG_SESSION_VALIDATION) {
                     println("[DEBUG_SESSION] UserInputRequired IGNORED: received=${event.sessionId}, current=$currentSessionId")
                 }
                 return
+            }
+
+            // Update currentSessionId if we're in STARTING state
+            if (isStartingSentinel && currentSessionId == "STARTING") {
+                synchronized(stateMachineLock) {
+                    currentSessionId = event.sessionId
+                }
             }
 
             if (DEBUG_UI_UPDATES) {
@@ -811,8 +865,7 @@ class StateMachineTestGenerationEditor(
             if (currentSessionId != null && currentStateMachine != null) {
                 val currentState = currentStateMachine?.currentState
                 if (currentState != null && currentState.isActive) {
-                    if (DEBUG_UI_UPDAT
-                        ES) {
+                    if (DEBUG_UI_UPDATES) {
                         println("[DEBUG_UI] BLOCKED: already running, state=${currentState.displayName}, sessionId=$currentSessionId")
                     }
                     logEvent("Warning: Test generation already in progress (${currentState.displayName})")

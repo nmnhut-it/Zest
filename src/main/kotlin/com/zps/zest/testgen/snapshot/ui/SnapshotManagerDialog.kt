@@ -99,7 +99,19 @@ class SnapshotManagerDialog(private val project: Project) : DialogWrapper(projec
             }
         }
 
-        return arrayOf(resumeAction, resumeWithInstructionsAction, deleteAction, exportAction, refreshAction, cancelAction)
+        val experimentAction = object : DialogWrapperAction("Experiment with Prompts...") {
+            override fun doAction(e: java.awt.event.ActionEvent?) {
+                experimentWithPrompts()
+            }
+        }
+
+        val deleteAllAction = object : DialogWrapperAction("Delete All...") {
+            override fun doAction(e: java.awt.event.ActionEvent?) {
+                deleteAllSnapshots()
+            }
+        }
+
+        return arrayOf(resumeAction, resumeWithInstructionsAction, experimentAction, deleteAction, deleteAllAction, exportAction, refreshAction, cancelAction)
     }
 
     private fun loadSnapshots() {
@@ -154,30 +166,59 @@ class SnapshotManagerDialog(private val project: Project) : DialogWrapper(projec
             return
         }
 
+        // Close this dialog first
+        close(OK_EXIT_CODE)
+
+        // Create a virtual file for the resumed session
+        val virtualFile = com.zps.zest.testgen.ui.TestGenerationVirtualFile(
+            "Resumed: ${snapshot.description}",
+            null  // No request object for resumed sessions
+        )
+
+        // Register the virtual file
+        com.zps.zest.testgen.ui.TestGenerationFileSystem.INSTANCE.registerFile(virtualFile)
+
+        // Open the editor - this will create the UI
+        val fileEditorManager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project)
+        fileEditorManager.openFile(virtualFile, true)
+
+        // Get the editor that was just created
+        val editors = fileEditorManager.getEditors(virtualFile)
+        val editor = editors.firstOrNull() as? com.zps.zest.testgen.ui.StateMachineTestGenerationEditor
+
+        if (editor == null) {
+            com.intellij.openapi.ui.Messages.showErrorDialog(
+                project,
+                "Failed to create editor for resumed session",
+                "Resume Failed"
+            )
+            return
+        }
+
         // Get test generation service
         val testGenService = project.getService(com.zps.zest.testgen.StateMachineTestGenerationService::class.java)
 
-        // Close this dialog
-        close(OK_EXIT_CODE)
-
-        // Resume from checkpoint
+        // Resume from checkpoint with the editor's event listener
         testGenService.resumeFromCheckpoint(
             snapshot.filePath,
             nudgeInstructions,
-            null, // Event listener will be set by UI
-            null  // Streaming callback will be set by UI
+            editor.getEventListener(),  // Use editor's event listener
+            editor.getStreamingCallback()  // Use editor's streaming callback
         ).thenAccept { stateMachine ->
-            // Notify user of success
+            // Notify editor about the resumed session
             SwingUtilities.invokeLater {
+                editor.onSessionResumed(stateMachine)
+
                 com.intellij.openapi.ui.Messages.showInfoMessage(
                     project,
-                    "Resumed from checkpoint: ${snapshot.description}\n\nNew Session ID: ${stateMachine.sessionId}",
+                    "Resumed from checkpoint: ${snapshot.description}\n\nSession ID: ${stateMachine.sessionId}",
                     "Checkpoint Resumed"
                 )
             }
         }.exceptionally { throwable ->
-            // Notify user of failure
+            // Notify user of failure and close the editor
             SwingUtilities.invokeLater {
+                fileEditorManager.closeFile(virtualFile)
                 com.intellij.openapi.ui.Messages.showErrorDialog(
                     project,
                     "Failed to resume from checkpoint:\n${throwable.message}",
@@ -246,6 +287,71 @@ class SnapshotManagerDialog(private val project: Project) : DialogWrapper(projec
                 )
             }
         }
+    }
+
+    private fun deleteAllSnapshots() {
+        if (snapshots.isEmpty()) {
+            JOptionPane.showMessageDialog(
+                contentPanel,
+                "No snapshots to delete",
+                "Info",
+                JOptionPane.INFORMATION_MESSAGE
+            )
+            return
+        }
+
+        val count = snapshots.size
+        val choice = JOptionPane.showConfirmDialog(
+            contentPanel,
+            "Are you sure you want to delete ALL $count snapshots?\n\nThis action cannot be undone!",
+            "Confirm Delete All",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE
+        )
+
+        if (choice == JOptionPane.YES_OPTION) {
+            var successCount = 0
+            var failCount = 0
+
+            for (snapshot in snapshots) {
+                if (AgentSnapshotSerializer.deleteSnapshot(snapshot.filePath)) {
+                    successCount++
+                } else {
+                    failCount++
+                }
+            }
+
+            val message = if (failCount == 0) {
+                "Successfully deleted all $successCount snapshots"
+            } else {
+                "Deleted $successCount snapshots\nFailed to delete $failCount snapshots"
+            }
+
+            JOptionPane.showMessageDialog(
+                contentPanel,
+                message,
+                if (failCount == 0) "Success" else "Partial Success",
+                if (failCount == 0) JOptionPane.INFORMATION_MESSAGE else JOptionPane.WARNING_MESSAGE
+            )
+
+            loadSnapshots()
+        }
+    }
+
+    private fun experimentWithPrompts() {
+        val snapshot = selectedSnapshot ?: run {
+            JOptionPane.showMessageDialog(
+                contentPanel,
+                "Please select a snapshot to experiment with",
+                "No Selection",
+                JOptionPane.WARNING_MESSAGE
+            )
+            return
+        }
+
+        // Close this dialog and open experiment dialog
+        val experimentDialog = PromptExperimentDialog(project, snapshot)
+        experimentDialog.show()
     }
 
     private fun exportSelectedSnapshot() {

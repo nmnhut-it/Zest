@@ -531,6 +531,11 @@ public class ContextAgent extends StreamingBaseAgent {
     }
 
     public com.zps.zest.testgen.snapshot.AgentSnapshot exportSnapshot(String sessionId, String description, String originalPrompt) {
+        return exportSnapshot(sessionId, description, originalPrompt, null);
+    }
+
+    public com.zps.zest.testgen.snapshot.AgentSnapshot exportSnapshot(String sessionId, String description, String originalPrompt,
+                                                                      com.zps.zest.testgen.model.TestGenerationRequest request) {
         LOG.info("Exporting ContextAgent snapshot for session: " + sessionId);
 
         List<dev.langchain4j.data.message.ChatMessage> messages = chatMemory.messages();
@@ -541,6 +546,18 @@ public class ContextAgent extends StreamingBaseAgent {
         }
 
         com.zps.zest.testgen.snapshot.ContextToolsSnapshot toolsState = contextTools.exportState();
+
+        // Build metadata map with request information for resumption
+        Map<String, String> metadata = new HashMap<>();
+        if (request != null) {
+            metadata.put("target_file_path", request.getTargetFile().getVirtualFile().getPath());
+            List<String> methodNames = new ArrayList<>();
+            for (com.intellij.psi.PsiMethod method : request.getTargetMethods()) {
+                methodNames.add(method.getName());
+            }
+            metadata.put("target_method_names", String.join(",", methodNames));
+            metadata.put("test_type", request.getTestType().name());
+        }
 
         return new com.zps.zest.testgen.snapshot.AgentSnapshot(
             com.zps.zest.testgen.snapshot.AgentSnapshot.SNAPSHOT_VERSION,
@@ -553,7 +570,7 @@ public class ContextAgent extends StreamingBaseAgent {
             toolsState,
             null,
             null,
-            new HashMap<>()
+            metadata
         );
     }
 

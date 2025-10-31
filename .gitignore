@@ -60,6 +60,9 @@ zest-plugin.properties
 # Ignore all files in .zest directory
 /.zest/
 
+# Zest agent snapshots (can be large, contain sensitive code context)
+/.zest-agent-snapshots/
+
 # Ignore all files in this directory
 /.kotlin
 

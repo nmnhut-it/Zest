@@ -113,18 +113,25 @@ public final class StateMachineTestGenerationService {
             @Nullable TestGenerationEventListener eventListener,
             @Nullable Consumer<String> streamingCallback) {
 
+        System.out.println("[DEBUG_SNAPSHOT] resumeFromCheckpoint START: path=" + snapshotPath);
+
         return CompletableFuture.supplyAsync(() -> {
             try {
                 // Load snapshot from file
+                System.out.println("[DEBUG_SNAPSHOT] Loading snapshot from: " + snapshotPath);
                 com.zps.zest.testgen.snapshot.AgentSnapshot snapshot =
                     com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.loadFromFile(snapshotPath);
 
                 if (snapshot == null) {
+                    System.out.println("[WARN_SNAPSHOT] Failed to load snapshot from: " + snapshotPath);
                     throw new RuntimeException("Failed to load snapshot from: " + snapshotPath);
                 }
 
                 // Create new session linked to original
                 String newSessionId = UUID.randomUUID().toString();
+                System.out.println("[DEBUG_SNAPSHOT] Loaded successfully: agentType=" + snapshot.getAgentType() +
+                    ", messageCount=" + snapshot.getChatMessages().size() +
+                    ", newSessionId=" + newSessionId);
                 LOG.info("Resuming from checkpoint: " + snapshotPath + " with new session: " + newSessionId);
 
                 // Determine checkpoint timing and target state
@@ -134,6 +141,8 @@ public final class StateMachineTestGenerationService {
 
                 // Map agent type to state
                 TestGenerationState resumeState = mapAgentTypeToState(snapshot.getAgentType());
+
+                System.out.println("[DEBUG_SNAPSHOT] Checkpoint timing=" + timing + ", resumeState=" + resumeState);
 
                 // Create state machine
                 TestGenerationStateMachine stateMachine = new TestGenerationStateMachine(project, newSessionId);
@@ -161,31 +170,67 @@ public final class StateMachineTestGenerationService {
                 // Register all state handlers
                 setupStateHandlers(stateMachine, streamingCallback, eventListener);
 
-                // Note: We don't set the original request because we don't have PsiFile reference from snapshot
-                // The restored agents have all the state they need to continue
-                // stateMachine.setRequest(null);
+                // Try to reconstruct the request from snapshot metadata
+                System.out.println("[DEBUG_SNAPSHOT] Attempting to reconstruct request from metadata");
+                TestGenerationRequest reconstructedRequest = reconstructRequestFromSnapshot(snapshot);
+                if (reconstructedRequest != null) {
+                    System.out.println("[DEBUG_SNAPSHOT] Successfully reconstructed request: " +
+                            reconstructedRequest.getTargetMethods().size() + " methods");
+                    stateMachine.setRequest(reconstructedRequest);
+                } else {
+                    System.out.println("[DEBUG_SNAPSHOT] Could not reconstruct request from metadata");
+                    LOG.warn("Cannot reconstruct request - AFTER checkpoint resume will be view-only");
+                }
 
                 // Store active state machine
                 activeStateMachines.put(newSessionId, stateMachine);
 
                 // Restore from checkpoint
+                System.out.println("[DEBUG_SNAPSHOT] Restoring agent state from checkpoint");
                 stateMachine.restoreFromCheckpoint(snapshot, resumeState, nudgeInstructions);
 
-                // Transition to resume state
-                stateMachine.transitionTo(resumeState, "Restored from checkpoint");
+                // Force transition to resume state (bypass validation for checkpoint restoration)
+                System.out.println("[DEBUG_SNAPSHOT] Force transitioning to resume state: " + resumeState);
+                stateMachine.forceTransitionTo(resumeState, "Restored from checkpoint");
 
                 // If BEFORE checkpoint, execute the state
-                // If AFTER checkpoint, transition to next state
+                // If AFTER checkpoint, transition to next state and continue (if request was reconstructed)
                 if (timing == com.zps.zest.testgen.snapshot.CheckpointTiming.BEFORE) {
+                    System.out.println("[DEBUG_SNAPSHOT] BEFORE checkpoint - executing state with auto-flow");
                     LOG.info("Executing state from BEFORE checkpoint: " + resumeState);
                     stateMachine.enableAutoFlow();
                     stateMachine.executeCurrentState().join();
                 } else {
+                    System.out.println("[DEBUG_SNAPSHOT] AFTER checkpoint - agent already executed");
                     LOG.info("Resuming from AFTER checkpoint, agent already executed: " + resumeState);
-                    // Agent has already executed, user can decide next action
-                    stateMachine.disableAutoFlow();
+
+                    // Check if we successfully reconstructed the request
+                    if (reconstructedRequest != null) {
+                        // We have the request! Can continue execution
+                        System.out.println("[DEBUG_SNAPSHOT] Request available - transitioning to next state");
+                        TestGenerationState nextState = getNextState(resumeState);
+                        if (nextState != null) {
+                            System.out.println("[DEBUG_SNAPSHOT] Transitioning to next state: " + nextState);
+                            stateMachine.forceTransitionTo(nextState, "AFTER checkpoint - skipping to next state");
+
+                            // Enable auto-flow and execute
+                            stateMachine.enableAutoFlow();
+                            System.out.println("[DEBUG_SNAPSHOT] Executing next state with auto-flow enabled");
+                            stateMachine.executeCurrentState();
+                        } else {
+                            System.out.println("[DEBUG_SNAPSHOT] No next state, staying in: " + resumeState);
+                            stateMachine.disableAutoFlow();
+                        }
+                    } else {
+                        // No request - view-only mode
+                        System.out.println("[DEBUG_SNAPSHOT] No request available - staying in manual/view-only mode");
+                        LOG.warn("Cannot continue execution without request object");
+                        LOG.info("This snapshot is useful for viewing agent chat history and debugging prompts");
+                        stateMachine.disableAutoFlow();
+                    }
                 }
 
+                System.out.println("[DEBUG_SNAPSHOT] Resume complete, sessionId=" + newSessionId);
                 return stateMachine;
 
             } catch (Exception e) {
@@ -214,6 +259,116 @@ public final class StateMachineTestGenerationService {
     }
 
     /**
+     * Get the next state in the workflow after the given state
+     */
+    private TestGenerationState getNextState(TestGenerationState currentState) {
+        switch (currentState) {
+            case IDLE:
+                return TestGenerationState.INITIALIZING;
+            case INITIALIZING:
+                return TestGenerationState.GATHERING_CONTEXT;
+            case GATHERING_CONTEXT:
+                return TestGenerationState.PLANNING_TESTS;
+            case PLANNING_TESTS:
+                return TestGenerationState.AWAITING_USER_SELECTION;
+            case AWAITING_USER_SELECTION:
+                return TestGenerationState.GENERATING_TESTS;
+            case GENERATING_TESTS:
+                return TestGenerationState.MERGING_TESTS;
+            case MERGING_TESTS:
+                return TestGenerationState.FIXING_TESTS;
+            case FIXING_TESTS:
+                return TestGenerationState.COMPLETED;
+            default:
+                return null; // Terminal or unknown state
+        }
+    }
+
+    /**
+     * Reconstruct TestGenerationRequest from snapshot metadata.
+     * Returns null if metadata is missing or PSI references cannot be resolved.
+     */
+    @Nullable
+    private TestGenerationRequest reconstructRequestFromSnapshot(@NotNull com.zps.zest.testgen.snapshot.AgentSnapshot snapshot) {
+        Map<String, String> metadata = snapshot.getMetadata();
+        if (metadata == null || metadata.isEmpty()) {
+            LOG.warn("No metadata in snapshot, cannot reconstruct request");
+            return null;
+        }
+
+        String targetFilePath = metadata.get("target_file_path");
+        String methodNamesStr = metadata.get("target_method_names");
+        String testTypeStr = metadata.get("test_type");
+
+        if (targetFilePath == null || methodNamesStr == null || testTypeStr == null) {
+            LOG.warn("Incomplete metadata in snapshot: targetFilePath=" + targetFilePath +
+                    ", methodNames=" + methodNamesStr + ", testType=" + testTypeStr);
+            return null;
+        }
+
+        try {
+            // Find the virtual file
+            com.intellij.openapi.vfs.VirtualFile virtualFile =
+                    com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(targetFilePath);
+            if (virtualFile == null) {
+                LOG.warn("Cannot find file at path: " + targetFilePath);
+                return null;
+            }
+
+            // Get PsiFile
+            com.intellij.psi.PsiFile psiFile = com.intellij.psi.PsiManager.getInstance(project).findFile(virtualFile);
+            if (!(psiFile instanceof com.intellij.psi.PsiJavaFile)) {
+                LOG.warn("File is not a Java file: " + targetFilePath);
+                return null;
+            }
+
+            com.intellij.psi.PsiJavaFile javaFile = (com.intellij.psi.PsiJavaFile) psiFile;
+
+            // Find the target methods by name
+            String[] methodNames = methodNamesStr.split(",");
+            List<com.intellij.psi.PsiMethod> targetMethods = new ArrayList<>();
+
+            // Get all classes in the file
+            com.intellij.psi.PsiClass[] classes = javaFile.getClasses();
+            if (classes.length == 0) {
+                LOG.warn("No classes found in file: " + targetFilePath);
+                return null;
+            }
+
+            // Search for methods in all classes
+            for (com.intellij.psi.PsiClass psiClass : classes) {
+                for (String methodName : methodNames) {
+                    com.intellij.psi.PsiMethod[] methods = psiClass.findMethodsByName(methodName.trim(), false);
+                    if (methods.length > 0) {
+                        targetMethods.add(methods[0]); // Take first match
+                    }
+                }
+            }
+
+            if (targetMethods.isEmpty()) {
+                LOG.warn("Could not find any target methods in file: " + targetFilePath);
+                return null;
+            }
+
+            // Parse test type
+            TestGenerationRequest.TestType testType;
+            try {
+                testType = TestGenerationRequest.TestType.valueOf(testTypeStr);
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Invalid test type in metadata: " + testTypeStr);
+                testType = TestGenerationRequest.TestType.UNIT_TESTS; // Default
+            }
+
+            LOG.info("Successfully reconstructed request from snapshot: " + targetMethods.size() + " methods");
+            return new TestGenerationRequest(javaFile, targetMethods, null, testType, null);
+
+        } catch (Exception e) {
+            LOG.error("Failed to reconstruct request from snapshot", e);
+            return null;
+        }
+    }
+
+    /**
      * Continue execution from current state (manual intervention)
      */
     public boolean continueExecution(@NotNull String sessionId) {
@@ -222,19 +377,22 @@ public final class StateMachineTestGenerationService {
             LOG.warn("No active state machine found for session: " + sessionId);
             return false;
         }
-        
+
         if (stateMachine.isExecuting()) {
             LOG.warn("State machine is already executing: " + sessionId);
             return false;
         }
-        
+
         if (stateMachine.getCurrentState().isTerminal()) {
             LOG.warn("Cannot continue from terminal state: " + stateMachine.getCurrentState());
             return false;
         }
-        
+
         LOG.info("Continuing execution for session: " + sessionId + " from state: " + stateMachine.getCurrentState());
-        
+
+        // Enable auto-flow to allow automatic progression through states
+        stateMachine.enableAutoFlow();
+
         // Execute current state
         stateMachine.executeCurrentState();
         return true;

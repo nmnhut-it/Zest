@@ -173,7 +173,8 @@ public class ContextGatheringHandler extends AbstractStateHandler {
                 com.zps.zest.testgen.snapshot.AgentSnapshot snapshot = contextAgent.exportSnapshot(
                     stateMachine.getSessionId(),
                     "After context gathering - " + totalItems + " items analyzed",
-                    promptDescription
+                    promptDescription,
+                    request  // Pass request to save metadata
                 );
                 java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveCheckpoint(
                     snapshot,

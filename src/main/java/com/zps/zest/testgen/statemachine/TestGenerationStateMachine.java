@@ -206,6 +206,26 @@ public class TestGenerationStateMachine {
 
         return true;
     }
+
+    /**
+     * Force transition to a new state, bypassing validation.
+     * Used for checkpoint restoration where we need to jump to arbitrary states.
+     */
+    public void forceTransitionTo(@NotNull TestGenerationState newState, @Nullable String reason) {
+        TestGenerationState oldState = currentState;
+        currentState = newState;
+
+        if (DEBUG_STATE_TRANSITIONS) {
+            System.out.println("[DEBUG_STATE_TRANSITION] FORCED " + oldState + " → " + newState +
+                (reason != null ? " (reason: " + reason + ")" : "") +
+                ", sessionId=" + sessionId + ", autoFlow=" + autoFlowEnabled);
+        }
+        LOG.info("Forced state transition: " + oldState + " -> " + newState +
+                 (reason != null ? " (" + reason + ")" : ""));
+
+        // Fire state change event
+        fireEvent(new TestGenerationEvent.StateChanged(sessionId, oldState, newState, reason));
+    }
     
     /**
      * Start execution from current state

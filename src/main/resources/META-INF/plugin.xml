@@ -43,6 +43,7 @@
         <backgroundPostStartupActivity implementation="com.zps.zest.startup.PromptMigrationStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.mcp.ToolApiServerStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.update.VersionUpdateNotifier"/>
+        <backgroundPostStartupActivity implementation="com.zps.zest.testgen.snapshot.SnapshotCleanupActivity"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
         <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
 
@@ -261,6 +262,14 @@
                 text="Test Generation Guide / Hướng dẫn tạo test"
                 description="View comprehensive test generation documentation / Xem tài liệu chi tiết về tạo test">
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateTests"/>
+        </action>
+
+        <!-- Snapshot Manager Action -->
+        <action id="Zest.OpenSnapshotManager"
+                class="com.zps.zest.testgen.actions.OpenSnapshotManagerAction"
+                text="Manage Test Generation Snapshots / Quản lý snapshot test"
+                description="View, resume, and manage saved test generation checkpoints / Xem, tiếp tục và quản lý các checkpoint đã lưu">
+            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.ShowTestGenerationHelp"/>
         </action>
 
         <action id="Zest.TestContextSummarization"

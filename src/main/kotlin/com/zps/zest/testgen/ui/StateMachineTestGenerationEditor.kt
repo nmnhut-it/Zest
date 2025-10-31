@@ -630,7 +630,7 @@ class StateMachineTestGenerationEditor(
         component.background = UIUtil.getPanelBackground()
         setupUI()
         initializeStreamingHelper()
-        
+
         // Auto-start if we have a request (but not if already running)
         virtualFile.request?.let { request ->
             SwingUtilities.invokeLater {
@@ -639,6 +639,38 @@ class StateMachineTestGenerationEditor(
                     startTestGeneration(request)
                 }
             }
+        }
+    }
+
+    /**
+     * Get the event listener for external use (e.g., snapshot resume)
+     */
+    fun getEventListener(): TestGenerationEventListener = eventListener
+
+    /**
+     * Get the streaming callback for external use (e.g., snapshot resume)
+     */
+    fun getStreamingCallback(): ((String) -> Unit) = ::processStreamingText
+
+    /**
+     * Called when a session is resumed from a snapshot
+     */
+    fun onSessionResumed(stateMachine: TestGenerationStateMachine) {
+        synchronized(stateMachineLock) {
+            currentSessionId = stateMachine.sessionId
+            currentStateMachine = stateMachine
+        }
+
+        if (DEBUG_UI_UPDATES) {
+            println("[DEBUG_UI] Session resumed: sessionId=${stateMachine.sessionId}, state=${stateMachine.currentState}")
+        }
+
+        SwingUtilities.invokeLater {
+            updateStateDisplay(stateMachine.currentState)
+            updateControlButtons()
+            updateAgentChatMemories(stateMachine.sessionId)
+            startChatMemoryPeriodicUpdates()
+            logEvent("Session resumed from snapshot: ${stateMachine.sessionId}")
         }
     }
     
@@ -1021,11 +1053,42 @@ class StateMachineTestGenerationEditor(
                 }
                 
                 state == null || state == TestGenerationState.IDLE -> {
-                    primaryActionButton.apply {
-                        text = "▶️ Start Test Generation"
-                        background = Color(76, 175, 80) // Green
-                        isEnabled = true
-                        isVisible = true
+                    // Differentiate between new session and resumed session
+                    val isResumedSession = virtualFile.request == null && currentStateMachine != null
+                    val isNewSession = virtualFile.request != null
+
+                    if (DEBUG_BUTTON_STATE) {
+                        println("[DEBUG_BUTTON_STATE] IDLE state: isResumedSession=$isResumedSession, isNewSession=$isNewSession, hasRequest=${virtualFile.request != null}, hasStateMachine=${currentStateMachine != null}")
+                    }
+
+                    when {
+                        isResumedSession -> {
+                            // Resumed session - show continue option
+                            primaryActionButton.apply {
+                                text = "▶️ Continue from Checkpoint"
+                                background = Color(33, 150, 243) // Blue to differentiate from new session
+                                isEnabled = currentStateMachine?.currentState?.isTerminal != true
+                                isVisible = true
+                            }
+                        }
+                        isNewSession -> {
+                            // Normal new session - show start
+                            primaryActionButton.apply {
+                                text = "▶️ Start Test Generation"
+                                background = Color(76, 175, 80) // Green
+                                isEnabled = true
+                                isVisible = true
+                            }
+                        }
+                        else -> {
+                            // No request and no state machine - invalid state, hide button
+                            primaryActionButton.apply {
+                                text = "⚠️ No Session Data"
+                                background = Color(156, 156, 156) // Gray
+                                isEnabled = false
+                                isVisible = false
+                            }
+                        }
                     }
                     cancelButton.isVisible = false
                 }
@@ -1087,7 +1150,7 @@ class StateMachineTestGenerationEditor(
                     }
                     cancelButton.isVisible = false
                 }
-                
+
                 state?.isActive == true -> {
                     // During auto-flow states, show disabled button with current state
                     primaryActionButton.apply {
@@ -1366,8 +1429,29 @@ class StateMachineTestGenerationEditor(
 
         when {
             state == null -> {
-                // Start generation
-                virtualFile.request?.let { startTestGeneration(it) }
+                // Differentiate between new session and resumed session
+                val isResumedSession = virtualFile.request == null && currentStateMachine != null
+
+                if (isResumedSession) {
+                    // Resumed session - continue from checkpoint
+                    if (DEBUG_UI_UPDATES) {
+                        println("[DEBUG_UI] handlePrimaryAction: Continuing resumed session, sessionId=${currentStateMachine?.sessionId}")
+                    }
+                    continueExecution()
+                } else {
+                    // New session - start generation
+                    virtualFile.request?.let {
+                        if (DEBUG_UI_UPDATES) {
+                            println("[DEBUG_UI] handlePrimaryAction: Starting new test generation")
+                        }
+                        startTestGeneration(it)
+                    } ?: run {
+                        if (DEBUG_UI_UPDATES) {
+                            println("[DEBUG_UI] handlePrimaryAction: No request object available!")
+                        }
+                        logEvent("⚠️ Cannot start test generation: no request data available")
+                    }
+                }
             }
             state == TestGenerationState.AWAITING_USER_SELECTION -> {
                 // Generate selected tests

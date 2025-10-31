@@ -13,8 +13,20 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
+
+/**
+ * Checkpoint timing for systematic snapshot naming
+ */
+enum class CheckpointTiming {
+    BEFORE,  // Before phase execution
+    AFTER,   // After phase completion
+    ERROR,   // On error/failure
+    CANCEL   // On user cancellation
+}
 
 class AgentSnapshotSerializer {
 
@@ -35,6 +47,9 @@ class AgentSnapshotSerializer {
 
         private const val SNAPSHOT_DIR = ".zest-agent-snapshots"
         private val TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+
+        // Track sequence numbers per session for systematic checkpoint naming
+        private val sessionSequences = ConcurrentHashMap<String, AtomicInteger>()
 
         private fun log(message: String, error: Throwable? = null) {
             LOG?.let {
@@ -96,6 +111,56 @@ class AgentSnapshotSerializer {
 
             log("Saved agent snapshot to: ${file.absolutePath}")
             return file
+        }
+
+        /**
+         * Save checkpoint with systematic naming: {sessionId}-{seq}-{timing}-{agent}.json
+         * Automatically adds timing and sequence metadata to the snapshot.
+         */
+        @JvmStatic
+        fun saveCheckpoint(
+            snapshot: AgentSnapshot,
+            project: Project,
+            timing: CheckpointTiming
+        ): File {
+            val snapshotDir = getSnapshotDirectory(project)
+            snapshotDir.mkdirs()
+
+            // Get next sequence number for this session
+            val sequence = sessionSequences
+                .computeIfAbsent(snapshot.sessionId) { AtomicInteger(0) }
+                .incrementAndGet()
+
+            // Generate systematic filename
+            val sessionIdShort = snapshot.sessionId.take(8)  // Shorten for readability
+            val seqStr = String.format("%03d", sequence)
+            val timingStr = timing.name.lowercase()
+            val agentStr = snapshot.agentType.name.lowercase()
+            val fileName = "${sessionIdShort}-${seqStr}-${timingStr}-${agentStr}.json"
+
+            val file = File(snapshotDir, fileName)
+
+            // Add timing and sequence to metadata
+            val enhancedSnapshot = snapshot.copy(
+                metadata = snapshot.metadata + mapOf(
+                    "checkpoint_timing" to timing.name,
+                    "checkpoint_sequence" to sequence.toString()
+                )
+            )
+
+            val json = serializeToJson(enhancedSnapshot)
+            Files.writeString(file.toPath(), json)
+
+            log("Saved checkpoint: ${file.name} (${timing.name})")
+            return file
+        }
+
+        /**
+         * Clear sequence tracking for a completed session
+         */
+        @JvmStatic
+        fun clearSession(sessionId: String) {
+            sessionSequences.remove(sessionId)
         }
 
         @JvmStatic

@@ -37,6 +37,13 @@ class StateMachineTestGenerationEditor(
     
     companion object {
         private val LOG = Logger.getInstance(StateMachineTestGenerationEditor::class.java)
+
+        // Debug flags for console logging
+        private const val DEBUG_SESSION_VALIDATION = true
+        private const val DEBUG_UI_UPDATES = true
+        private const val DEBUG_BUTTON_STATE = true
+        private const val DEBUG_EVENT_TIMING = true
+        private const val WARN_POTENTIAL_ERRORS = true  // Warning logs for error-prone areas
     }
     
     private val testGenService = project.getService(StateMachineTestGenerationService::class.java)
@@ -82,34 +89,61 @@ class StateMachineTestGenerationEditor(
     // Event listener for state machine events and streaming updates
     private val eventListener = object : TestGenerationEventListener, StreamingEventListener {
         override fun onStateChanged(event: TestGenerationEvent.StateChanged) {
+            val eventTime = System.currentTimeMillis()
+
             // Validate session ID to prevent processing events from old/other sessions
             if (currentSessionId != null && event.sessionId != currentSessionId) {
+                if (DEBUG_SESSION_VALIDATION) {
+                    println("[DEBUG_SESSION] StateChanged IGNORED: received=${event.sessionId}, current=$currentSessionId, state=${event.newState}")
+                }
                 LOG.debug("Ignoring state change event from different session: ${event.sessionId} != $currentSessionId")
                 return
             }
+
+            if (DEBUG_SESSION_VALIDATION) {
+                println("[DEBUG_SESSION] StateChanged ACCEPTED: sessionId=${event.sessionId}, ${event.oldState} → ${event.newState}, reason=${event.reason}")
+            }
+
             SwingUtilities.invokeLater {
+                if (DEBUG_EVENT_TIMING) {
+                    val delay = System.currentTimeMillis() - eventTime
+                    if (delay > 100) {
+                        println("[DEBUG_UI_DELAY] StateChanged delay: ${delay}ms for ${event.oldState} → ${event.newState}")
+                    }
+                }
+
                 updateStateDisplay(event.newState)
                 updateControlButtons()
-                
+
                 // Update agent chat memories when state changes
                 currentSessionId?.let { updateAgentChatMemories(it) }
-                
+
                 // Stop periodic updates if generation finished
-                if (event.newState == TestGenerationState.COMPLETED || 
-                    event.newState == TestGenerationState.FAILED || 
+                if (event.newState == TestGenerationState.COMPLETED ||
+                    event.newState == TestGenerationState.FAILED ||
                     event.newState == TestGenerationState.CANCELLED) {
+                    if (chatMemoryUpdateTimer != null) {
+                        if (WARN_POTENTIAL_ERRORS && chatMemoryUpdateTimer?.isRunning == false) {
+                            println("[WARN_TIMER_STATE] Timer already stopped for terminal state ${event.newState}, sessionId=${event.sessionId}")
+                        }
+                    }
                     stopChatMemoryPeriodicUpdates()
                 }
-                
+
                 val autoFlowStatus = if (currentStateMachine?.isAutoFlowEnabled == true) " [auto-flow]" else ""
-                logEvent("State: ${event.oldState} → ${event.newState}$autoFlowStatus" + 
+                logEvent("State: ${event.oldState} → ${event.newState}$autoFlowStatus" +
                         if (event.reason != null) " (${event.reason})" else "")
             }
         }
         
         override fun onActivityLogged(event: TestGenerationEvent.ActivityLogged) {
             // Validate session ID
-            if (currentSessionId != null && event.sessionId != currentSessionId) return
+            if (currentSessionId != null && event.sessionId != currentSessionId) {
+                if (DEBUG_SESSION_VALIDATION) {
+                    println("[DEBUG_SESSION] ActivityLogged IGNORED: received=${event.sessionId}, current=$currentSessionId")
+                }
+                return
+            }
 
             SwingUtilities.invokeLater {
                 logEvent("Activity: ${event.message}")
@@ -119,7 +153,16 @@ class StateMachineTestGenerationEditor(
         
         override fun onErrorOccurred(event: TestGenerationEvent.ErrorOccurred) {
             // Validate session ID
-            if (currentSessionId != null && event.sessionId != currentSessionId) return
+            if (currentSessionId != null && event.sessionId != currentSessionId) {
+                if (DEBUG_SESSION_VALIDATION) {
+                    println("[DEBUG_SESSION] ErrorOccurred IGNORED: received=${event.sessionId}, current=$currentSessionId")
+                }
+                return
+            }
+
+            if (DEBUG_SESSION_VALIDATION) {
+                println("[DEBUG_SESSION] ErrorOccurred ACCEPTED: sessionId=${event.sessionId}, error=${event.errorMessage}, recoverable=${event.isRecoverable}")
+            }
 
             SwingUtilities.invokeLater {
                 updateControlButtons()
@@ -158,7 +201,12 @@ class StateMachineTestGenerationEditor(
         
         override fun onStepCompleted(event: TestGenerationEvent.StepCompleted) {
             // Validate session ID
-            if (currentSessionId != null &&  event.sessionId != currentSessionId) return
+            if (currentSessionId != null &&  event.sessionId != currentSessionId) {
+                if (DEBUG_SESSION_VALIDATION) {
+                    println("[DEBUG_SESSION] StepCompleted IGNORED: received=${event.sessionId}, current=$currentSessionId")
+                }
+                return
+            }
 
             SwingUtilities.invokeLater {
                 updateControlButtons()
@@ -174,7 +222,16 @@ class StateMachineTestGenerationEditor(
         
         override fun onUserInputRequired(event: TestGenerationEvent.UserInputRequired) {
             // Validate session ID
-            if (currentSessionId != null && event.sessionId != currentSessionId) return
+            if (currentSessionId != null && event.sessionId != currentSessionId) {
+                if (DEBUG_SESSION_VALIDATION) {
+                    println("[DEBUG_SESSION] UserInputRequired IGNORED: received=${event.sessionId}, current=$currentSessionId")
+                }
+                return
+            }
+
+            if (DEBUG_UI_UPDATES) {
+                println("[DEBUG_UI] UserInputRequired: type=${event.inputType}, prompt=${event.prompt}, sessionId=${event.sessionId}")
+            }
 
             SwingUtilities.invokeLater {
                 updateButtonForState(null, false) // Update buttons
@@ -502,6 +559,13 @@ class StateMachineTestGenerationEditor(
                     }
                     else -> return@invokeLater
                 }
+
+                // WARNING: Check if tab switch is valid
+                if (WARN_POTENTIAL_ERRORS && tabIndex >= tabbedPane.tabCount) {
+                    println("[WARN_TAB_SWITCH] Attempted to switch to invalid tab index $tabIndex, tabCount=${tabbedPane.tabCount}, phase=$phase")
+                    return@invokeLater
+                }
+
                 tabbedPane.selectedIndex = tabIndex
             }
         }
@@ -740,9 +804,17 @@ class StateMachineTestGenerationEditor(
     private fun startTestGeneration(request: com.zps.zest.testgen.model.TestGenerationRequest) {
         // Thread-safe check if already running
         synchronized(stateMachineLock) {
+            if (DEBUG_UI_UPDATES) {
+                println("[DEBUG_UI] startTestGeneration called, currentSessionId=$currentSessionId")
+            }
+
             if (currentSessionId != null && currentStateMachine != null) {
                 val currentState = currentStateMachine?.currentState
                 if (currentState != null && currentState.isActive) {
+                    if (DEBUG_UI_UPDAT
+                        ES) {
+                        println("[DEBUG_UI] BLOCKED: already running, state=${currentState.displayName}, sessionId=$currentSessionId")
+                    }
                     logEvent("Warning: Test generation already in progress (${currentState.displayName})")
                     Messages.showWarningDialog(project,
                         "Test generation is already in progress.\n\nCurrent state: ${currentState.displayName}",
@@ -752,6 +824,9 @@ class StateMachineTestGenerationEditor(
             }
             // Set a sentinel value immediately to prevent race condition
             currentSessionId = "STARTING"
+            if (DEBUG_UI_UPDATES) {
+                println("[DEBUG_UI] Set sentinel STARTING to prevent race conditions")
+            }
         }
 
         logEvent("Starting test generation...")
@@ -770,6 +845,13 @@ class StateMachineTestGenerationEditor(
         testGenService.startTestGeneration(request, eventListener, ::processStreamingText).thenAccept { stateMachine ->
             SwingUtilities.invokeLater {
                 synchronized(stateMachineLock) {
+                    // WARNING: Check if session changed while starting (rapid clicks)
+                    if (currentSessionId != "STARTING" && currentSessionId != null) {
+                        if (WARN_POTENTIAL_ERRORS) {
+                            println("[WARN_SESSION_RACE] Session changed during startup! current=$currentSessionId, new=${stateMachine.sessionId}")
+                        }
+                        LOG.warn("Session ID changed during startup - possible rapid restart")
+                    }
                     currentSessionId = stateMachine.sessionId
                     currentStateMachine = stateMachine
                 }
@@ -782,6 +864,9 @@ class StateMachineTestGenerationEditor(
         }.exceptionally { throwable ->
             SwingUtilities.invokeLater {
                 synchronized(stateMachineLock) {
+                    if (WARN_POTENTIAL_ERRORS) {
+                        println("[WARN_STARTUP_FAILED] Startup failed, cleaning up sessionId=$currentSessionId, error=${throwable.message}")
+                    }
                     currentSessionId = null
                     currentStateMachine = null
                 }
@@ -863,6 +948,14 @@ class StateMachineTestGenerationEditor(
     
     private fun updateButtonForState(state: TestGenerationState?, hasError: Boolean = false) {
         SwingUtilities.invokeLater {
+            // WARNING: Detect button state desync
+            if (WARN_POTENTIAL_ERRORS && state != null) {
+                val currentState = currentStateMachine?.currentState
+                if (currentState != null && currentState != state) {
+                    println("[WARN_BUTTON_DESYNC] Button update for wrong state! updating for $state but machine is in $currentState, sessionId=$currentSessionId")
+                }
+            }
+
             when {
                 hasError -> {
                     primaryActionButton.apply {
@@ -887,27 +980,35 @@ class StateMachineTestGenerationEditor(
                 state == TestGenerationState.AWAITING_USER_SELECTION -> {
                     val selectedScenarios = testPlanDisplayPanel.getSelectedTestScenarios()
                     val selectedCount = selectedScenarios.size
-                    
+
+                    // WARNING: Verify selection count matches what panel shows
+                    if (WARN_POTENTIAL_ERRORS) {
+                        val totalCount = testPlanDisplayPanel.getTotalScenarioCount()
+                        if (totalCount == 0) {
+                            println("[WARN_SELECTION_MISMATCH] No scenarios available in panel! selectedCount=$selectedCount, totalCount=$totalCount")
+                        }
+                    }
+
                     primaryActionButton.apply {
                         text = if (selectedCount > 0) {
                             "✅ Generate $selectedCount Selected Test${if (selectedCount == 1) "" else "s"}"
                         } else {
                             "⚠️ Select Test Scenarios First"
                         }
-                        
+
                         // Color coding based on selection state
                         background = if (selectedCount > 0) {
                             Color(76, 175, 80) // Green when scenarios are selected
                         } else {
                             Color(156, 156, 156) // Gray when no selection
                         }
-                        
+
                         foreground = if (selectedCount > 0) {
                             Color.WHITE // White text on green
                         } else {
                             Color.WHITE // White text on gray
                         }
-                        
+
                         isEnabled = selectedCount > 0
                         isVisible = true
                     }
@@ -960,11 +1061,18 @@ class StateMachineTestGenerationEditor(
         currentSessionId?.let { sessionId ->
             val currentState = testGenService.getCurrentState(sessionId)
             val hasError = testGenService.canRetry(sessionId)
-            
+
+            if (DEBUG_BUTTON_STATE) {
+                println("[DEBUG_BUTTON] updateControlButtons: sessionId=$sessionId, state=$currentState, hasError=$hasError")
+            }
+
             // Use new button state management
             updateButtonForState(currentState, hasError)
-            
+
         } ?: run {
+            if (DEBUG_BUTTON_STATE) {
+                println("[DEBUG_BUTTON] updateControlButtons: no active session")
+            }
             // No active session
             updateButtonForState(null, false)
         }
@@ -973,6 +1081,11 @@ class StateMachineTestGenerationEditor(
     
     private fun generateSelectedTests() {
         val selectedScenarios = testPlanDisplayPanel.getSelectedTestScenarios()
+
+        if (DEBUG_UI_UPDATES) {
+            println("[DEBUG_UI] generateSelectedTests: count=${selectedScenarios.size}, sessionId=$currentSessionId")
+        }
+
         if (selectedScenarios.isEmpty()) {
             com.zps.zest.ZestNotifications.showWarning(
                 project,
@@ -987,11 +1100,17 @@ class StateMachineTestGenerationEditor(
 
         currentSessionId?.let { sessionId ->
             if (testGenService.setUserSelection(sessionId, selectedScenarios, editedTestingNotes)) {
+                if (DEBUG_UI_UPDATES) {
+                    println("[DEBUG_UI] User selection confirmed, count=${selectedScenarios.size}, sessionId=$sessionId")
+                }
                 logEvent("User confirmed selection of ${selectedScenarios.size} scenarios - continuing generation")
                 hideActionBanner()
                 // Exit selection mode since selection was processed
                 testPlanDisplayPanel.exitSelectionMode()
             } else {
+                if (DEBUG_UI_UPDATES) {
+                    println("[DEBUG_UI] FAILED to set user selection, sessionId=$sessionId")
+                }
                 logEvent("Failed to set user selection")
                 com.zps.zest.ZestNotifications.showWarning(
                     project,
@@ -1057,9 +1176,16 @@ class StateMachineTestGenerationEditor(
     private fun updateAgentChatMemories(sessionId: String) {
         try {
             val stateMachine = testGenService.getStateMachine(sessionId)
-            
+
+            if (stateMachine == null) {
+                if (WARN_POTENTIAL_ERRORS) {
+                    println("[WARN_AGENT_ACCESS] Cannot update chat memories - state machine is null for sessionId=$sessionId")
+                }
+                return
+            }
+
             // Get ContextAgent memory via direct handler access
-            val contextHandler = stateMachine?.getCurrentHandler(com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler::class.java)
+            val contextHandler = stateMachine.getCurrentHandler(com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler::class.java)
             val contextAgent = contextHandler?.getContextAgent()
             val contextMemory = contextAgent?.getChatMemory()
             val contextMessageCount = contextMemory?.messages()?.size ?: 0
@@ -1157,12 +1283,33 @@ class StateMachineTestGenerationEditor(
     
     private fun handlePrimaryAction() {
         val sessionId = currentSessionId
+
+        if (DEBUG_UI_UPDATES) {
+            println("[DEBUG_UI] handlePrimaryAction: sessionId=$sessionId")
+        }
+
         // Don't allow action if currently starting
         if (sessionId == "STARTING") {
+            if (DEBUG_UI_UPDATES) {
+                println("[DEBUG_UI] handlePrimaryAction BLOCKED: currently starting")
+            }
             logEvent("Test generation is starting, please wait...")
             return
         }
         val state = sessionId?.let { testGenService.getCurrentState(it) }
+
+        if (DEBUG_UI_UPDATES) {
+            println("[DEBUG_UI] handlePrimaryAction: state=$state, action=${
+                when {
+                    state == null -> "START"
+                    state == TestGenerationState.AWAITING_USER_SELECTION -> "GENERATE_SELECTED"
+                    state == TestGenerationState.FIXING_TESTS -> "CONTINUE"
+                    state == TestGenerationState.COMPLETED -> "SHOW_RESULTS"
+                    testGenService.canRetry(sessionId) -> "RETRY"
+                    else -> "UNKNOWN"
+                }
+            }")
+        }
 
         when {
             state == null -> {
@@ -1271,13 +1418,23 @@ class StateMachineTestGenerationEditor(
         LOG.info("Virtual file unregistered: ${virtualFile.sessionId}")
 
         // Close any open chat memory dialog
-        mergerChatDialog?.close(DialogWrapper.CANCEL_EXIT_CODE)
+        if (mergerChatDialog != null) {
+            if (WARN_POTENTIAL_ERRORS) {
+                println("[WARN_DIALOG_ORPHANED] Chat memory dialog still open during dispose, closing now")
+            }
+            mergerChatDialog?.close(DialogWrapper.CANCEL_EXIT_CODE)
+        }
         mergerChatDialog = null
         currentMergerAgent = null
 
         // Stop any running timers
-        blinkTimer?.stop()
-        chatMemoryUpdateTimer?.stop()
+        if (blinkTimer != null || chatMemoryUpdateTimer != null) {
+            if (WARN_POTENTIAL_ERRORS) {
+                println("[WARN_TIMER_LEAK] Timers still running during dispose: blink=${blinkTimer != null}, chatMemory=${chatMemoryUpdateTimer != null}")
+            }
+            blinkTimer?.stop()
+            chatMemoryUpdateTimer?.stop()
+        }
 
         // Dispose of editor resources in panels
         testMergingPanel.dispose()

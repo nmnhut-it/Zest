@@ -26,6 +26,8 @@ import java.util.function.Consumer;
  */
 public class ContextGatheringHandler extends AbstractStateHandler {
 
+    private static final boolean DEBUG_HANDLER_EXECUTION = true;
+
     private final Consumer<String> streamingCallback;
     private final com.zps.zest.testgen.ui.StreamingEventListener uiEventListener;
     private ContextAgent contextAgent;
@@ -48,9 +50,17 @@ public class ContextGatheringHandler extends AbstractStateHandler {
     @NotNull
     @Override
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
+        if (DEBUG_HANDLER_EXECUTION) {
+            System.out.println("[DEBUG_HANDLER] ContextGatheringHandler.executeState START, sessionId=" +
+                stateMachine.getSessionId());
+        }
+
         try {
             TestGenerationRequest request = stateMachine.getRequest();
             if (request == null) {
+                if (DEBUG_HANDLER_EXECUTION) {
+                    System.out.println("[DEBUG_HANDLER] ContextGatheringHandler FAILED: no request");
+                }
                 return StateResult.failure("No request found", false);
             }
             
@@ -61,6 +71,25 @@ public class ContextGatheringHandler extends AbstractStateHandler {
 
             // Store as field for direct access
             this.contextAgent = contextAgent;
+
+            // Save BEFORE checkpoint - capture initial state before context gathering
+            try {
+                String promptDescription = "Generate tests for " + request.getTargetFile().getName() +
+                    " (" + request.getTargetMethods().size() + " methods)";
+                com.zps.zest.testgen.snapshot.AgentSnapshot beforeSnapshot = contextAgent.exportSnapshot(
+                    stateMachine.getSessionId(),
+                    "Before context gathering - about to analyze " + request.getTargetFile().getName(),
+                    promptDescription
+                );
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveCheckpoint(
+                    beforeSnapshot,
+                    getProject(stateMachine),
+                    com.zps.zest.testgen.snapshot.CheckpointTiming.BEFORE
+                );
+                LOG.info("Saved BEFORE checkpoint: " + snapshotFile.getName());
+            } catch (Exception e) {
+                LOG.warn("Failed to save BEFORE checkpoint (non-critical)", e);
+            }
 
             // Pre-load user-provided context if available (must be done first to check for target file)
             preloadUserContext(stateMachine, contextAgent);
@@ -137,33 +166,42 @@ public class ContextGatheringHandler extends AbstractStateHandler {
             String summary = String.format("Context gathered: %d items analyzed", totalItems);
             LOG.info(summary);
 
-            // Save agent snapshot for debugging and prompt experimentation
+            // Save AFTER checkpoint for debugging and prompt experimentation
             try {
                 String promptDescription = "Generate tests for " + request.getTargetFile().getName() +
                     " (" + request.getTargetMethods().size() + " methods)";
                 com.zps.zest.testgen.snapshot.AgentSnapshot snapshot = contextAgent.exportSnapshot(
                     stateMachine.getSessionId(),
-                    "Context gathering completed - " + totalItems + " items analyzed",
+                    "After context gathering - " + totalItems + " items analyzed",
                     promptDescription
                 );
-                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveToFile(
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveCheckpoint(
                     snapshot,
-                    getProject(stateMachine)
+                    getProject(stateMachine),
+                    com.zps.zest.testgen.snapshot.CheckpointTiming.AFTER
                 );
-                LOG.info("Saved context agent snapshot: " + snapshotFile.getName());
+                LOG.info("Saved AFTER checkpoint: " + snapshotFile.getName());
             } catch (Exception e) {
-                LOG.warn("Failed to save agent snapshot (non-critical)", e);
+                LOG.warn("Failed to save AFTER checkpoint (non-critical)", e);
             }
 
+            if (DEBUG_HANDLER_EXECUTION) {
+                System.out.println("[DEBUG_HANDLER] ContextGatheringHandler SUCCESS: " + summary +
+                    ", nextState=PLANNING_TESTS, sessionId=" + stateMachine.getSessionId());
+            }
             return StateResult.success(null, summary, TestGenerationState.PLANNING_TESTS);
-            
+
         } catch (Exception e) {
+            if (DEBUG_HANDLER_EXECUTION) {
+                System.out.println("[DEBUG_HANDLER] ContextGatheringHandler EXCEPTION: " +
+                    e.getMessage() + ", sessionId=" + stateMachine.getSessionId());
+            }
             LOG.error("Context gathering failed", e);
-            
+
             // Check if this is a recoverable error
             boolean recoverable = isRecoverableError(e);
-            
-            return StateResult.failure(e, recoverable, 
+
+            return StateResult.failure(e, recoverable,
                 "Failed to gather context: " + e.getMessage());
         }
     }
@@ -390,6 +428,13 @@ public class ContextGatheringHandler extends AbstractStateHandler {
     @Nullable
     public ContextAgent getContextAgent() {
         return contextAgent;
+    }
+
+    /**
+     * Set the context agent (for checkpoint restoration)
+     */
+    public void setContextAgent(@NotNull ContextAgent agent) {
+        this.contextAgent = agent;
     }
 
     /**

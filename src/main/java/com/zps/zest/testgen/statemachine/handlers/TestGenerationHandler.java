@@ -20,6 +20,8 @@ import java.util.function.Consumer;
  */
 public class TestGenerationHandler extends AbstractStateHandler {
 
+    private static final boolean DEBUG_HANDLER_EXECUTION = true;
+
     private final Consumer<String> streamingCallback;
     private final com.zps.zest.testgen.ui.StreamingEventListener uiEventListener;
     private TestWriterAgent testWriterAgent;
@@ -44,9 +46,14 @@ public class TestGenerationHandler extends AbstractStateHandler {
     @NotNull
     @Override
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
+        if (DEBUG_HANDLER_EXECUTION) {
+            System.out.println("[DEBUG_HANDLER] TestGenerationHandler.executeState START, sessionId=" +
+                stateMachine.getSessionId());
+        }
+
         try {
             // Validate required data - no session data checks needed
-            
+
             // Get data from other handlers
             com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler planningHandler =
                 stateMachine.getHandler(TestGenerationState.PLANNING_TESTS, com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler.class);
@@ -65,6 +72,28 @@ public class TestGenerationHandler extends AbstractStateHandler {
 
             // Store as field for direct access
             this.testWriterAgent = testWriterAgent;
+
+            // Save BEFORE checkpoint - capture state before test generation
+            try {
+                TestGenerationRequest request = stateMachine.getRequest();
+                String promptDescription = request != null ?
+                    "Generate tests for " + request.getTargetFile().getName() +
+                        " (" + request.getTargetMethods().size() + " methods)" :
+                    "Test generation";
+                com.zps.zest.testgen.snapshot.AgentSnapshot beforeSnapshot = testWriterAgent.exportSnapshot(
+                    stateMachine.getSessionId(),
+                    "Before test generation - about to generate " + selectedScenarios.size() + " test methods",
+                    promptDescription
+                );
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveCheckpoint(
+                    beforeSnapshot,
+                    getProject(stateMachine),
+                    com.zps.zest.testgen.snapshot.CheckpointTiming.BEFORE
+                );
+                LOG.info("Saved BEFORE checkpoint: " + snapshotFile.getName());
+            } catch (Exception e) {
+                LOG.warn("Failed to save BEFORE checkpoint (non-critical)", e);
+            }
 
             // Set the UI event listener for streaming
             if (uiEventListener != null) {
@@ -134,7 +163,7 @@ public class TestGenerationHandler extends AbstractStateHandler {
                 result.getMethodCount(), selectedScenarios.size());
             LOG.info(summary);
 
-            // Save agent snapshot for debugging and prompt experimentation
+            // Save AFTER checkpoint for debugging and prompt experimentation
             try {
                 TestGenerationRequest request = stateMachine.getRequest();
                 String promptDescription = request != null ?
@@ -143,27 +172,36 @@ public class TestGenerationHandler extends AbstractStateHandler {
                     "Test generation";
                 com.zps.zest.testgen.snapshot.AgentSnapshot snapshot = testWriterAgent.exportSnapshot(
                     stateMachine.getSessionId(),
-                    "Test generation completed - " + result.getMethodCount() + " test methods generated",
+                    "After test generation - " + result.getMethodCount() + " test methods generated",
                     promptDescription
                 );
-                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveToFile(
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveCheckpoint(
                     snapshot,
-                    getProject(stateMachine)
+                    getProject(stateMachine),
+                    com.zps.zest.testgen.snapshot.CheckpointTiming.AFTER
                 );
-                LOG.info("Saved test writer agent snapshot: " + snapshotFile.getName());
+                LOG.info("Saved AFTER checkpoint: " + snapshotFile.getName());
             } catch (Exception e) {
-                LOG.warn("Failed to save agent snapshot (non-critical)", e);
+                LOG.warn("Failed to save AFTER checkpoint (non-critical)", e);
             }
 
+            if (DEBUG_HANDLER_EXECUTION) {
+                System.out.println("[DEBUG_HANDLER] TestGenerationHandler SUCCESS: " + summary +
+                    ", nextState=MERGING_TESTS, sessionId=" + stateMachine.getSessionId());
+            }
             return StateResult.success(result, summary, TestGenerationState.MERGING_TESTS);
-            
+
         } catch (Exception e) {
+            if (DEBUG_HANDLER_EXECUTION) {
+                System.out.println("[DEBUG_HANDLER] TestGenerationHandler EXCEPTION: " +
+                    e.getMessage() + ", sessionId=" + stateMachine.getSessionId());
+            }
             LOG.error("Test generation failed", e);
-            
+
             // Check if this is a recoverable error
             boolean recoverable = isRecoverableError(e);
-            
-            return StateResult.failure(e, recoverable, 
+
+            return StateResult.failure(e, recoverable,
                 "Failed to generate tests: " + e.getMessage());
         }
     }
@@ -335,6 +373,13 @@ public class TestGenerationHandler extends AbstractStateHandler {
     @Nullable
     public TestWriterAgent getTestWriterAgent() {
         return testWriterAgent;
+    }
+
+    /**
+     * Set the test writer agent (for checkpoint restoration)
+     */
+    public void setTestWriterAgent(@NotNull TestWriterAgent agent) {
+        this.testWriterAgent = agent;
     }
 
     /**

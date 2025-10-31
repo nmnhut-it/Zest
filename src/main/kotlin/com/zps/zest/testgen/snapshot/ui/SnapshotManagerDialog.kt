@@ -69,9 +69,15 @@ class SnapshotManagerDialog(private val project: Project) : DialogWrapper(projec
     }
 
     override fun createActions(): Array<Action> {
-        val loadAction = object : DialogWrapperAction("Load Snapshot") {
+        val resumeAction = object : DialogWrapperAction("Resume") {
             override fun doAction(e: java.awt.event.ActionEvent?) {
-                loadSelectedSnapshot()
+                resumeSelectedSnapshot(null)
+            }
+        }
+
+        val resumeWithInstructionsAction = object : DialogWrapperAction("Resume with Instructions...") {
+            override fun doAction(e: java.awt.event.ActionEvent?) {
+                resumeWithInstructions()
             }
         }
 
@@ -93,7 +99,7 @@ class SnapshotManagerDialog(private val project: Project) : DialogWrapper(projec
             }
         }
 
-        return arrayOf(loadAction, deleteAction, exportAction, refreshAction, cancelAction)
+        return arrayOf(resumeAction, resumeWithInstructionsAction, deleteAction, exportAction, refreshAction, cancelAction)
     }
 
     private fun loadSnapshots() {
@@ -137,38 +143,78 @@ class SnapshotManagerDialog(private val project: Project) : DialogWrapper(projec
         }
     }
 
-    private fun loadSelectedSnapshot() {
-        val snapshot = selectedSnapshot ?: return
+    private fun resumeSelectedSnapshot(nudgeInstructions: String?) {
+        val snapshot = selectedSnapshot ?: run {
+            JOptionPane.showMessageDialog(
+                contentPanel,
+                "Please select a snapshot to resume",
+                "No Selection",
+                JOptionPane.WARNING_MESSAGE
+            )
+            return
+        }
 
-        val choice = JOptionPane.showOptionDialog(
-            contentPanel,
-            "This will load the snapshot into memory.\nNote: You'll need to integrate this with your agent workflow.",
-            "Load Snapshot",
-            JOptionPane.YES_NO_OPTION,
-            JOptionPane.INFORMATION_MESSAGE,
-            null,
-            arrayOf("Load", "Cancel"),
-            "Load"
-        )
+        // Get test generation service
+        val testGenService = project.getService(com.zps.zest.testgen.StateMachineTestGenerationService::class.java)
 
-        if (choice == 0) {
-            val agentSnapshot = AgentSnapshotSerializer.loadFromFile(snapshot.filePath)
-            if (agentSnapshot != null) {
-                JOptionPane.showMessageDialog(
-                    contentPanel,
-                    "Snapshot loaded successfully!\n\nAgent Type: ${agentSnapshot.agentType}\nMessages: ${agentSnapshot.chatMessages.size}",
-                    "Success",
-                    JOptionPane.INFORMATION_MESSAGE
-                )
-                close(OK_EXIT_CODE)
-            } else {
-                JOptionPane.showMessageDialog(
-                    contentPanel,
-                    "Failed to load snapshot",
-                    "Error",
-                    JOptionPane.ERROR_MESSAGE
+        // Close this dialog
+        close(OK_EXIT_CODE)
+
+        // Resume from checkpoint
+        testGenService.resumeFromCheckpoint(
+            snapshot.filePath,
+            nudgeInstructions,
+            null, // Event listener will be set by UI
+            null  // Streaming callback will be set by UI
+        ).thenAccept { stateMachine ->
+            // Notify user of success
+            SwingUtilities.invokeLater {
+                com.intellij.openapi.ui.Messages.showInfoMessage(
+                    project,
+                    "Resumed from checkpoint: ${snapshot.description}\n\nNew Session ID: ${stateMachine.sessionId}",
+                    "Checkpoint Resumed"
                 )
             }
+        }.exceptionally { throwable ->
+            // Notify user of failure
+            SwingUtilities.invokeLater {
+                com.intellij.openapi.ui.Messages.showErrorDialog(
+                    project,
+                    "Failed to resume from checkpoint:\n${throwable.message}",
+                    "Resume Failed"
+                )
+            }
+            null
+        }
+    }
+
+    private fun resumeWithInstructions() {
+        val snapshot = selectedSnapshot ?: run {
+            JOptionPane.showMessageDialog(
+                contentPanel,
+                "Please select a snapshot to resume",
+                "No Selection",
+                JOptionPane.WARNING_MESSAGE
+            )
+            return
+        }
+
+        // Show dialog to get nudge instructions
+        val instructions = JOptionPane.showInputDialog(
+            contentPanel,
+            "Enter instructions for the agent (or leave empty for default 'Continue'):\n\n" +
+                    "Checkpoint: ${snapshot.description}\n" +
+                    "Agent: ${snapshot.agentType}\n" +
+                    "Messages: ${snapshot.messageCount}",
+            "Resume Instructions",
+            JOptionPane.QUESTION_MESSAGE,
+            null,
+            null,
+            "Continue with the task."
+        ) as? String
+
+        if (instructions != null) {
+            resumeSelectedSnapshot(instructions)
         }
     }
 

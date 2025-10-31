@@ -20,6 +20,8 @@ import java.util.function.Consumer;
  */
 public class TestPlanningHandler extends AbstractStateHandler {
 
+    private static final boolean DEBUG_HANDLER_EXECUTION = true;
+
     private final Consumer<String> streamingCallback;
     private final com.zps.zest.testgen.ui.StreamingEventListener uiEventListener;
     private CoordinatorAgent coordinatorAgent;
@@ -37,6 +39,11 @@ public class TestPlanningHandler extends AbstractStateHandler {
     @NotNull
     @Override
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
+        if (DEBUG_HANDLER_EXECUTION) {
+            System.out.println("[DEBUG_HANDLER] TestPlanningHandler.executeState START, sessionId=" +
+                stateMachine.getSessionId());
+        }
+
         try {
             // Validate required data - no session data checks needed
 
@@ -46,6 +53,9 @@ public class TestPlanningHandler extends AbstractStateHandler {
             com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler contextHandler =
                 stateMachine.getHandler(TestGenerationState.GATHERING_CONTEXT, com.zps.zest.testgen.statemachine.handlers.ContextGatheringHandler.class);
             if (contextHandler == null || contextHandler.getContextAgent() == null) {
+                if (DEBUG_HANDLER_EXECUTION) {
+                    System.out.println("[DEBUG_HANDLER] TestPlanningHandler FAILED: ContextHandler not available");
+                }
                 return StateResult.failure("ContextGatheringHandler or ContextAgent not available", false);
             }
             com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools = contextHandler.getContextAgent().getContextTools();
@@ -56,7 +66,26 @@ public class TestPlanningHandler extends AbstractStateHandler {
             
             CoordinatorAgent coordinatorAgent = new CoordinatorAgent(getProject(stateMachine), langChainService, naiveLlmService, contextTools);
             this.coordinatorAgent = coordinatorAgent; // Store as field for direct access
-            
+
+            // Save BEFORE checkpoint - capture state before test planning
+            try {
+                String promptDescription = "Generate tests for " + request.getTargetFile().getName() +
+                    " (" + request.getTargetMethods().size() + " methods)";
+                com.zps.zest.testgen.snapshot.AgentSnapshot beforeSnapshot = coordinatorAgent.exportSnapshot(
+                    stateMachine.getSessionId(),
+                    "Before test planning - about to generate test scenarios",
+                    promptDescription
+                );
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveCheckpoint(
+                    beforeSnapshot,
+                    getProject(stateMachine),
+                    com.zps.zest.testgen.snapshot.CheckpointTiming.BEFORE
+                );
+                LOG.info("Saved BEFORE checkpoint: " + snapshotFile.getName());
+            } catch (Exception e) {
+                LOG.warn("Failed to save BEFORE checkpoint (non-critical)", e);
+            }
+
             logToolActivity(stateMachine, "CoordinatorAgent", "Analyzing testing requirements");
 
             // Notify UI of phase start
@@ -123,33 +152,42 @@ public class TestPlanningHandler extends AbstractStateHandler {
             requestUserInput(stateMachine, "test_plan_review",
                 "Please review the test plan and testing approach", testPlan);
 
-            // Save agent snapshot for debugging and prompt experimentation
+            // Save AFTER checkpoint for debugging and prompt experimentation
             try {
                 String promptDescription = "Generate tests for " + request.getTargetFile().getName() +
                     " (" + request.getTargetMethods().size() + " methods)";
                 com.zps.zest.testgen.snapshot.AgentSnapshot snapshot = coordinatorAgent.exportSnapshot(
                     stateMachine.getSessionId(),
-                    "Test planning completed - " + testPlan.getScenarioCount() + " scenarios created",
+                    "After test planning - " + testPlan.getScenarioCount() + " scenarios created",
                     promptDescription
                 );
-                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveToFile(
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveCheckpoint(
                     snapshot,
-                    getProject(stateMachine)
+                    getProject(stateMachine),
+                    com.zps.zest.testgen.snapshot.CheckpointTiming.AFTER
                 );
-                LOG.info("Saved coordinator agent snapshot: " + snapshotFile.getName());
+                LOG.info("Saved AFTER checkpoint: " + snapshotFile.getName());
             } catch (Exception e) {
-                LOG.warn("Failed to save agent snapshot (non-critical)", e);
+                LOG.warn("Failed to save AFTER checkpoint (non-critical)", e);
             }
 
+            if (DEBUG_HANDLER_EXECUTION) {
+                System.out.println("[DEBUG_HANDLER] TestPlanningHandler SUCCESS: " + summary +
+                    ", nextState=" + nextState + ", sessionId=" + stateMachine.getSessionId());
+            }
             return StateResult.success(testPlan, summary, nextState);
-            
+
         } catch (Exception e) {
+            if (DEBUG_HANDLER_EXECUTION) {
+                System.out.println("[DEBUG_HANDLER] TestPlanningHandler EXCEPTION: " +
+                    e.getMessage() + ", sessionId=" + stateMachine.getSessionId());
+            }
             LOG.error("Test planning failed", e);
-            
+
             // Check if this is a recoverable error
             boolean recoverable = isRecoverableError(e);
-            
-            return StateResult.failure(e, recoverable, 
+
+            return StateResult.failure(e, recoverable,
                 "Failed to create test plan: " + e.getMessage());
         }
     }
@@ -210,6 +248,13 @@ public class TestPlanningHandler extends AbstractStateHandler {
     @Nullable
     public CoordinatorAgent getCoordinatorAgent() {
         return coordinatorAgent;
+    }
+
+    /**
+     * Set the coordinator agent (for checkpoint restoration)
+     */
+    public void setCoordinatorAgent(@NotNull CoordinatorAgent agent) {
+        this.coordinatorAgent = agent;
     }
 
     /**

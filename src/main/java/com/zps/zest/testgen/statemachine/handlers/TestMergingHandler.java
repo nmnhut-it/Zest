@@ -23,6 +23,8 @@ import java.util.function.Consumer;
  */
 public class TestMergingHandler extends AbstractStateHandler {
 
+    private static final boolean DEBUG_HANDLER_EXECUTION = true;
+
     private final Consumer<String> streamingCallback;
     private final com.zps.zest.testgen.ui.StreamingEventListener uiEventListener;
     private final TestGenerationStateMachine stateMachine;
@@ -45,6 +47,11 @@ public class TestMergingHandler extends AbstractStateHandler {
     @NotNull
     @Override
     protected StateResult executeState(@NotNull TestGenerationStateMachine stateMachine) {
+        if (DEBUG_HANDLER_EXECUTION) {
+            System.out.println("[DEBUG_HANDLER] TestMergingHandler.executeState START, sessionId=" +
+                stateMachine.getSessionId());
+        }
+
         try {
             // Validate required data - no session data checks needed
             
@@ -91,6 +98,28 @@ public class TestMergingHandler extends AbstractStateHandler {
             // Store as field for direct access
             this.aiTestMergerAgent = aiMerger;
 
+            // Save BEFORE checkpoint - capture state before test merging
+            try {
+                TestGenerationRequest request = stateMachine.getRequest();
+                String promptDescription = request != null ?
+                    "Generate tests for " + request.getTargetFile().getName() +
+                        " (" + request.getTargetMethods().size() + " methods)" :
+                    "Test merging";
+                com.zps.zest.testgen.snapshot.AgentSnapshot beforeSnapshot = aiMerger.exportSnapshot(
+                    stateMachine.getSessionId(),
+                    "Before test merging - about to merge and fix generated tests",
+                    promptDescription
+                );
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveCheckpoint(
+                    beforeSnapshot,
+                    getProject(stateMachine),
+                    com.zps.zest.testgen.snapshot.CheckpointTiming.BEFORE
+                );
+                LOG.info("Saved BEFORE checkpoint: " + snapshotFile.getName());
+            } catch (Exception e) {
+                LOG.warn("Failed to save BEFORE checkpoint (non-critical)", e);
+            }
+
             // Set UI event listener on merger agent for live updates
             if (uiEventListener != null) {
                 aiMerger.setUiEventListener(uiEventListener);
@@ -136,7 +165,7 @@ public class TestMergingHandler extends AbstractStateHandler {
             // Track unit test metrics
             trackUnitTestMetrics(stateMachine, result, mergedTestClass);
 
-            // Save agent snapshot for debugging and prompt experimentation
+            // Save AFTER checkpoint for debugging and prompt experimentation
             try {
                 TestGenerationRequest request = stateMachine.getRequest();
                 String promptDescription = request != null ?
@@ -145,22 +174,31 @@ public class TestMergingHandler extends AbstractStateHandler {
                     "Test generation";
                 com.zps.zest.testgen.snapshot.AgentSnapshot snapshot = aiTestMergerAgent.exportSnapshot(
                     stateMachine.getSessionId(),
-                    "Test merging completed - " + mergedTestClass.getClassName() + " with " + mergedTestClass.getMethodCount() + " methods",
+                    "After test merging - " + mergedTestClass.getClassName() + " with " + mergedTestClass.getMethodCount() + " methods",
                     promptDescription
                 );
-                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveToFile(
+                java.io.File snapshotFile = com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.saveCheckpoint(
                     snapshot,
-                    getProject(stateMachine)
+                    getProject(stateMachine),
+                    com.zps.zest.testgen.snapshot.CheckpointTiming.AFTER
                 );
-                LOG.info("Saved test merger agent snapshot: " + snapshotFile.getName());
+                LOG.info("Saved AFTER checkpoint: " + snapshotFile.getName());
             } catch (Exception e) {
-                LOG.warn("Failed to save agent snapshot (non-critical)", e);
+                LOG.warn("Failed to save AFTER checkpoint (non-critical)", e);
             }
 
             // Transition directly to COMPLETED since merging now includes error review and fixing
+            if (DEBUG_HANDLER_EXECUTION) {
+                System.out.println("[DEBUG_HANDLER] TestMergingHandler SUCCESS: " + summary +
+                    ", nextState=COMPLETED, sessionId=" + stateMachine.getSessionId());
+            }
             return StateResult.success(mergedTestClass, summary, TestGenerationState.COMPLETED);
 
         } catch (Exception e) {
+            if (DEBUG_HANDLER_EXECUTION) {
+                System.out.println("[DEBUG_HANDLER] TestMergingHandler EXCEPTION: " +
+                    e.getMessage() + ", sessionId=" + stateMachine.getSessionId());
+            }
             LOG.error("AI test merging failed", e);
 
             // Notify UI that merging failed
@@ -399,6 +437,13 @@ public class TestMergingHandler extends AbstractStateHandler {
     @Nullable
     public AITestMergerAgent getAITestMergerAgent() {
         return aiTestMergerAgent;
+    }
+
+    /**
+     * Set the AI test merger agent (for checkpoint restoration)
+     */
+    public void setAITestMergerAgent(@NotNull AITestMergerAgent agent) {
+        this.aiTestMergerAgent = agent;
     }
 
     /**

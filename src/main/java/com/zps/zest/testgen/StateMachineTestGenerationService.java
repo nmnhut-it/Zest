@@ -101,7 +101,118 @@ public final class StateMachineTestGenerationService {
             }
         });
     }
-    
+
+    /**
+     * Resume test generation from a checkpoint/snapshot.
+     * Creates a new session linked to the original, restores agent state, and continues execution.
+     */
+    @NotNull
+    public CompletableFuture<TestGenerationStateMachine> resumeFromCheckpoint(
+            @NotNull String snapshotPath,
+            @Nullable String nudgeInstructions,
+            @Nullable TestGenerationEventListener eventListener,
+            @Nullable Consumer<String> streamingCallback) {
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Load snapshot from file
+                com.zps.zest.testgen.snapshot.AgentSnapshot snapshot =
+                    com.zps.zest.testgen.snapshot.AgentSnapshotSerializer.loadFromFile(snapshotPath);
+
+                if (snapshot == null) {
+                    throw new RuntimeException("Failed to load snapshot from: " + snapshotPath);
+                }
+
+                // Create new session linked to original
+                String newSessionId = UUID.randomUUID().toString();
+                LOG.info("Resuming from checkpoint: " + snapshotPath + " with new session: " + newSessionId);
+
+                // Determine checkpoint timing and target state
+                String checkpointTiming = snapshot.getMetadata().getOrDefault("checkpoint_timing", "AFTER");
+                com.zps.zest.testgen.snapshot.CheckpointTiming timing =
+                    com.zps.zest.testgen.snapshot.CheckpointTiming.valueOf(checkpointTiming);
+
+                // Map agent type to state
+                TestGenerationState resumeState = mapAgentTypeToState(snapshot.getAgentType());
+
+                // Create state machine
+                TestGenerationStateMachine stateMachine = new TestGenerationStateMachine(project, newSessionId);
+
+                // Register event listener
+                if (eventListener != null) {
+                    stateMachine.addEventListener(eventListener);
+                    sessionListeners.put(newSessionId, eventListener);
+
+                    // Notify about session creation
+                    TestGenerationEvent.ActivityLogged sessionCreatedEvent = new TestGenerationEvent.ActivityLogged(
+                        newSessionId,
+                        stateMachine.getCurrentState(),
+                        "Session resumed from checkpoint: " + snapshot.getDescription(),
+                        System.currentTimeMillis()
+                    );
+                    eventListener.onActivityLogged(sessionCreatedEvent);
+                }
+
+                // Store streaming callback
+                if (streamingCallback != null) {
+                    streamingCallbacks.put(newSessionId, streamingCallback);
+                }
+
+                // Register all state handlers
+                setupStateHandlers(stateMachine, streamingCallback, eventListener);
+
+                // Note: We don't set the original request because we don't have PsiFile reference from snapshot
+                // The restored agents have all the state they need to continue
+                // stateMachine.setRequest(null);
+
+                // Store active state machine
+                activeStateMachines.put(newSessionId, stateMachine);
+
+                // Restore from checkpoint
+                stateMachine.restoreFromCheckpoint(snapshot, resumeState, nudgeInstructions);
+
+                // Transition to resume state
+                stateMachine.transitionTo(resumeState, "Restored from checkpoint");
+
+                // If BEFORE checkpoint, execute the state
+                // If AFTER checkpoint, transition to next state
+                if (timing == com.zps.zest.testgen.snapshot.CheckpointTiming.BEFORE) {
+                    LOG.info("Executing state from BEFORE checkpoint: " + resumeState);
+                    stateMachine.enableAutoFlow();
+                    stateMachine.executeCurrentState().join();
+                } else {
+                    LOG.info("Resuming from AFTER checkpoint, agent already executed: " + resumeState);
+                    // Agent has already executed, user can decide next action
+                    stateMachine.disableAutoFlow();
+                }
+
+                return stateMachine;
+
+            } catch (Exception e) {
+                LOG.error("Failed to resume from checkpoint: " + snapshotPath, e);
+                throw new RuntimeException("Failed to resume from checkpoint: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    /**
+     * Map agent type to corresponding workflow state
+     */
+    private TestGenerationState mapAgentTypeToState(com.zps.zest.testgen.snapshot.AgentType agentType) {
+        switch (agentType) {
+            case CONTEXT:
+                return TestGenerationState.GATHERING_CONTEXT;
+            case COORDINATOR:
+                return TestGenerationState.PLANNING_TESTS;
+            case TEST_WRITER:
+                return TestGenerationState.GENERATING_TESTS;
+            case TEST_MERGER:
+                return TestGenerationState.MERGING_TESTS;
+            default:
+                throw new IllegalArgumentException("Unknown agent type: " + agentType);
+        }
+    }
+
     /**
      * Continue execution from current state (manual intervention)
      */

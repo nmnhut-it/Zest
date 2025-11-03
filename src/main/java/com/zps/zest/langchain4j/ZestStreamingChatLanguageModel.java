@@ -234,6 +234,7 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
                     .baseUrl(finalApiUrl)
                     .apiKey(finalApiKey)
                     .modelName(finalModelName)
+                    .strictJsonSchema(true)
                     .user(username != null && !username.isEmpty() ? username : null)
                     .logRequests(true)
                     .logResponses(true)

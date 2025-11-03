@@ -40,7 +40,11 @@ public class TestGenerationStateMachine {
 
     // Auto-flow control
     private volatile boolean autoFlowEnabled = false;
-    
+
+    // Resume tracking
+    private volatile boolean isResumedSession = false;
+    private volatile boolean viewOnlyMode = false;
+
     public TestGenerationStateMachine(@NotNull Project project, @NotNull String sessionId) {
         this.project = project;
         this.sessionId = sessionId;
@@ -567,6 +571,42 @@ public class TestGenerationStateMachine {
     }
 
     /**
+     * Mark this session as resumed from a checkpoint
+     */
+    public void setResumedSession(boolean resumed) {
+        this.isResumedSession = resumed;
+        if (DEBUG_SESSION && resumed) {
+            System.out.println("[DEBUG_SESSION] Marked as resumed session, sessionId=" + sessionId);
+        }
+        LOG.info("Session marked as resumed: " + resumed);
+    }
+
+    /**
+     * Check if this session was resumed from a checkpoint
+     */
+    public boolean isResumedSession() {
+        return isResumedSession;
+    }
+
+    /**
+     * Mark this session as view-only mode (checkpoint loaded without request data)
+     */
+    public void setViewOnlyMode(boolean viewOnly) {
+        this.viewOnlyMode = viewOnly;
+        if (DEBUG_SESSION && viewOnly) {
+            System.out.println("[DEBUG_SESSION] Marked as view-only mode, sessionId=" + sessionId);
+        }
+        LOG.info("Session view-only mode: " + viewOnly);
+    }
+
+    /**
+     * Check if this session is in view-only mode (cannot execute, only view chat history)
+     */
+    public boolean isViewOnlyMode() {
+        return viewOnlyMode;
+    }
+
+    /**
      * Restore state machine from a checkpoint snapshot.
      * Restores agent state and optionally injects nudge instructions.
      */
@@ -576,6 +616,9 @@ public class TestGenerationStateMachine {
             @Nullable String nudgeInstructions) {
 
         LOG.info("Restoring from checkpoint: " + snapshot.getDescription() + " to state: " + targetState);
+
+        // Mark this session as resumed
+        setResumedSession(true);
 
         // Get handler for target state
         StateHandler handler = stateHandlers.get(targetState);

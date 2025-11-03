@@ -34,7 +34,7 @@ class PromptExperimentDialog(
         messages = originalSnapshot.chatMessages.toMutableList()
 
         // Create table model
-        messageTableModel = DefaultTableModel(
+        messageTableModel = object : DefaultTableModel(
             arrayOf("Type", "Preview", "Actions"),
             0
         ) {

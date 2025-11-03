@@ -339,7 +339,7 @@ class SnapshotManagerDialog(private val project: Project) : DialogWrapper(projec
     }
 
     private fun experimentWithPrompts() {
-        val snapshot = selectedSnapshot ?: run {
+        val snapshotMetadata = selectedSnapshot ?: run {
             JOptionPane.showMessageDialog(
                 contentPanel,
                 "Please select a snapshot to experiment with",
@@ -349,8 +349,29 @@ class SnapshotManagerDialog(private val project: Project) : DialogWrapper(projec
             return
         }
 
-        // Close this dialog and open experiment dialog
-        val experimentDialog = PromptExperimentDialog(project, snapshot)
+        // Load the full snapshot from file
+        val fullSnapshot = try {
+            AgentSnapshotSerializer.loadFromFile(snapshotMetadata.filePath) ?: run {
+                JOptionPane.showMessageDialog(
+                    contentPanel,
+                    "Failed to load snapshot: file returned null",
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE
+                )
+                return
+            }
+        } catch (e: Exception) {
+            JOptionPane.showMessageDialog(
+                contentPanel,
+                "Failed to load snapshot: ${e.message}",
+                "Error",
+                JOptionPane.ERROR_MESSAGE
+            )
+            return
+        }
+
+        // Open experiment dialog
+        val experimentDialog = PromptExperimentDialog(project, fullSnapshot)
         experimentDialog.show()
     }
 

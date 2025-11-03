@@ -172,7 +172,9 @@ public final class StateMachineTestGenerationService {
 
                 // Try to reconstruct the request from snapshot metadata
                 System.out.println("[DEBUG_SNAPSHOT] Attempting to reconstruct request from metadata");
-                TestGenerationRequest reconstructedRequest = reconstructRequestFromSnapshot(snapshot);
+                TestGenerationRequest reconstructedRequest = com.intellij.openapi.application.ReadAction.compute(() ->
+                    reconstructRequestFromSnapshot(snapshot)
+                );
                 if (reconstructedRequest != null) {
                     System.out.println("[DEBUG_SNAPSHOT] Successfully reconstructed request: " +
                             reconstructedRequest.getTargetMethods().size() + " methods");
@@ -213,20 +215,44 @@ public final class StateMachineTestGenerationService {
                             System.out.println("[DEBUG_SNAPSHOT] Transitioning to next state: " + nextState);
                             stateMachine.forceTransitionTo(nextState, "AFTER checkpoint - skipping to next state");
 
-                            // Enable auto-flow and execute
-                            stateMachine.enableAutoFlow();
-                            System.out.println("[DEBUG_SNAPSHOT] Executing next state with auto-flow enabled");
-                            stateMachine.executeCurrentState();
+                            // For COORDINATOR snapshots, restore test plan and wait for user review
+                            if (snapshot.getAgentType() == com.zps.zest.testgen.snapshot.AgentType.COORDINATOR
+                                && snapshot.getPlanningToolsState() != null) {
+                                restoreTestPlanToHandler(stateMachine, snapshot.getPlanningToolsState());
+                                stateMachine.disableAutoFlow();
+                                System.out.println("[DEBUG_SNAPSHOT] Resume mode: MANUAL flow - user must review scenarios and click Continue");
+                                LOG.info("Resume mode: Manual flow. User must review test scenarios and click Continue to proceed.");
+                            } else {
+                                // For other agents (CONTEXT, TEST_WRITER, TEST_MERGER), continue automatically
+                                stateMachine.enableAutoFlow();
+                                System.out.println("[DEBUG_SNAPSHOT] Resume mode: AUTO flow - continuing to next state: " + nextState);
+                                LOG.info("Resume mode: Auto-continuing to next state: " + nextState);
+                                stateMachine.executeCurrentState();
+                            }
                         } else {
                             System.out.println("[DEBUG_SNAPSHOT] No next state, staying in: " + resumeState);
                             stateMachine.disableAutoFlow();
                         }
                     } else {
-                        // No request - view-only mode
-                        System.out.println("[DEBUG_SNAPSHOT] No request available - staying in manual/view-only mode");
+                        // No request - enter view-only mode
+                        System.out.println("[DEBUG_SNAPSHOT] No request available - entering view-only mode");
                         LOG.warn("Cannot continue execution without request object");
-                        LOG.info("This snapshot is useful for viewing agent chat history and debugging prompts");
+                        LOG.info("View-only mode: Checkpoint loaded for viewing chat history and debugging prompts");
+
+                        // Mark as view-only and transition to next state to reflect actual progress
+                        stateMachine.setViewOnlyMode(true);
                         stateMachine.disableAutoFlow();
+
+                        // Transition to next state since AFTER checkpoint means agent completed
+                        TestGenerationState nextState = getNextState(resumeState);
+                        if (nextState != null) {
+                            System.out.println("[DEBUG_SNAPSHOT] View-only: transitioning to next state: " + nextState);
+                            stateMachine.forceTransitionTo(nextState,
+                                "View-only mode - AFTER checkpoint completed, cannot continue without request");
+                        } else {
+                            System.out.println("[DEBUG_SNAPSHOT] View-only: staying in terminal state: " + resumeState);
+                            LOG.info("View-only mode: already in terminal state " + resumeState);
+                        }
                     }
                 }
 
@@ -255,6 +281,85 @@ public final class StateMachineTestGenerationService {
                 return TestGenerationState.MERGING_TESTS;
             default:
                 throw new IllegalArgumentException("Unknown agent type: " + agentType);
+        }
+    }
+
+    /**
+     * Restore test plan scenarios from snapshot to handler.
+     * This allows the UI to display previously generated scenarios when resuming.
+     */
+    private void restoreTestPlanToHandler(
+            @NotNull TestGenerationStateMachine stateMachine,
+            @NotNull com.zps.zest.testgen.snapshot.PlanningToolsSnapshot planningToolsState) {
+
+        try {
+            String scenariosJson = planningToolsState.getScenarios();
+            if (scenariosJson == null || scenariosJson.isEmpty()) {
+                LOG.warn("No scenarios found in planning tools snapshot");
+                return;
+            }
+
+            // Deserialize scenarios
+            com.google.gson.Gson gson = new com.google.gson.Gson();
+            List<TestPlan.TestScenario> scenarios = gson.fromJson(
+                scenariosJson,
+                new com.google.gson.reflect.TypeToken<List<TestPlan.TestScenario>>(){}.getType()
+            );
+
+            if (scenarios == null || scenarios.isEmpty()) {
+                LOG.warn("Deserialized scenarios are empty");
+                return;
+            }
+
+            // Reconstruct TestPlan
+            String targetClass = planningToolsState.getTargetClass() != null
+                ? planningToolsState.getTargetClass()
+                : "Unknown";
+            List<String> targetMethods = planningToolsState.getTargetMethods();
+            String reasoning = planningToolsState.getReasoning() != null
+                ? planningToolsState.getReasoning()
+                : "";
+            String testingNotes = planningToolsState.getTestingNotes();
+
+            // Constructor signature: targetMethods, targetClass, scenarios, dependencies, testType, reasoning
+            TestPlan restoredPlan = new TestPlan(
+                targetMethods,
+                targetClass,
+                scenarios,
+                new ArrayList<>(), // dependencies - not stored in snapshot
+                TestGenerationRequest.TestType.UNIT_TESTS, // default test type
+                reasoning
+            );
+
+            // Set testing notes if available
+            if (testingNotes != null && !testingNotes.isEmpty()) {
+                restoredPlan.setTestingNotes(testingNotes);
+            }
+
+            // Get TestPlanningHandler and set the restored plan
+            com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler planningHandler =
+                stateMachine.getCurrentHandler(com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler.class);
+
+            if (planningHandler != null) {
+                // Use reflection to set the testPlan field since it's private
+                try {
+                    java.lang.reflect.Field testPlanField =
+                        com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler.class.getDeclaredField("testPlan");
+                    testPlanField.setAccessible(true);
+                    testPlanField.set(planningHandler, restoredPlan);
+
+                    LOG.info("Restored test plan with " + scenarios.size() + " scenarios to handler");
+                    System.out.println("[DEBUG_SNAPSHOT] Restored " + scenarios.size() +
+                        " scenarios to TestPlanningHandler for user review");
+                } catch (NoSuchFieldException | IllegalAccessException e) {
+                    LOG.error("Failed to set test plan via reflection", e);
+                }
+            } else {
+                LOG.warn("TestPlanningHandler not found in state machine");
+            }
+
+        } catch (Exception e) {
+            LOG.error("Failed to restore test plan to handler", e);
         }
     }
 

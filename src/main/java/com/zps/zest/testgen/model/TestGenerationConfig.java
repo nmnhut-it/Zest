@@ -86,12 +86,14 @@ public class TestGenerationConfig {
     private Set<TestTypeFilter> testTypeFilters;
     private Set<PriorityFilter> priorityFilters;
     private Set<CoverageTarget> coverageTargets;
+    private boolean autoAdjustTestBudget;
 
     public TestGenerationConfig() {
         this.testsPerMethod = 5;
         this.testTypeFilters = getDefaultTestTypes();
         this.priorityFilters = getDefaultPriorities();
         this.coverageTargets = getDefaultCoverageTargets();
+        this.autoAdjustTestBudget = true;
     }
 
     public TestGenerationConfig(int testsPerMethod,
@@ -102,6 +104,19 @@ public class TestGenerationConfig {
         this.testTypeFilters = new HashSet<>(testTypeFilters);
         this.priorityFilters = new HashSet<>(priorityFilters);
         this.coverageTargets = new HashSet<>(coverageTargets);
+        this.autoAdjustTestBudget = true;
+    }
+
+    public TestGenerationConfig(int testsPerMethod,
+                                Set<TestTypeFilter> testTypeFilters,
+                                Set<PriorityFilter> priorityFilters,
+                                Set<CoverageTarget> coverageTargets,
+                                boolean autoAdjustTestBudget) {
+        this.testsPerMethod = Math.max(1, testsPerMethod);
+        this.testTypeFilters = new HashSet<>(testTypeFilters);
+        this.priorityFilters = new HashSet<>(priorityFilters);
+        this.coverageTargets = new HashSet<>(coverageTargets);
+        this.autoAdjustTestBudget = autoAdjustTestBudget;
     }
 
     @NotNull
@@ -166,39 +181,59 @@ public class TestGenerationConfig {
         this.coverageTargets = new HashSet<>(coverageTargets);
     }
 
+    public boolean isAutoAdjustTestBudget() {
+        return autoAdjustTestBudget;
+    }
+
+    public void setAutoAdjustTestBudget(boolean autoAdjustTestBudget) {
+        this.autoAdjustTestBudget = autoAdjustTestBudget;
+    }
+
     @NotNull
     public TestGenerationConfig copy() {
         return new TestGenerationConfig(
             testsPerMethod,
             new HashSet<>(testTypeFilters),
             new HashSet<>(priorityFilters),
-            new HashSet<>(coverageTargets)
+            new HashSet<>(coverageTargets),
+            autoAdjustTestBudget
         );
     }
 
     public String toPromptDescription() {
         StringBuilder sb = new StringBuilder();
         sb.append("Test Generation Configuration:\n");
-        sb.append("- Target: ").append(testsPerMethod).append(" test scenarios per method\n");
+        if (autoAdjustTestBudget) {
+            sb.append("- Test Count: Intelligent auto-adjustment enabled (base: ")
+              .append(testsPerMethod).append(" scenarios, adjusted by complexity)\n");
+        } else {
+            sb.append("- Test Count: Fixed at ").append(testsPerMethod).append(" scenarios per method\n");
+        }
 
         if (!testTypeFilters.isEmpty()) {
             sb.append("- Test Types: ");
             testTypeFilters.forEach(type -> sb.append(type.getDisplayName()).append(", "));
-            sb.setLength(sb.length() - 2);
+            if (sb.length() >= 2) {
+                sb.setLength(sb.length() - 2);
+            }
             sb.append("\n");
         }
 
         if (!priorityFilters.isEmpty()) {
             sb.append("- Priorities: ");
             priorityFilters.forEach(priority -> sb.append(priority.getDisplayName()).append(", "));
-            sb.setLength(sb.length() - 2);
+            if (sb.length() >= 2) {
+                sb.setLength(sb.length() - 2);
+            }
             sb.append("\n");
         }
 
         if (!coverageTargets.isEmpty()) {
             sb.append("- Coverage Focus: ");
             coverageTargets.forEach(target -> sb.append(target.getDisplayName()).append(", "));
-            sb.setLength(sb.length() - 2);
+            if (sb.length() >= 2) {
+                sb.setLength(sb.length() - 2);
+            }
             sb.append("\n");
         }
 

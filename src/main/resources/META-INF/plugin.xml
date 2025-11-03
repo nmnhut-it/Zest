@@ -272,6 +272,14 @@
             <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.ShowTestGenerationHelp"/>
         </action>
 
+        <!-- Batch Test Generation Action -->
+        <action id="Zest.BatchTestGeneration"
+                class="com.zps.zest.testgen.batch.BatchTestGenerationAction"
+                text="Batch Test Generation (Evaluation) / Tạo test hàng loạt"
+                description="Generate tests for multiple files to evaluate feature effectiveness / Tạo test cho nhiều file để đánh giá hiệu quả">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
         <action id="Zest.TestContextSummarization"
                 class="com.zps.zest.testgen.actions.TestContextSummarizationAction"
                 text="🧪 Test Context Summarization"

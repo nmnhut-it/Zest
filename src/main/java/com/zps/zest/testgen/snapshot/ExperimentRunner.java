@@ -81,7 +81,7 @@ public class ExperimentRunner {
         agent.setStreamingConsumer(outputCallback);
 
         // Restore modified memory
-        MessageWindowChatMemory memory = agent.getChatMemory();
+        dev.langchain4j.memory.ChatMemory memory = agent.getChatMemory();
         memory.clear();
 
         outputCallback.accept("📝 Loading modified messages into agent memory...\n");
@@ -124,12 +124,12 @@ public class ExperimentRunner {
 
         outputCallback.accept("📋 Creating temporary CoordinatorAgent...\n\n");
 
-        // Create temporary agent
-        CoordinatorAgent agent = new CoordinatorAgent(project, langChainService, naiveLlmService);
+        // Create temporary agent (needs contextTools, pass null for experiment)
+        CoordinatorAgent agent = new CoordinatorAgent(project, langChainService, naiveLlmService, null);
         agent.setStreamingConsumer(outputCallback);
 
         // Restore modified memory
-        MessageWindowChatMemory memory = agent.getChatMemory();
+        dev.langchain4j.memory.ChatMemory memory = agent.getChatMemory();
         memory.clear();
 
         outputCallback.accept("📝 Loading modified messages into agent memory...\n");

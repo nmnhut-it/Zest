@@ -1051,7 +1051,18 @@ class StateMachineTestGenerationEditor(
                     }
                     cancelButton.isVisible = false
                 }
-                
+
+                // CHECK VIEW-ONLY FIRST (regardless of state)
+                currentStateMachine?.isViewOnlyMode == true -> {
+                    primaryActionButton.apply {
+                        text = "👁️ View Only - No Request Data"
+                        background = Color(156, 156, 156) // Gray
+                        isEnabled = false
+                        isVisible = true
+                    }
+                    cancelButton.isVisible = false
+                }
+
                 state == null || state == TestGenerationState.IDLE -> {
                     // Differentiate between new session and resumed session
                     val isResumedSession = virtualFile.request == null && currentStateMachine != null

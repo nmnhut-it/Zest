@@ -7,6 +7,8 @@ import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
 import com.zps.zest.testgen.model.*;
+import com.zps.zest.testgen.planning.CodePatternAnalyzer;
+import com.zps.zest.testgen.planning.TestBudgetCalculator;
 import com.zps.zest.testgen.ui.model.TestPlanDisplayData;
 import com.zps.zest.testgen.ui.model.ScenarioDisplayData;
 import dev.langchain4j.agent.tool.Tool;
@@ -88,18 +90,46 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
         Share your step-back analysis (2-3 sentences).
 
+        🧪 SYSTEMATIC TEST PLANNING TECHNIQUES:
+
+        Apply these proven testing techniques to ensure comprehensive coverage:
+
+        1️⃣ EQUIVALENCE PARTITIONING:
+        - Divide input domains into equivalence classes (groups that should behave the same)
+        - Test one representative from each class (valid and invalid partitions)
+        - Example: For age input (0-120), partitions: negative, zero, 1-120, >120
+
+        2️⃣ BOUNDARY VALUE ANALYSIS:
+        - Test at the edges of equivalence partitions where defects cluster
+        - Test: minimum-1, minimum, minimum+1, maximum-1, maximum, maximum+1
+        - Example: For list size 0-100, test: empty, 1, 99, 100, 101 elements
+
+        3️⃣ DECISION TABLE TESTING:
+        - Identify all conditional logic (if/else, switch, ternary operators)
+        - Create test scenarios for key condition combinations
+        - Ensure each decision path is exercised at least once
+        - Example: For if(x>0 && y<10), test: x≤0,y≥10 | x≤0,y<10 | x>0,y≥10 | x>0,y<10
+
+        4️⃣ STATE TRANSITION TESTING (for stateful objects):
+        - Identify object states and valid transitions between them
+        - Test: valid transitions, invalid transitions, boundary states
+        - Example: For a connection (NEW→OPEN→CLOSED), test: NEW→OPEN, OPEN→CLOSED, CLOSED→OPEN (invalid)
+
         💭 SCENARIO BRAINSTORMING:
-        List potential scenarios by category (brief bullet points):
-        ✅ Happy Path: [1-2 key normal scenarios]
-        ⚠️ Error Handling: [2-3 error/exception scenarios]
-        🎯 Edge Cases: [1-2 boundary/corner cases]
-        🔄 Integration: [1-2 scenarios if method has external dependencies]
+        Using the techniques above, list potential scenarios by category:
+        ✅ Happy Path: [1-2 key normal scenarios using valid equivalence classes]
+        🔢 Boundary Values: [2-3 boundary condition tests at partition edges]
+        🌳 Decision Paths: [2-3 scenarios covering different control flow branches]
+        🔄 State Transitions: [1-2 state change scenarios if object is stateful]
+        ⚠️ Error Handling: [2-3 error/exception scenarios using invalid partitions]
+        🎯 Edge Cases: [1-2 unusual but valid corner cases]
 
         📊 PRIORITIZATION REASONING:
         Explain your HIGH/MEDIUM/LOW priority choices based on:
         - User impact (crashes, data loss, wrong results vs minor issues)
         - Usage frequency (from context analysis - what's called often?)
         - Business criticality (financial, security, core functionality)
+        - Code complexity (high cyclomatic complexity = higher priority)
 
         PHASE 2: TOOL EXECUTION
 
@@ -162,10 +192,12 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         TESTING NOTES GUIDELINES:
         When calling setTestingNotes, provide natural language recommendations:
         - Mention the detected testing framework (JUnit 5, JUnit 4, TestNG)
-        - For database tests: recommend "Use TestContainers for database testing"
-        - For messaging: recommend "Use TestContainers for message queue testing"
-        - For HTTP APIs: recommend "Use WireMock for API mocking"
+        - CRITICAL: Prefer real test infrastructure over mocking frameworks
+        - For database tests: recommend "Use Testcontainers for database testing (avoid mocking DAOs/repositories)"
+        - For messaging: recommend "Use Testcontainers for message queue testing (avoid mocking message brokers)"
+        - For HTTP APIs: recommend "Use WireMock or MockWebServer for API testing (real HTTP calls, not mocked clients)"
         - For pure logic: recommend "Direct unit tests, no mocking needed"
+        - General principle: "Avoid Mockito/mocking frameworks when possible - prefer real test infrastructure for more reliable tests"
         - Include setup/teardown hints if needed: "Set up test infrastructure in @BeforeEach, clean up in @AfterEach"
 
         DEPENDENCY EXTRACTION (IMPORTANT):
@@ -254,18 +286,46 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
         Share your step-back analysis (2-3 sentences).
 
+        🧪 SYSTEMATIC TEST PLANNING TECHNIQUES:
+
+        Apply these proven testing techniques to ensure comprehensive coverage:
+
+        1️⃣ EQUIVALENCE PARTITIONING:
+        - Divide input domains into equivalence classes (groups that should behave the same)
+        - Test one representative from each class (valid and invalid partitions)
+        - Example: For age input (0-120), partitions: negative, zero, 1-120, >120
+
+        2️⃣ BOUNDARY VALUE ANALYSIS:
+        - Test at the edges of equivalence partitions where defects cluster
+        - Test: minimum-1, minimum, minimum+1, maximum-1, maximum, maximum+1
+        - Example: For list size 0-100, test: empty, 1, 99, 100, 101 elements
+
+        3️⃣ DECISION TABLE TESTING:
+        - Identify all conditional logic (if/else, switch, ternary operators)
+        - Create test scenarios for key condition combinations
+        - Ensure each decision path is exercised at least once
+        - Example: For if(x>0 && y<10), test: x≤0,y≥10 | x≤0,y<10 | x>0,y≥10 | x>0,y<10
+
+        4️⃣ STATE TRANSITION TESTING (for stateful objects):
+        - Identify object states and valid transitions between them
+        - Test: valid transitions, invalid transitions, boundary states
+        - Example: For a connection (NEW→OPEN→CLOSED), test: NEW→OPEN, OPEN→CLOSED, CLOSED→OPEN (invalid)
+
         💭 SCENARIO BRAINSTORMING:
-        List potential scenarios by category (brief bullet points):
-        ✅ Happy Path: [1-2 key normal scenarios]
-        ⚠️ Error Handling: [2-3 error/exception scenarios]
-        🎯 Edge Cases: [1-2 boundary/corner cases]
-        🔄 Integration: [1-2 scenarios if method has external dependencies]
+        Using the techniques above, list potential scenarios by category:
+        ✅ Happy Path: [1-2 key normal scenarios using valid equivalence classes]
+        🔢 Boundary Values: [2-3 boundary condition tests at partition edges]
+        🌳 Decision Paths: [2-3 scenarios covering different control flow branches]
+        🔄 State Transitions: [1-2 state change scenarios if object is stateful]
+        ⚠️ Error Handling: [2-3 error/exception scenarios using invalid partitions]
+        🎯 Edge Cases: [1-2 unusual but valid corner cases]
 
         📊 PRIORITIZATION REASONING:
         Explain your HIGH/MEDIUM/LOW priority choices based on:
         - User impact (crashes, data loss, wrong results vs minor issues)
         - Usage frequency (from context analysis - what's called often?)
         - Business criticality (financial, security, core functionality)
+        - Code complexity (high cyclomatic complexity = higher priority)
 
         PHASE 2: TOOL EXECUTION
 
@@ -451,9 +511,49 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         prompt.append("```\n");
         prompt.append(config.toPromptDescription());
         prompt.append("```\n\n");
-        
+
+        // Add intelligent code analysis for each method
+        try {
+            String codeAnalysis = ReadAction.compute(() -> {
+                try {
+                    StringBuilder analysis = new StringBuilder();
+                    analysis.append("**INTELLIGENT CODE ANALYSIS**\n\n");
+
+                    for (PsiMethod method : request.getTargetMethods()) {
+                        analysis.append("### Method: ").append(method.getName()).append("()\n");
+
+                        // Calculate intelligent test budget
+                        int recommendedTests = TestBudgetCalculator.calculateTestBudget(
+                            method,
+                            config.isAutoAdjustTestBudget()
+                        );
+                        analysis.append("- **Recommended Test Count**: ").append(recommendedTests)
+                                .append(" scenarios (based on complexity analysis)\n");
+
+                        // Perform pattern analysis
+                        CodePatternAnalyzer.AnalysisResult result = CodePatternAnalyzer.analyzeMethod(method);
+                        String analysisSection = result.toPromptSection();
+                        if (!analysisSection.isEmpty()) {
+                            analysis.append(analysisSection);
+                        }
+
+                        analysis.append("\n");
+                    }
+
+                    return analysis.toString();
+                } catch (Exception e) {
+                    LOG.warn("Failed to perform code analysis: " + e.getMessage(), e);
+                    return "**INTELLIGENT CODE ANALYSIS**\n\nCode analysis unavailable - proceeding with standard test planning.\n\n";
+                }
+            });
+            prompt.append(codeAnalysis);
+        } catch (Exception e) {
+            LOG.warn("Failed to execute code analysis read action: " + e.getMessage(), e);
+            prompt.append("**INTELLIGENT CODE ANALYSIS**\n\nCode analysis unavailable - proceeding with standard test planning.\n\n");
+        }
+
         // Skip adding raw code here since it's already included in analyzed class implementations below
-        
+
         // Add basic framework info
         prompt.append("\nFramework Information:\n");
         if (contextTools != null) {
@@ -1140,18 +1240,46 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
         Share your step-back analysis (2-3 sentences).
 
+        🧪 SYSTEMATIC TEST PLANNING TECHNIQUES:
+
+        Apply these proven testing techniques to ensure comprehensive coverage:
+
+        1️⃣ EQUIVALENCE PARTITIONING:
+        - Divide input domains into equivalence classes (groups that should behave the same)
+        - Test one representative from each class (valid and invalid partitions)
+        - Example: For age input (0-120), partitions: negative, zero, 1-120, >120
+
+        2️⃣ BOUNDARY VALUE ANALYSIS:
+        - Test at the edges of equivalence partitions where defects cluster
+        - Test: minimum-1, minimum, minimum+1, maximum-1, maximum, maximum+1
+        - Example: For list size 0-100, test: empty, 1, 99, 100, 101 elements
+
+        3️⃣ DECISION TABLE TESTING:
+        - Identify all conditional logic (if/else, switch, ternary operators)
+        - Create test scenarios for key condition combinations
+        - Ensure each decision path is exercised at least once
+        - Example: For if(x>0 && y<10), test: x≤0,y≥10 | x≤0,y<10 | x>0,y≥10 | x>0,y<10
+
+        4️⃣ STATE TRANSITION TESTING (for stateful objects):
+        - Identify object states and valid transitions between them
+        - Test: valid transitions, invalid transitions, boundary states
+        - Example: For a connection (NEW→OPEN→CLOSED), test: NEW→OPEN, OPEN→CLOSED, CLOSED→OPEN (invalid)
+
         💭 SCENARIO BRAINSTORMING:
-        List potential scenarios by category (brief bullet points):
-        ✅ Happy Path: [1-2 key normal scenarios]
-        ⚠️ Error Handling: [2-3 error/exception scenarios]
-        🎯 Edge Cases: [1-2 boundary/corner cases]
-        🔄 Integration: [1-2 scenarios if method has external dependencies]
+        Using the techniques above, list potential scenarios by category:
+        ✅ Happy Path: [1-2 key normal scenarios using valid equivalence classes]
+        🔢 Boundary Values: [2-3 boundary condition tests at partition edges]
+        🌳 Decision Paths: [2-3 scenarios covering different control flow branches]
+        🔄 State Transitions: [1-2 state change scenarios if object is stateful]
+        ⚠️ Error Handling: [2-3 error/exception scenarios using invalid partitions]
+        🎯 Edge Cases: [1-2 unusual but valid corner cases]
 
         📊 PRIORITIZATION REASONING:
         Explain your HIGH/MEDIUM/LOW priority choices based on:
         - User impact (crashes, data loss, wrong results vs minor issues)
         - Usage frequency (from context analysis - what's called often?)
         - Business criticality (financial, security, core functionality)
+        - Code complexity (high cyclomatic complexity = higher priority)
 
         PHASE 2: TOOL EXECUTION
 

@@ -146,13 +146,24 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         - Use the context analysis to determine what each scenario needs to test
 
         TESTING STRATEGY:
-        - UNIT tests: For pure business logic only - no external dependencies, no mocking needed
-        - INTEGRATION tests: For code with external dependencies - use real test infrastructure:
+
+        **CRITICAL: NO MOCKING ALLOWED** - Never use Mockito, EasyMock, PowerMock, or similar mocking frameworks
+
+        - UNIT tests: For pure business logic - use direct testing strategies:
+          * Direct instantiation and method calls (preferred approach)
+          * Use reflection to access/modify private fields when necessary
+          * Use test subclasses or test-specific implementations
+          * Reflection examples: ReflectionTestUtils.setField(obj, "fieldName", value), Field.setAccessible(true)
+
+        - INTEGRATION tests: For code with external dependencies - use real test infrastructure only:
           * Databases: Use Testcontainers (PostgreSQLContainer, MySQLContainer, etc.)
           * Message queues: Use Testcontainers (KafkaContainer, RabbitMQContainer, etc.)
-          * HTTP APIs: Use WireMock or MockWebServer
+          * HTTP APIs: Use WireMock or MockWebServer for real HTTP stubs
           * File operations: Use @TempDir for temporary test directories
-        - Avoid mocking frameworks when possible - prefer real test infrastructure for more reliable tests
+
+        **IF A UNIT TEST ABSOLUTELY REQUIRES MOCKING WITH NO ALTERNATIVE → SKIP IT**
+        - Do not generate test scenarios that cannot be written without mocking
+        - Document skipped scenarios in testing notes: "Note: Test X skipped - would require mocking which is not allowed"
 
         TEST LIFECYCLE MANAGEMENT:
 
@@ -192,25 +203,26 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         TESTING NOTES GUIDELINES:
         When calling setTestingNotes, provide natural language recommendations:
         - Mention the detected testing framework (JUnit 5, JUnit 4, TestNG)
-        - CRITICAL: Prefer real test infrastructure over mocking frameworks
-        - For database tests: recommend "Use Testcontainers for database testing (avoid mocking DAOs/repositories)"
-        - For messaging: recommend "Use Testcontainers for message queue testing (avoid mocking message brokers)"
-        - For HTTP APIs: recommend "Use WireMock or MockWebServer for API testing (real HTTP calls, not mocked clients)"
-        - For pure logic: recommend "Direct unit tests, no mocking needed"
-        - General principle: "Avoid Mockito/mocking frameworks when possible - prefer real test infrastructure for more reliable tests"
+        - **CRITICAL: NEVER use Mockito or other mocking frameworks**
+        - For database tests: recommend "Use Testcontainers for database testing - NO mocking of DAOs/repositories"
+        - For messaging: recommend "Use Testcontainers for message queue testing - NO mocking of message brokers"
+        - For HTTP APIs: recommend "Use WireMock or MockWebServer for HTTP stubs - real HTTP calls, not mocked clients"
+        - For pure logic: recommend "Direct unit tests. Use reflection (ReflectionTestUtils or Field.setAccessible) for private field access if needed"
+        - General principle: "NO mocking allowed. Use Testcontainers for integration tests, reflection for unit tests"
         - Include setup/teardown hints if needed: "Set up test infrastructure in @BeforeEach, clean up in @AfterEach"
+        - Document any skipped tests: "Note: Some scenarios skipped as they would require mocking"
 
         DEPENDENCY EXTRACTION (IMPORTANT):
         When you receive project dependencies (pom.xml, build.gradle content), extract ONLY test-relevant libraries and include in your testing notes as a concise list.
         Test-relevant libraries include:
         - Test frameworks: JUnit 4/5, TestNG, Spock, Kotest, etc.
-        - Mocking libraries: Mockito, EasyMock, PowerMock, MockK, etc.
         - Assertion libraries: AssertJ, Hamcrest, Google Truth, Strikt, etc.
-        - Test utilities: Testcontainers, H2, HSQLDB, WireMock, REST Assured, MockServer, Awaitility, etc.
-        - Spring testing: Spring Boot Test Starter, Spring Test, etc.
+        - Test infrastructure: Testcontainers, H2, HSQLDB, WireMock, REST Assured, MockServer, Awaitility, etc.
+        - Spring testing: Spring Boot Test Starter, Spring Test (including ReflectionTestUtils), etc.
+        - NOTE: Exclude mocking libraries (Mockito, EasyMock, PowerMock, MockK) - they are NOT allowed
 
         Include in testing notes as:
-        "Available test libraries: JUnit 5, Mockito, AssertJ, Spring Boot Test, Testcontainers"
+        "Available test libraries: JUnit 5, AssertJ, Spring Boot Test, Testcontainers, ReflectionTestUtils"
 
         DO NOT include the full build file content in testing notes - only extract the concise list of test libraries.
 
@@ -894,19 +906,20 @@ public class CoordinatorAgent extends StreamingBaseAgent {
                 coordinatorAgent.contextTools.getFrameworkInfo() : "JUnit 5";
 
             notes.append("Testing framework: ").append(frameworkInfo).append(". ");
+            notes.append("CRITICAL: NO mocking allowed. ");
 
             // Add testing approach based on scenario analysis
             if (hasDatabase) {
-                notes.append("Use TestContainers for database testing. ");
+                notes.append("Use TestContainers for database testing - NO mocking of DAOs/repositories. ");
             }
             if (hasMessaging) {
-                notes.append("Use TestContainers for message queue testing. ");
+                notes.append("Use TestContainers for message queue testing - NO mocking of message brokers. ");
             }
             if (hasHttpApi) {
-                notes.append("Use WireMock for API mocking. ");
+                notes.append("Use WireMock for HTTP service stubs (real HTTP calls). ");
             }
             if (hasPureLogic) {
-                notes.append("Direct unit tests for business logic, no mocking needed. ");
+                notes.append("Direct unit tests for business logic. Use reflection (ReflectionTestUtils or Field.setAccessible) for private field access if needed. ");
             }
 
             // Add setup/teardown hints if integration tests present
@@ -1060,7 +1073,7 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
     /**
      * Analyze build files and create focused dependency notes for test generation.
-     * Returns notes about test framework, mocking libs, code dependencies, and integration test tools.
+     * Returns notes about test framework, test utilities (NO mocking), code dependencies, and integration test tools.
      */
     private String analyzeDependencies(
             @NotNull Map<String, String> buildFiles,
@@ -1119,8 +1132,8 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         analysisPrompt.append("1. **Testing Framework**: [name] ([version]) - [usage notes like '@Test, @BeforeEach']\n");
         analysisPrompt.append("   Example: JUnit 5 (5.9.3) - Use @Test, @BeforeEach, @AfterEach, Assertions.*\n\n");
 
-        analysisPrompt.append("2. **Mocking/Test Utilities**: [list with versions]\n");
-        analysisPrompt.append("   Example: Mockito 4.8.0 for mocking dependencies, AssertJ 3.24.0 for fluent assertions\n\n");
+        analysisPrompt.append("2. **Test Utilities** (NO mocking libraries - exclude Mockito/EasyMock/PowerMock): [list with versions]\n");
+        analysisPrompt.append("   Example: AssertJ 3.24.0 for fluent assertions, ReflectionTestUtils (Spring Test) for field access\n\n");
 
         analysisPrompt.append("3. **Code Dependencies**: [what the code under test actually uses]\n");
         analysisPrompt.append("   Example: Spring Data JPA 3.0.0 (code uses @Repository, @Entity), PostgreSQL JDBC 42.5.0\n\n");

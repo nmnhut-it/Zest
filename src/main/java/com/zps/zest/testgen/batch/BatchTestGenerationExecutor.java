@@ -32,10 +32,17 @@ public class BatchTestGenerationExecutor {
 
     private final Project project;
     private final StateMachineTestGenerationService testGenService;
+    private final java.util.Map<com.intellij.openapi.vfs.VirtualFile, java.util.Set<String>> fileMethodSelections;
 
     public BatchTestGenerationExecutor(@NotNull Project project) {
+        this(project, new java.util.HashMap<>());
+    }
+
+    public BatchTestGenerationExecutor(@NotNull Project project,
+                                      @NotNull java.util.Map<com.intellij.openapi.vfs.VirtualFile, java.util.Set<String>> fileMethodSelections) {
         this.project = project;
         this.testGenService = project.getService(StateMachineTestGenerationService.class);
+        this.fileMethodSelections = fileMethodSelections;
     }
 
     /**
@@ -127,6 +134,16 @@ public class BatchTestGenerationExecutor {
                 file,
                 options.excludeSimpleAccessors
             );
+
+            // Filter methods based on user selection (if any)
+            java.util.Set<String> selectedMethodNames = fileMethodSelections.get(file.getVirtualFile());
+            if (selectedMethodNames != null && !selectedMethodNames.isEmpty()) {
+                publicMethods = publicMethods.stream()
+                    .filter(method -> selectedMethodNames.contains(method.getName()))
+                    .collect(java.util.stream.Collectors.toList());
+
+                LOG.info("Filtered to " + publicMethods.size() + " selected methods for " + fileName);
+            }
 
             if (publicMethods.isEmpty()) {
                 LOG.info("Skipping file with no public methods: " + fileName);

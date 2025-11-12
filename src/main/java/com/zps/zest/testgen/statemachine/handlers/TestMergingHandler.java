@@ -64,7 +64,42 @@ public class TestMergingHandler extends AbstractStateHandler {
             TestGenerationResult result = generationHandler != null ? generationHandler.getTestGenerationResult() : null;
             com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools =
                 contextHandler != null && contextHandler.getContextAgent() != null ? contextHandler.getContextAgent().getContextTools() : null;
-            
+
+            // Validate that result is available (critical for merging)
+            // If not available from handler, try to get it from resumed agent's snapshot
+            if (result == null && stateMachine.isResumedSession() && this.aiTestMergerAgent != null) {
+                // When resuming, the agent may have been restored with the result
+                result = this.aiTestMergerAgent.getMergingTools().getTestGenerationResult();
+                if (result != null) {
+                    LOG.info("Successfully restored TestGenerationResult from checkpoint");
+                    // Also populate the TestGenerationHandler for consistency
+                    if (generationHandler != null) {
+                        try {
+                            java.lang.reflect.Field resultField =
+                                com.zps.zest.testgen.statemachine.handlers.TestGenerationHandler.class.getDeclaredField("testGenerationResult");
+                            resultField.setAccessible(true);
+                            resultField.set(generationHandler, result);
+                            LOG.info("Restored TestGenerationResult to TestGenerationHandler for consistency");
+                        } catch (Exception e) {
+                            LOG.warn("Could not set testGenerationResult on TestGenerationHandler via reflection", e);
+                        }
+                    }
+                }
+            }
+
+            // If still null after trying to restore, fail with clear error
+            if (result == null) {
+                String errorMessage = "Cannot start test merging: TestGenerationResult is missing.\n\n" +
+                    "This typically occurs when:\n" +
+                    "1. Resuming from an old checkpoint (created before result preservation was added)\n" +
+                    "2. The test generation phase did not complete successfully\n\n" +
+                    "To resolve:\n" +
+                    "- Resume from an earlier checkpoint (GENERATING_TESTS state), or\n" +
+                    "- Start a fresh test generation session";
+                LOG.error(errorMessage);
+                return StateResult.failure(errorMessage, false);
+            }
+
             logToolActivity(stateMachine, "TestMerger", "Preparing test merging");
 
             // Notify UI of phase start
@@ -97,6 +132,11 @@ public class TestMergingHandler extends AbstractStateHandler {
 
             // Store as field for direct access
             this.aiTestMergerAgent = aiMerger;
+
+            // Set the TestGenerationResult on mergingTools so it can be exported in checkpoint
+            if (result != null) {
+                aiMerger.getMergingTools().setTestGenerationResult(result);
+            }
 
             // Save BEFORE checkpoint - capture state before test merging
             try {
@@ -222,6 +262,19 @@ public class TestMergingHandler extends AbstractStateHandler {
             @NotNull TestGenerationResult result,
             @Nullable com.zps.zest.testgen.agents.ContextAgent.ContextGatheringTools contextTools) throws Exception {
 
+        // Validate that result is available (may be null when resuming from checkpoint)
+        if (result == null) {
+            String errorMessage = "Cannot merge tests: TestGenerationResult is missing.\n" +
+                "This occurs when resuming from a checkpoint at the MERGING_TESTS state.\n" +
+                "The test generation result from the previous state was not preserved in the checkpoint.\n\n" +
+                "To proceed, please:\n" +
+                "1. Resume from an earlier checkpoint (GENERATING_TESTS state), or\n" +
+                "2. Start a fresh test generation session\n\n" +
+                "Note: Full checkpoint restoration for MERGING_TESTS state will be supported in a future update.";
+            LOG.error(errorMessage);
+            throw new IllegalStateException(errorMessage);
+        }
+
         String targetClass = result.getTargetClass();
         String testClassName = result.getClassName();
         String newTestCode = result.getCompleteTestClass();
@@ -328,12 +381,13 @@ public class TestMergingHandler extends AbstractStateHandler {
 
             logToolActivity(stateMachine, "Phase6", "Fixing all issues");
             if (streamingCallback != null) {
-                streamingCallback.accept("\n**PHASE 6: Fix All Issues (AI - ONE TIME)**\n");
+                streamingCallback.accept("\n**PHASE 6: Fix All Issues (AI with retry if needed)**\n");
                 streamingCallback.accept("Fixing: " + compilationErrors.size() +
                         " compilation + " + logicIssues.size() + " logic issues\n");
+                streamingCallback.accept("Will retry up to 5 times if errors remain (some may be unfixable)\n");
             }
 
-            int maxFixAttempts = 3;
+            int maxFixAttempts = 5; // Retry up to 5 times if validation errors remain
             mergedCode = aiMerger.fixUsingTools(testClassName, compilationErrors, logicIssues, contextTools, maxFixAttempts);
         } else {
             if (streamingCallback != null) {

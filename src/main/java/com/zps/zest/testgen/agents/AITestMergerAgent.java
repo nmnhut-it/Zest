@@ -10,6 +10,7 @@ import com.intellij.testFramework.LightVirtualFile;
 import com.zps.zest.browser.utils.ChatboxUtilities;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
+import com.zps.zest.testgen.evaluation.TestCodeValidator;
 import com.zps.zest.testgen.model.*;
 import com.zps.zest.testgen.util.ExistingTestAnalyzer;
 import dev.langchain4j.agent.tool.P;
@@ -386,19 +387,65 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                                int maxAttempts) {
         try {
             int totalIssues = compilationErrors.size() + logicIssues.size();
-            sendToUI("\n🔧 Fixing all issues with chain-of-thought reasoning...\n");
+            sendToUI("\n🔧 Fixing issues (max " + maxAttempts + " attempts)...\n");
             sendToUI("Issues to fix: " + compilationErrors.size() + " compilation + " +
                     logicIssues.size() + " logic = " + totalIssues + " total\n");
 
-            String fixPrompt = buildChainOfThoughtFixPrompt(compilationErrors, logicIssues, contextTools);
+            java.util.List<String> currentCompilationErrors = new java.util.ArrayList<>(compilationErrors);
+            java.util.List<String> currentLogicIssues = new java.util.ArrayList<>(logicIssues);
 
-            // AI investigates and fixes using tools
-            assistant.mergeAndFixTestClass(wrapWithSystemPrompt(fixPrompt));
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                int currentTotalIssues = currentCompilationErrors.size() + currentLogicIssues.size();
 
-            String fixedCode = mergingTools.getCurrentTestCode();
+                if (currentTotalIssues == 0) {
+                    sendToUI("✅ All issues fixed after " + (attempt - 1) + " attempt(s)\n");
+                    break;
+                }
+
+                sendToUI("\n--- Attempt " + attempt + "/" + maxAttempts + " ---\n");
+                sendToUI("Remaining issues: " + currentCompilationErrors.size() + " compilation + " +
+                        currentLogicIssues.size() + " logic\n");
+
+                String fixPrompt = buildChainOfThoughtFixPrompt(currentCompilationErrors, currentLogicIssues, contextTools);
+
+                // AI investigates and fixes using tools
+                assistant.mergeAndFixTestClass(wrapWithSystemPrompt(fixPrompt));
+
+                String fixedCode = mergingTools.getCurrentTestCode();
+
+                // Validate to check progress
+                if (attempt < maxAttempts) {  // Don't validate on last attempt (will be done in Phase 7)
+                    TestCodeValidator.ValidationResult validation = TestCodeValidator.validate(
+                            project,
+                            fixedCode,
+                            className
+                    );
+
+                    if (validation.compiles()) {
+                        sendToUI("✅ Validation passed! All issues fixed.\n");
+                        break;
+                    } else {
+                        int remainingErrors = validation.getErrorCount();
+                        sendToUI("⚠️ Still has " + remainingErrors + " error(s)\n");
+
+                        // Update errors for next attempt
+                        currentCompilationErrors = validation.getErrors();
+                        currentLogicIssues = java.util.Collections.emptyList(); // Only focus on compilation errors in retries
+
+                        if (remainingErrors >= currentTotalIssues) {
+                            sendToUI("⚠️ No progress made (errors didn't decrease). Some errors may be unfixable.\n");
+                            if (attempt < maxAttempts) {
+                                sendToUI("Trying different approach...\n");
+                            }
+                        }
+                    }
+                }
+            }
+
+            String finalCode = mergingTools.getCurrentTestCode();
             sendToUI("✅ Fix phase complete\n");
 
-            return fixedCode;
+            return finalCode;
 
         } catch (Exception e) {
             LOG.error("Error in fix phase", e);
@@ -646,11 +693,12 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         prompt.append("---\n\n");
         prompt.append("# YOUR TASK\n\n");
         prompt.append("Fix all validation errors using the 3-step process below.\n\n");
+        prompt.append("**Do your best to fix as many errors as possible.** Some errors may be unfixable - that's okay.\n\n");
 
         prompt.append("**Success Criteria:**\n");
-        prompt.append("- All compilation errors resolved\n");
-        prompt.append("- Logic issues fixed where possible\n");
-        prompt.append("- Validation passes (0 errors)\n");
+        prompt.append("- Fix compilation errors (highest priority)\n");
+        prompt.append("- Fix logic issues where feasible\n");
+        prompt.append("- Achieve validation (0 errors) or reduce error count significantly\n");
         prompt.append("- Code calls `updateTestCode()` with complete fixed version\n");
         prompt.append("- Code calls `validateCurrentTestCode()` to verify\n");
         prompt.append("- Code calls `markMergingDone()` to signal completion\n\n");
@@ -690,9 +738,11 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         prompt.append("**Category D: Import/Type Errors**\n");
         prompt.append("- Add missing imports with `addImport()`\n");
         prompt.append("- Fix type mismatches\n\n");
-        prompt.append("**Category E: Mockito Errors**\n");
-        prompt.append("- Void methods: Use `doNothing().when(mock).method()` instead of `when(mock.method()).thenReturn()`\n");
-        prompt.append("- Fix return type mismatches\n\n");
+        prompt.append("**Category E: Mocking Framework Errors**\n");
+        prompt.append("- **CRITICAL: Remove ALL mocking code** (Mockito, EasyMock, PowerMock, etc.)\n");
+        prompt.append("- Replace with Testcontainers for integration tests (databases, message queues, HTTP services)\n");
+        prompt.append("- Replace with reflection (ReflectionTestUtils) for private field access in unit tests\n");
+        prompt.append("- If test cannot work without mocking → Comment out with explanation: // @Test @Disabled(\"Test skipped - requires mocking which is not allowed\")\n\n");
 
         // STEP 3: Generate Complete Fix
         prompt.append("## STEP 3: Generate Complete Fixed Code\n\n");
@@ -706,7 +756,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         prompt.append("```\n\n");
         prompt.append("Finally, mark as done:\n\n");
         prompt.append("```\n");
-        prompt.append("markMergingDone(\"Validation passed - all X errors fixed\")\n");
+        prompt.append("markMergingDone(\"Validation passed - all X errors fixed\")  // Or \"Fixed X of Y errors\" if some unfixable\n");
         prompt.append("```\n\n");
 
         // ============================================================================
@@ -741,8 +791,10 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         prompt.append("❌ **DON'T** call `findImportForClass()` multiple times for different classes\n");
         prompt.append("   ✅ DO batch them: `findImportForClass(\"Class1, Class2, Class3\")`\n\n");
 
-        prompt.append("❌ **DON'T** use `when(mock.voidMethod()).thenReturn(...)` for void methods\n");
-        prompt.append("   ✅ DO use `doNothing().when(mock).voidMethod()` or just don't mock it\n\n");
+        prompt.append("❌ **DON'T** use ANY mocking frameworks (Mockito, EasyMock, PowerMock)\n");
+        prompt.append("   ✅ DO use Testcontainers for integration dependencies (databases, message queues, HTTP services)\n");
+        prompt.append("   ✅ DO use reflection (ReflectionTestUtils) for private field access in unit tests\n");
+        prompt.append("   ✅ DO skip tests that absolutely require mocking (document with @Disabled and explanation)\n\n");
 
         prompt.append("❌ **DON'T** keep using classes that `findImportForClass()` returns as CLASS_NOT_FOUND\n");
         prompt.append("   ✅ DO remove ALL usages of missing classes from test code\n\n");
@@ -763,35 +815,38 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         prompt.append("```\n");
         prompt.append("Given errors:\n");
         prompt.append("- Cannot resolve 'RedisContainer' (5 occurrences)\n");
-        prompt.append("- Cannot resolve 'UserService' (2 occurrences)\n");
-        prompt.append("- when(mock.set(...)).thenReturn() cannot be applied to void\n\n");
+        prompt.append("- Cannot resolve 'UserRepository' (2 occurrences)\n");
+        prompt.append("- Mock object detected for DAO class (mocking not allowed)\n\n");
 
         prompt.append("STEP 1: Batch Investigation\n");
-        prompt.append("findImportForClass(\"RedisContainer, UserService\")\n\n");
+        prompt.append("findImportForClass(\"RedisContainer, UserRepository\")\n\n");
 
         prompt.append("Result:\n");
-        prompt.append("- RedisContainer: CLASS_NOT_FOUND\n");
-        prompt.append("- UserService: ✅ Found at com.example.UserService\n\n");
+        prompt.append("- RedisContainer: ✅ Found at org.testcontainers.containers.GenericContainer (use Testcontainers)\n");
+        prompt.append("- UserRepository: ✅ Found at com.example.UserRepository\n\n");
 
         prompt.append("STEP 2: Categorize & Plan\n");
-        prompt.append("Category A (Missing): RedisContainer → Remove all usages (5 places)\n");
-        prompt.append("Category D (Import): UserService → Add import com.example.UserService\n");
-        prompt.append("Category E (Mockito): mock.set() is void → Change to doNothing().when(mock).set(...)\n\n");
+        prompt.append("Category A (Missing): RedisContainer → Add import org.testcontainers.containers.GenericContainer\n");
+        prompt.append("Category D (Import): UserRepository → Add import com.example.UserRepository\n");
+        prompt.append("Category E (Mocking): Mock detected → Remove ALL Mockito code, test directly or use Testcontainers\n\n");
 
         prompt.append("STEP 3: Generate Complete Fix\n");
         prompt.append("updateTestCode(\"\"\"\n");
         prompt.append("package com.example;\n\n");
-        prompt.append("import com.example.UserService;\n");
-        prompt.append("import static org.mockito.Mockito.*;\n\n");
+        prompt.append("import com.example.UserRepository;\n");
+        prompt.append("import org.testcontainers.containers.GenericContainer;\n");
+        prompt.append("import org.junit.jupiter.api.Test;\n\n");
         prompt.append("class MyTest {\n");
-        prompt.append("    // Removed RedisContainer field\n");
-        prompt.append("    // Removed @Container redisContainer\n");
+        prompt.append("    // Use Testcontainers for Redis (not mocking)\n");
+        prompt.append("    @Container\n");
+        prompt.append("    GenericContainer<?> redis = new GenericContainer<>(\"redis:7\");\n");
         prompt.append("    \n");
         prompt.append("    @Test\n");
         prompt.append("    void test() {\n");
-        prompt.append("        UserService service = mock(UserService.class);\n");
-        prompt.append("        doNothing().when(service).set(anyString(), anyString());\n");
-        prompt.append("        // Test logic without Redis\n");
+        prompt.append("        // Test with real Redis container\n");
+        prompt.append("        // OR: If UserRepository can be tested directly without mocking:\n");
+        prompt.append("        UserRepository repo = new UserRepository();\n");
+        prompt.append("        // Direct test logic\n");
         prompt.append("    }\n");
         prompt.append("}\n");
         prompt.append("\"\"\")\n\n");
@@ -1448,6 +1503,7 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         private final java.util.Set<String> suppressionPatterns = new java.util.HashSet<>(); // Patterns to suppress in validation
         private final com.zps.zest.testgen.tools.LookupMethodTool lookupMethodTool; // Delegate to full implementation
         private final com.zps.zest.testgen.tools.LookupClassTool lookupClassTool; // Delegate to full implementation
+        private com.zps.zest.testgen.model.TestGenerationResult testGenerationResult = null; // Store for checkpoint restoration
 
         public TestMergingTools(@NotNull Project project,
                                @Nullable java.util.function.Consumer<String> toolNotifier,
@@ -1462,6 +1518,15 @@ public class AITestMergerAgent extends StreamingBaseAgent {
 
         public void setContextTools(ContextAgent.ContextGatheringTools contextTools) {
             this.contextTools = contextTools;
+        }
+
+        public void setTestGenerationResult(com.zps.zest.testgen.model.TestGenerationResult result) {
+            this.testGenerationResult = result;
+        }
+
+        @Nullable
+        public com.zps.zest.testgen.model.TestGenerationResult getTestGenerationResult() {
+            return testGenerationResult;
         }
 
         private void notifyTool(String toolName, String params) {
@@ -1633,8 +1698,9 @@ public class AITestMergerAgent extends StreamingBaseAgent {
 
                 // Create virtual file for validation with test source root as parent
                 // This ensures IntelliJ uses test classpath (with JUnit, Mockito, etc.)
+                // Use unique filename with timestamp to avoid IntelliJ caching stale analysis results
                 LightVirtualFile virtualFile = new LightVirtualFile(
-                    className + ".java",
+                    className + "_" + System.nanoTime() + ".java",
                     javaFileType,
                     testCode
                 );
@@ -1739,11 +1805,12 @@ public class AITestMergerAgent extends StreamingBaseAgent {
                     errorBlock.append("Error at Line ").append(lineNum).append(":\n");
 
                     // Show 2 lines before, error line, 2 lines after
-                    int startLine = Math.max(0, lineNum - 3);  // -3 because lineNum is 1-based
-                    int endLine = Math.min(codeLines.length, lineNum + 2);
+                    int errorLineIndex = lineNum - 1;
+                    int startLine = Math.max(0, errorLineIndex - 2);
+                    int endLine = Math.min(codeLines.length, errorLineIndex + 3);
 
                     for (int i = startLine; i < endLine; i++) {
-                        String linePrefix = (i == lineNum - 1) ? " →  " : "    ";  // Arrow for error line
+                        String linePrefix = (i == errorLineIndex) ? " →  " : "    ";
                         errorBlock.append(String.format("%s%4d | %s\n", linePrefix, i + 1, codeLines[i]));
                     }
 
@@ -2405,19 +2472,80 @@ public class AITestMergerAgent extends StreamingBaseAgent {
         }
 
         public com.zps.zest.testgen.snapshot.MergingToolsSnapshot exportState() {
+            // Convert TestGenerationResult to snapshot if available
+            com.zps.zest.testgen.snapshot.TestGenerationResultSnapshot resultSnapshot = null;
+            if (testGenerationResult != null) {
+                resultSnapshot = new com.zps.zest.testgen.snapshot.TestGenerationResultSnapshot(
+                    testGenerationResult.getPackageName(),
+                    testGenerationResult.getClassName(),
+                    testGenerationResult.getFramework(),
+                    testGenerationResult.getCompleteTestClass()
+                );
+            }
+
             return new com.zps.zest.testgen.snapshot.MergingToolsSnapshot(
                 currentWorkingTestCode,
                 null,
-                fixStrategy.name()
+                fixStrategy.name(),
+                resultSnapshot
             );
         }
 
         public void restoreState(com.zps.zest.testgen.snapshot.MergingToolsSnapshot snapshot) {
             currentWorkingTestCode = snapshot.getLastExistingTestCode();
+
+            // Restore TestGenerationResult if available in snapshot
+            // Note: We create a minimal result with just the data needed for merging
+            if (snapshot.getTestGenerationResult() != null) {
+                com.zps.zest.testgen.snapshot.TestGenerationResultSnapshot resultSnapshot =
+                    snapshot.getTestGenerationResult();
+
+                // Create a minimal TestGenerationResult with empty lists for required fields
+                // This is sufficient for merging which only needs className and completeTestClass
+                this.testGenerationResult = new com.zps.zest.testgen.model.TestGenerationResult(
+                    resultSnapshot.getPackageName(),
+                    resultSnapshot.getClassName(),
+                    resultSnapshot.getFramework(),
+                    new java.util.ArrayList<>(), // imports
+                    new java.util.ArrayList<>(), // fieldDeclarations
+                    null, // beforeAllCode
+                    null, // afterAllCode
+                    null, // beforeEachCode
+                    null, // afterEachCode
+                    new java.util.ArrayList<>(), // testMethods - empty list
+                    createMinimalTestPlan(resultSnapshot.getClassName()), // testPlan
+                    null, // contextTools
+                    resultSnapshot.getCompleteTestClass() // completeTestClass
+                );
+            }
             mergingComplete = false;
             suppressionPatterns.clear();
 
             LOG.info("Restored merging tools state");
+        }
+
+        /**
+         * Create a minimal TestPlan for checkpoint restoration.
+         * Only includes className as that's what getTargetClass() uses.
+         */
+        private com.zps.zest.testgen.model.TestPlan createMinimalTestPlan(String className) {
+            // Extract target class from test class name (e.g., "FooTest" -> "Foo")
+            String targetClass = className;
+            if (className.endsWith("Test")) {
+                targetClass = className.substring(0, className.length() - 4);
+            } else if (className.endsWith("Tests")) {
+                targetClass = className.substring(0, className.length() - 5);
+            }
+
+            // Create minimal test plan with just the target class
+            return new com.zps.zest.testgen.model.TestPlan(
+                new java.util.ArrayList<>(), // targetMethods - empty
+                targetClass, // targetClass
+                new java.util.ArrayList<>(), // testScenarios - empty
+                new java.util.ArrayList<>(), // dependencies - empty
+                com.zps.zest.testgen.model.TestGenerationRequest.TestType.UNIT_TESTS, // default type
+                "Restored from checkpoint" // reasoning
+            );
         }
 
         private int countTestMethods(String testCode) {

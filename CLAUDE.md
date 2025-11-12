@@ -10,10 +10,9 @@ Zest is an IntelliJ IDEA plugin that provides AI-powered code assistance feature
 
 ## Key Technologies
 - **Languages**: Java, Kotlin, JavaScript/HTML
-- **Build System**: Gradle (multi-module with mcp-server)
+- **Build System**: Gradle
 - **IDE**: IntelliJ Platform SDK
 - **UI**: JCEF (Java Chromium Embedded Framework) for web-based UI
-- **MCP Server**: Quarkus with langchain4j @Tool annotations
 
 ## Important Commands
 
@@ -68,11 +67,6 @@ export JAVA_HOME="D:\idea-C-2025\IntelliJ IDEA Community Edition 2025.2.2\jbr"
   - `html/` - HTML files for web UI (e.g., git-ui.html)
   - `js/` - JavaScript files
 
-- `mcp-server/` - Quarkus MCP Server module
-  - `src/main/java/com/zps/zest/mcp/tools/` - MCP tool wrappers
-  - `src/main/java/com/zps/zest/mcp/client/` - IntelliJ plugin REST client
-  - `build/quarkus-app/` - Built JAR for distribution
-
 ## Key Components
 
 ### Git Integration
@@ -85,14 +79,6 @@ export JAVA_HOME="D:\idea-C-2025\IntelliJ IDEA Community Edition 2025.2.2\jbr"
 - **CodeHealthTracker.kt** - Tracks code modifications
 - Supports both automatic (after commits) and manual reviews
 - Filters to only analyze code files (Java, Kotlin, JS, TS, etc.)
-
-### MCP Server (Model Context Protocol)
-- **mcp-server/** - Standalone Quarkus module exposing tools via MCP
-- **ToolApiServer.java** - Lightweight HTTP server in plugin for tool execution
-- **ToolApiServerService.java** - Manages server lifecycle per project
-- Exposes 9 tools: readFile, searchCode, findFiles, analyzeClass, listFiles, lookupMethod, lookupClass, replaceCodeInFile, createNewFile
-- Works with Claude Desktop, Cursor, and other MCP clients
-- Auto-starts on project open (port 63342+)
 
 ### Browser Modes
 - **Agent Mode** - Full tool access with "software assembly line" capabilities

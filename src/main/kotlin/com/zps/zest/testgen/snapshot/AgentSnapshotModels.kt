@@ -85,5 +85,13 @@ data class PlanningToolsSnapshot(
 data class MergingToolsSnapshot(
     val lastExistingTestCode: String?,
     val lastMergedResult: String?,
-    val fixStrategy: String
+    val fixStrategy: String,
+    val testGenerationResult: TestGenerationResultSnapshot?
+)
+
+data class TestGenerationResultSnapshot(
+    val packageName: String,
+    val className: String,
+    val framework: String,
+    val completeTestClass: String?
 )

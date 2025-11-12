@@ -91,7 +91,7 @@ public class TestCodeValidator {
             VirtualFile testSourceRoot = com.zps.zest.testgen.util.TestSourceRootUtil.findBestTestSourceRootVirtualFile(project);
 
             LightVirtualFile virtualFile = new LightVirtualFile(
-                    className + ".java",
+                    className + "_" + System.nanoTime() + ".java",
                     javaFileType,
                     testCode
             );
@@ -141,11 +141,12 @@ public class TestCodeValidator {
                 errorBlock.append("Error at Line ").append(lineNum).append(":\n");
 
                 // Show 2 lines before, error line, 2 lines after
-                int startLine = Math.max(0, lineNum - 3);
-                int endLine = Math.min(codeLines.length, lineNum + 2);
+                int errorLineIndex = lineNum - 1;
+                int startLine = Math.max(0, errorLineIndex - 2);
+                int endLine = Math.min(codeLines.length, errorLineIndex + 3);
 
                 for (int i = startLine; i < endLine; i++) {
-                    String linePrefix = (i == lineNum - 1) ? " →  " : "    ";
+                    String linePrefix = (i == errorLineIndex) ? " →  " : "    ";
                     errorBlock.append(String.format("%s%4d | %s\n", linePrefix, i + 1, codeLines[i]));
                 }
 

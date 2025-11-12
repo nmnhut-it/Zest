@@ -52,10 +52,11 @@ public final class PromptConstants {
                - What's the detected framework? (Check "Detected Testing Framework")
 
             2. **Testing Approach Selection** (apply decision tree below):
-               - Pure business logic → Unit tests (no mocking needed)
-               - Database/JPA interactions → Testcontainers (preferred over mocking)
-               - External services (Redis, etc.) → Testcontainers or WireMock
-               - Simple collaborators → Mocking (last resort only)
+               - Pure business logic → Unit tests (use reflection if needed, NO mocking)
+               - Database/JPA interactions → Testcontainers ONLY (NO mocking of repositories/DAOs)
+               - External services (Redis, etc.) → Testcontainers ONLY
+               - HTTP APIs → WireMock for HTTP stubs
+               - **IF ABSOLUTELY NO ALTERNATIVE → SKIP THE TEST** (document as "Not testable without mocking")
 
             3. **Coverage from Real Usage** (use pre-computed patterns):
                - Review "Method Usage Patterns" for actual caller scenarios
@@ -104,20 +105,38 @@ public final class PromptConstants {
 
             DEPENDENCY-AWARE TESTING STRATEGY:
 
+            **CRITICAL: NO MOCKING ALLOWED** - Never use Mockito, EasyMock, PowerMock, or similar mocking frameworks
+
+            **Reflection Usage:**
+            When testing pure business logic that requires access to private fields/methods:
+            - Use reflection to access/modify private fields
+            - Examples: ReflectionTestUtils.setField(obj, "field", value) or Field.setAccessible(true)
+            - Reflection is acceptable and preferred over mocking
+
             1. **PURE BUSINESS LOGIC** (no external dependencies):
-               → Write UNIT TESTS - test actual logic directly, no mocking needed
+               → Write UNIT TESTS - test actual logic directly
+               → Use reflection for private field/method access if needed
+               → NO mocking frameworks
 
             2. **DATABASE INTERACTIONS** (JPA, JDBC, repositories):
-               → Use TESTCONTAINERS with appropriate database containers
+               → Use TESTCONTAINERS with appropriate database containers ONLY
+               → NO mocking of repositories or DAOs
 
             3. **MESSAGE QUEUES** (Kafka, RabbitMQ, ActiveMQ):
-               → Use TESTCONTAINERS with message broker containers
+               → Use TESTCONTAINERS with message broker containers ONLY
+               → NO mocking of message brokers
 
             4. **EXTERNAL SERVICES** (Redis, Elasticsearch, etc.):
-               → Use TESTCONTAINERS with service containers
+               → Use TESTCONTAINERS with service containers ONLY
+               → NO mocking of external services
 
-            5. **HTTP CLIENTS/APIS** (last resort):
-               → Prefer WireMock or MockWebServer over mocking
+            5. **HTTP CLIENTS/APIS**:
+               → Use WireMock or MockWebServer for real HTTP stubs ONLY
+               → NO mocking frameworks
+
+            6. **IF TEST REQUIRES MOCKING WITH NO ALTERNATIVE**:
+               → SKIP THE TEST and document why
+               → Example: // @Test @Disabled("Requires mocking which is not allowed")
 
             FRAMEWORK DETECTION: Adapt to the project's testing framework (JUnit 4, JUnit 5, TestNG, etc.)
 
@@ -143,7 +162,11 @@ public final class PromptConstants {
 
             ---
 
-            CRITICAL REMINDER: If we can write test without mocking, please avoid mocking.
+            CRITICAL REMINDER: **NO MOCKING ALLOWED UNDER ANY CIRCUMSTANCES**.
+            - Use Testcontainers for integration tests (databases, message queues, external services)
+            - Use reflection for private field access in unit tests (ReflectionTestUtils or Field.setAccessible)
+            - If a test absolutely requires mocking with no alternative → SKIP IT
+            - Document skipped tests: // @Test @Disabled("Test skipped - would require mocking which is not allowed")
 
             **OUTPUT REQUIREMENTS**:
             - Your response MUST start with ```java

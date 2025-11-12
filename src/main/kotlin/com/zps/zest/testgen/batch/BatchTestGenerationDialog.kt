@@ -15,11 +15,14 @@ import com.intellij.ui.table.JBTable
 import com.zps.zest.testgen.model.TestGenerationConfig
 import com.zps.zest.testgen.model.TestGenerationRequest
 import java.awt.BorderLayout
+import java.awt.Component
 import java.awt.Dimension
 import java.io.File
 import javax.swing.*
 import javax.swing.filechooser.FileNameExtensionFilter
 import javax.swing.table.DefaultTableModel
+import javax.swing.table.TableCellEditor
+import javax.swing.table.TableCellRenderer
 
 /**
  * Dialog for batch test generation on multiple files.
@@ -29,6 +32,9 @@ class BatchTestGenerationDialog(private val project: Project) : DialogWrapper(pr
 
     private val selectedFiles = mutableListOf<PsiFile>()
     private val fileCheckboxes = mutableMapOf<PsiFile, JCheckBox>()
+
+    // Track method selections per file (null = all methods selected)
+    private val fileMethodSelections = mutableMapOf<PsiFile, Set<String>?>()
 
     private lateinit var tabbedPane: JBTabbedPane
     private lateinit var fileTableModel: DefaultTableModel
@@ -89,19 +95,24 @@ class BatchTestGenerationDialog(private val project: Project) : DialogWrapper(pr
 
         // Middle: File table
         fileTableModel = object : DefaultTableModel(
-            arrayOf("File", "Public Methods", "Path"),
+            arrayOf("File", "Public Methods", "Selected Methods", "Path"),
             0
         ) {
-            override fun isCellEditable(row: Int, column: Int) = column == 0
+            override fun isCellEditable(row: Int, column: Int) = column == 2 // Only "Selected Methods" column is editable
         }
 
         fileTable = JBTable(fileTableModel)
         fileTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION)
 
-        // Column 0 is checkbox (handled by renderer)
-        fileTable.getColumnModel().getColumn(0).preferredWidth = 300
+        // Column widths
+        fileTable.getColumnModel().getColumn(0).preferredWidth = 250
         fileTable.getColumnModel().getColumn(1).preferredWidth = 100
-        fileTable.getColumnModel().getColumn(2).preferredWidth = 400
+        fileTable.getColumnModel().getColumn(2).preferredWidth = 150
+        fileTable.getColumnModel().getColumn(3).preferredWidth = 300
+
+        // Add button renderer/editor for "Selected Methods" column
+        fileTable.getColumnModel().getColumn(2).cellRenderer = MethodSelectionButtonRenderer()
+        fileTable.getColumnModel().getColumn(2).cellEditor = MethodSelectionButtonEditor()
 
         // Bottom: Select all + summary
         val bottomPanel = JPanel(BorderLayout())
@@ -275,9 +286,19 @@ class BatchTestGenerationDialog(private val project: Project) : DialogWrapper(pr
         fileTableModel.rowCount = 0
         for (file in selectedFiles) {
             val methodCount = PublicApiDetector.countPublicMethods(file, excludeAccessorsCheckBox?.isSelected ?: true)
+
+            // Format selected methods display
+            val selectedMethodText = if (fileMethodSelections[file] == null) {
+                "All ($methodCount)"
+            } else {
+                val selectedCount = fileMethodSelections[file]!!.size
+                "$selectedCount / $methodCount"
+            }
+
             fileTableModel.addRow(arrayOf(
                 file.name,
                 methodCount,
+                selectedMethodText,
                 file.virtualFile.path
             ))
         }
@@ -318,7 +339,13 @@ class BatchTestGenerationDialog(private val project: Project) : DialogWrapper(pr
             true
         ) {
             override fun run(indicator: ProgressIndicator) {
-                val executor = BatchTestGenerationExecutor(project)
+                // Convert file method selections from PsiFile to VirtualFile keys
+                val virtualFileMethodSelections = mutableMapOf<com.intellij.openapi.vfs.VirtualFile, Set<String>?>()
+                for ((psiFile, selection) in fileMethodSelections) {
+                    virtualFileMethodSelections[psiFile.virtualFile] = selection
+                }
+
+                val executor = BatchTestGenerationExecutor(project, virtualFileMethodSelections)
                 val config = TestGenerationConfig() // Use default config
 
                 val future = executor.executeBatch(
@@ -398,6 +425,91 @@ class BatchTestGenerationDialog(private val project: Project) : DialogWrapper(pr
                     JOptionPane.ERROR_MESSAGE
                 )
             }
+        }
+    }
+
+    /**
+     * Button renderer for "Selected Methods" column
+     */
+    private inner class MethodSelectionButtonRenderer : TableCellRenderer {
+        private val button = JButton("Select...")
+
+        override fun getTableCellRendererComponent(
+            table: JTable?,
+            value: Any?,
+            isSelected: Boolean,
+            hasFocus: Boolean,
+            row: Int,
+            column: Int
+        ): Component {
+            button.text = value?.toString() ?: "All"
+            return button
+        }
+    }
+
+    /**
+     * Button editor for "Selected Methods" column - opens method selection dialog
+     */
+    private inner class MethodSelectionButtonEditor : AbstractCellEditor(), TableCellEditor {
+        private val button = JButton()
+        private var currentRow: Int = -1
+
+        init {
+            button.addActionListener {
+                openMethodSelectionDialog(currentRow)
+                fireEditingStopped()
+            }
+        }
+
+        override fun getTableCellEditorComponent(
+            table: JTable?,
+            value: Any?,
+            isSelected: Boolean,
+            row: Int,
+            column: Int
+        ): Component {
+            currentRow = row
+            button.text = value?.toString() ?: "All"
+            return button
+        }
+
+        override fun getCellEditorValue(): Any {
+            return button.text
+        }
+    }
+
+    /**
+     * Open method selection dialog for a specific file
+     */
+    private fun openMethodSelectionDialog(row: Int) {
+        if (row < 0 || row >= selectedFiles.size) return
+
+        val file = selectedFiles[row]
+        val excludeAccessors = excludeAccessorsCheckBox?.isSelected ?: true
+
+        // Get current selection or all methods
+        val allMethods = PublicApiDetector.findPublicMethods(file, excludeAccessors)
+        val currentSelection = fileMethodSelections[file] ?: allMethods.map { it.name }.toSet()
+
+        // Open dialog
+        val dialog = MethodSelectionDialog(
+            project,
+            file.virtualFile,
+            excludeAccessors,
+            currentSelection
+        )
+
+        if (dialog.showAndGet()) {
+            val selectedMethodNames = dialog.getSelectedMethodNames()
+
+            // If all methods selected, store null (more efficient)
+            if (selectedMethodNames.size == allMethods.size) {
+                fileMethodSelections[file] = null
+            } else {
+                fileMethodSelections[file] = selectedMethodNames
+            }
+
+            updateFileTable()
         }
     }
 }

@@ -164,12 +164,11 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
         scenariosPanel.layout = BoxLayout(scenariosPanel, BoxLayout.Y_AXIS)
         scenariosPanel.background = UIUtil.getPanelBackground()
         scenariosPanel.border = EmptyBorder(0, 10, 10, 10)
-        scenariosPanel.minimumSize = Dimension(400, 200)
-        scenariosPanel.preferredSize = Dimension(800, 400)
 
         val scrollPane = JBScrollPane(scenariosPanel)
         scrollPane.border = BorderFactory.createEmptyBorder()
         scrollPane.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+        scrollPane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
 
         val structuredPanel = JPanel(BorderLayout())
         structuredPanel.background = UIUtil.getPanelBackground()
@@ -307,7 +306,8 @@ class TestPlanDisplayPanel(private val project: Project) : JPanel(BorderLayout()
      */
     private fun addScenarioRow(scenario: ScenarioDisplayData, selected: Boolean) {
         val rowPanel = JPanel(BorderLayout())
-        rowPanel.preferredSize = Dimension(Integer.MAX_VALUE, 48)
+        rowPanel.maximumSize = Dimension(Integer.MAX_VALUE, 48)
+        rowPanel.preferredSize = Dimension(800, 48)
         rowPanel.background = UIUtil.getPanelBackground()
         rowPanel.border = BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(0, 0, 1, 0, UIUtil.getBoundsColor()),

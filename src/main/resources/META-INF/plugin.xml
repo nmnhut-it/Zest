@@ -20,11 +20,10 @@
     <!-- Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.java</depends>
+    <depends>org.jetbrains.plugins.terminal</depends>
     <idea-version since-build="223.0" until-build="259.*"/>
     
     <projectListeners>
-
-
         <listener class="com.zps.zest.inlinechat.JCefInitializer"
                   topic="com.intellij.openapi.startup.ProjectActivity"/>
     </projectListeners>
@@ -41,7 +40,6 @@
         <backgroundPostStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.startup.PromptMigrationStartupActivity"/>
-        <backgroundPostStartupActivity implementation="com.zps.zest.mcp.ToolApiServerStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.update.VersionUpdateNotifier"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.testgen.snapshot.SnapshotCleanupActivity"/>
         <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
@@ -109,9 +107,6 @@
         <!-- Browser Services -->
         <projectService serviceImplementation="com.zps.zest.browser.JCEFBrowserService"/>
 
-        <!-- Tool API Server Service -->
-        <projectService serviceImplementation="com.zps.zest.mcp.ToolApiServerService"/>
-        
         <!-- Inline Completion Services -->
         <projectService serviceImplementation="com.zps.zest.completion.ZestInlineCompletionService"/>
     </extensions>
@@ -174,12 +169,6 @@
                 <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="Mac OS X 10.5+"/>
             </action>
 
-            <action id="Zest.TriggerQuickActionBrowser"
-                    class="com.zps.zest.completion.actions.ZestTriggerQuickActionBrowser"
-                    text="Quick Action (Browser)... / Thao tác nhanh (Trình duyệt)..."
-                    description="Open quick action menu with OpenWebUI browser chat / Mở menu thao tác nhanh với chat trình duyệt OpenWebUI">
-                <keyboard-shortcut first-keystroke="alt shift B" keymap="$default"/>
-            </action>
         </group>
 
         <group id="ZestGroup" text="Zest" description="AI-powered tools for development / Công cụ AI hỗ trợ lập trình" popup="true"
@@ -396,7 +385,7 @@
                 class="com.zps.zest.browser.actions.OpenChatInEditorAction"
                 text="ZPS Chat (Editor) / Chat toàn màn hình"
                 description="Open ZPS Chat in full-screen editor tab / Mở chat AI ở chế độ toàn màn hình">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
+<!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
         </action>
 
         <!-- Tool-Enabled Chat Action -->
@@ -404,7 +393,7 @@
                 class="com.zps.zest.browser.actions.OpenToolEnabledChatAction"
                 text="Chat with Tools / Chat với công cụ mạnh"
                 description="Open chat with code exploration tools / Mở chat với khả năng tìm kiếm và phân tích code">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
+<!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
         </action>
         
         <!-- Zest Update Info Action -->
@@ -412,13 +401,13 @@
                 class="com.zps.zest.update.ShowUpdateInfoAction"
                 text="Check for Zest Updates... / Kiểm tra cập nhật"
                 description="Show update information / Hiển thị thông tin và tùy chọn tải bản mới">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
+<!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
         </action>
         
         
         <!-- Zest Debug Menu (only in Tools menu) -->
         <group id="Zest.DebugMenu" text="Zest Debug / Gỡ lỗi Zest" popup="true">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
+<!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
             
             <action id="Zest.ShowCompletionTimingDebug"
                     class="com.zps.zest.actions.ZestCompletionTimingDebugAction"

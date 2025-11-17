@@ -10,7 +10,6 @@ import com.intellij.openapi.project.Project;
 import com.zps.zest.ConfigurationManager;
 import com.zps.zest.git.GitService;
 import com.zps.zest.langchain4j.ZestLangChain4jService;
-import com.zps.zest.mcp.ToolApiServerService;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -411,45 +410,11 @@ public class JavaScriptBridgeActions {
 
     private String getToolServers() {
         JsonObject response = new JsonObject();
-        try {
-            ToolApiServerService toolServerService = project.getService(ToolApiServerService.class);
 
-            if (toolServerService == null || !toolServerService.isRunning()) {
-                response.addProperty("success", false);
-                response.addProperty("error", "Tool server not running");
-                return gson.toJson(response);
-            }
-
-            String baseUrl = toolServerService.getBaseUrl();
-            String projectPath = project.getBasePath();
-            String projectName = project.getName();
-
-            JsonArray servers = new JsonArray();
-            JsonObject server = new JsonObject();
-            server.addProperty("url", baseUrl);
-            server.addProperty("path", "openapi.json");
-
-            JsonObject config = new JsonObject();
-            config.addProperty("enable", true);
-            JsonObject accessControl = new JsonObject();
-            config.add("access_control", accessControl);
-            server.add("config", config);
-
-            JsonObject info = new JsonObject();
-            info.addProperty("name", "Zest Code Explorer - " + projectName);
-            info.addProperty("description", "IntelliJ code exploration and modification tools");
-            info.addProperty("projectPath", projectPath);
-            server.add("info", info);
-
-            servers.add(server);
 
             response.addProperty("success", true);
-            response.add("servers", servers);
-        } catch (Exception e) {
-            LOG.error("Error getting tool servers", e);
-            response.addProperty("success", false);
-            response.addProperty("error", e.getMessage());
-        }
+
+
         return gson.toJson(response);
     }
 }

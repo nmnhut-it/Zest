@@ -15,7 +15,6 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.zps.zest.ConfigurationManager;
-import com.zps.zest.mcp.ToolApiServerService;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
@@ -141,27 +140,6 @@ public class WebBrowserPanel implements Disposable {
         // Set default mode to Agent Mode (index 3)
         setMode(browserModes.get(3)); // Agent Mode
 
-        browserManager.getBrowser().getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
-            @Override
-            public void onLoadEnd(CefBrowser browser, CefFrame frame, int httpStatusCode) {
-                setMode(currentMode);
-
-                // Get tool server URL from service
-                ToolApiServerService toolServerService = project.getService(ToolApiServerService.class);
-                if (toolServerService != null && toolServerService.isRunning()) {
-                    String toolServerUrl = toolServerService.getBaseUrl();
-
-                    if (toolServerUrl != null) {
-                        // Inject tool server URL for JavaScript access
-                        String script = "window.__tool_server_url__ = '" + toolServerUrl + "';";
-                        browserManager.executeJavaScript(script);
-                        LOG.info("Injected tool server URL for project " + project.getName() + ": " + toolServerUrl);
-                    }
-                }
-            }
-        }, browserManager.getBrowser().getCefBrowser());
-
-        LOG.info("WebBrowserPanel created for project: " + project.getName() + " with purpose: " + purpose);
     }
 
     /**

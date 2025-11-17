@@ -26,16 +26,22 @@
     <projectListeners>
         <listener class="com.zps.zest.inlinechat.JCefInitializer"
                   topic="com.intellij.openapi.startup.ProjectActivity"/>
+        <listener class="com.zps.zest.qwen.QwenConfigurationProjectListener"
+                  topic="com.intellij.openapi.project.ProjectManagerListener"/>
     </projectListeners>
-    
+
     <!-- Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
         <!-- Application-level service for global settings -->
         <applicationService serviceImplementation="com.zps.zest.settings.ZestGlobalSettings"/>
-        
+
+        <!-- MCP Tool Server Service -->
+        <applicationService serviceImplementation="com.zps.zest.mcp.ZestMcpToolServerService"/>
+
         <!-- Project-level service for project-specific settings -->
         <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
         <!-- Using backgroundPostStartupActivity for better performance -->
+        <backgroundPostStartupActivity implementation="com.zps.zest.mcp.ZestMcpToolServerStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>

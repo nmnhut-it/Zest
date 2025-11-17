@@ -36,6 +36,13 @@ dependencies {
         testFramework(TestFrameworkType.Plugin.Java)
     }
 
+    // Model Context Protocol (MCP) SDK (convenience bundle with core + Jackson)
+    implementation("io.modelcontextprotocol.sdk:mcp:0.15.0")
+
+    // Jetty for embedded HTTP server (Jakarta EE 10 compatible)
+    implementation("org.eclipse.jetty:jetty-server:12.0.15")
+    implementation("org.eclipse.jetty.ee10:jetty-ee10-servlet:12.0.15")
+
     // JUnit 4 for IntelliJ platform tests
     testImplementation("junit:junit:4.13.2")
 

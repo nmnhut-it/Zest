@@ -21,6 +21,7 @@ class QwenConfigurationService(private val project: Project) {
 
         private const val QWEN_FOLDER = ".qwen"
         private const val SETTINGS_FILE = "settings.json"
+        private const val ENV_FILE = ".env"
 
         @JvmStatic
         fun getInstance(project: Project): QwenConfigurationService {
@@ -68,6 +69,7 @@ class QwenConfigurationService(private val project: Project) {
         val qwenPath = Paths.get(projectPath, QWEN_FOLDER)
         Files.createDirectories(qwenPath)
 
+        createEnvFile(projectPath)
         createSettingsJson(projectPath)
         createReadme(projectPath)
 
@@ -78,8 +80,12 @@ class QwenConfigurationService(private val project: Project) {
      * Update existing Qwen configuration
      */
     private fun updateQwenConfiguration(projectPath: String) {
-        val settingsPath = Paths.get(projectPath, QWEN_FOLDER, SETTINGS_FILE)
+        val envPath = Paths.get(projectPath, ENV_FILE)
+        if (!Files.exists(envPath)) {
+            createEnvFile(projectPath)
+        }
 
+        val settingsPath = Paths.get(projectPath, QWEN_FOLDER, SETTINGS_FILE)
         if (!Files.exists(settingsPath)) {
             createSettingsJson(projectPath)
         }
@@ -91,29 +97,78 @@ class QwenConfigurationService(private val project: Project) {
     }
 
     /**
-     * Generate .qwen/settings.json with MCP HTTP server configuration
+     * Generate .env file with OpenAI-compatible API credentials from Zest settings.
+     * Safely merges with existing .env file if present.
+     */
+    private fun createEnvFile(projectPath: String) {
+        val globalSettings = com.zps.zest.settings.ZestGlobalSettings.getInstance()
+
+        val rawApiUrl = globalSettings.apiUrl.ifEmpty { "https://api.openai.com/v1" }
+        val apiUrl = if (rawApiUrl.endsWith("/chat/completions")) {
+            rawApiUrl.substringBeforeLast("/chat/completions")
+        } else {
+            rawApiUrl
+        }
+        val apiKey = globalSettings.authToken.ifEmpty { "your-api-key-here" }
+        val model = globalSettings.codeModel.ifEmpty { "gpt-4" }
+
+        val envPath = Paths.get(projectPath, ENV_FILE)
+
+        val existingContent = if (Files.exists(envPath)) {
+            Files.readString(envPath)
+        } else {
+            ""
+        }
+
+        val existingLines = existingContent.lines().toMutableList()
+        val zestVars = setOf("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL")
+
+        val filteredLines = existingLines.filterNot { line ->
+            val key = line.trim().substringBefore('=')
+            key in zestVars || line.trim().startsWith("# OpenAI-Compatible API Configuration") ||
+            line.trim().startsWith("# Auto-generated from Zest")
+        }
+
+        val newEnvContent = buildString {
+            if (filteredLines.isNotEmpty()) {
+                appendLine(filteredLines.joinToString("\n"))
+                appendLine()
+            }
+
+            appendLine("# OpenAI-Compatible API Configuration")
+            appendLine("# Auto-generated from Zest IntelliJ Plugin settings")
+            appendLine("# Modify in: IntelliJ → Settings → Tools → Zest")
+            appendLine()
+            appendLine("OPENAI_API_KEY=$apiKey")
+            appendLine("OPENAI_BASE_URL=$apiUrl")
+            append("OPENAI_MODEL=$model")
+        }
+
+        Files.writeString(envPath, newEnvContent)
+        logger.info("Updated .env with API credentials from Zest settings")
+    }
+
+    /**
+     * Generate .qwen/settings.json with MCP server configuration (SSE transport)
      */
     private fun createSettingsJson(projectPath: String) {
-        val settingsJson = """
+        val settings = """
 {
   "mcpServers": {
     "zest-intellij": {
-      "url": "http://localhost:45450",
-      "transport": "streamable-http"
+      "url": "http://localhost:45450/sse",
+      "timeout": 30000
     }
-  },
-  "llm": {
-    "provider": "openai-compatible",
-    "baseUrl": "from-zest-settings",
-    "apiKey": "from-zest-settings",
-    "model": "from-zest-model-selection"
   }
 }
         """.trimIndent()
 
+        val qwenPath = Paths.get(projectPath, QWEN_FOLDER)
+        Files.createDirectories(qwenPath)
+
         val settingsPath = Paths.get(projectPath, QWEN_FOLDER, SETTINGS_FILE)
-        Files.writeString(settingsPath, settingsJson)
-        logger.info("Created settings.json with MCP streamable-http server configuration")
+        Files.writeString(settingsPath, settings)
+        logger.info("Created settings.json with MCP SSE server configuration")
     }
 
     /**
@@ -162,15 +217,60 @@ The MCP server runs within the IntelliJ plugin as an HTTP server:
   - projectPath: Absolute path to project
   - className: Fully qualified class name (use \$ for inner classes)
 
+### Available MCP Prompts (Slash Commands)
+
+The MCP server exposes prompts that appear as slash commands in Qwen Code CLI:
+
+**test** - Generate unit tests for selected code
+- Arguments: code (optional)
+- Usage: `/test` or `/test <code snippet>`
+- Generates comprehensive JUnit tests with edge cases
+
+**review** - Code quality review and improvements
+- Arguments: code (optional)
+- Usage: `/review` or `/review <code snippet>`
+- Analyzes code quality, bugs, performance, security
+
+**explain** - Explain how code works
+- Arguments: code (optional)
+- Usage: `/explain` or `/explain <code snippet>`
+- Provides clear explanation of code behavior and patterns
+
+**refactor** - Suggest refactoring improvements
+- Arguments: code (optional)
+- Usage: `/refactor` or `/refactor <code snippet>`
+- Recommends design patterns, duplication removal, naming improvements
+
+**bugs** - Find potential bugs
+- Arguments: code (optional)
+- Usage: `/bugs` or `/bugs <code snippet>`
+- Identifies null pointers, race conditions, memory leaks, logic errors
+
+**optimize** - Performance optimization suggestions
+- Arguments: code (optional)
+- Usage: `/optimize` or `/optimize <code snippet>`
+- Analyzes time/space complexity and resource usage
+
+**commit** - Generate git commit message
+- Arguments: diff (optional)
+- Usage: `/commit` or `/commit <git diff>`
+- Creates conventional commit messages from changes
+
 ## Usage with Qwen
 
 The MCP server is automatically available when you use Qwen in this project:
 
 ```bash
-# Qwen will automatically connect to the HTTP MCP server
+# Using MCP tools
 qwen "analyze the current file"
 qwen "explain how UserService.getUserById works"
 qwen "review the Customer class structure"
+
+# Using MCP prompts as slash commands
+qwen /test "function calculateTotal(items) { return items.reduce((a,b) => a + b.price, 0); }"
+qwen /review
+qwen /bugs "if (user.name = 'admin') { grantAccess(); }"
+qwen /commit
 ```
 
 ## Configuration
@@ -190,7 +290,7 @@ No manual API configuration needed!
 - Restart IntelliJ to restart the MCP server
 - Check IntelliJ logs: Help → Show Log in Files
 
-**Tools not working:**
+**Prompts/tools not working:**
 - Verify project is open in IntelliJ (provide correct projectPath)
 - Check that files are open in editor for getCurrentFile
 - Use fully qualified class names for lookupMethod/lookupClass

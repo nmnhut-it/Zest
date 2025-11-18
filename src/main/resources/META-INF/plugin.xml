@@ -7,7 +7,7 @@
     <id>com.zps.Zest</id>
     
     <!-- Plugin version -->
-    <version>1.9.909</version>
+    <version>1.9.910</version>
 
     <!-- Vendor information -->
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
@@ -409,8 +409,7 @@
                 description="Show update information / Hiển thị thông tin và tùy chọn tải bản mới">
 <!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
         </action>
-        
-        
+
         <!-- Zest Debug Menu (only in Tools menu) -->
         <group id="Zest.DebugMenu" text="Zest Debug / Gỡ lỗi Zest" popup="true">
 <!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
@@ -438,6 +437,38 @@
 
     <!-- Change notes for version updates -->
     <change-notes><![CDATA[
+        <h3>Version 1.9.910 - MCP Server Enhancement & Qwen Integration 🔌</h3>
+        <h4>🛠️ Enhanced MCP Tools</h4>
+        <ul>
+            <li><b>analyzeMethodUsage Tool</b> - Discover real usage patterns, edge cases, and integration contexts from actual codebase usage</li>
+            <li><b>getGitStatus Tool</b> - Retrieve git status showing modified, added, and deleted files</li>
+            <li><b>getGitDiff Tool</b> - Get comprehensive git diff for all changed files in the project</li>
+        </ul>
+
+        <h4>💬 Intelligent MCP Prompts (Slash Commands)</h4>
+        <ul>
+            <li><b>/review Prompt</b> - Systematic code quality review using structured methodology (bugs, security, performance, quality)</li>
+            <li><b>/explain Prompt</b> - Step-by-step code explanation with real-world usage examples from the codebase</li>
+            <li><b>/commit Prompt</b> - Interactive git commit workflow with conventional commit format guidance</li>
+        </ul>
+
+        <h4>🔧 Qwen CLI Integration</h4>
+        <ul>
+            <li><b>Auto .env Generation</b> - Automatically creates/updates .env file with OpenAI-compatible credentials from Zest settings</li>
+            <li><b>Safe Merge Logic</b> - Preserves existing .env variables while updating Zest-managed ones</li>
+            <li><b>SSE Transport</b> - Updated MCP settings.json to use SSE transport for better reliability</li>
+            <li><b>Enhanced Documentation</b> - Comprehensive README with slash command examples and usage patterns</li>
+        </ul>
+
+        <h4>📋 Developer Experience</h4>
+        <ul>
+            <li><b>Zero Configuration</b> - Qwen CLI automatically inherits API credentials from IntelliJ plugin settings</li>
+            <li><b>Prompt Templates</b> - Rich, detailed prompts with methodologies for code review and analysis</li>
+            <li><b>Tool Budget Awareness</b> - Prompts include guidance on efficient tool usage</li>
+        </ul>
+
+        <p><em>Major MCP server enhancement with powerful prompts and seamless Qwen integration! 🚀</em></p>
+
         <h3>Version 1.9.909 - Intelligent Test Generation Overhaul 🧪</h3>
         <h4>🧠 Project-Aware Test Generation</h4>
         <ul>

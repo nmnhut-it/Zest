@@ -437,7 +437,50 @@ class StateMachineTestGenerationEditor(
                 statusIndicator.text = "⚙️ $message | ${formatTokenCount(totalTokensUsed)} tokens"
             }
         }
-        
+
+        override fun onUserQuestionAsked(question: com.zps.zest.testgen.model.UserQuestion) {
+            SwingUtilities.invokeLater {
+                LOG.info("User question received: ${question.header}")
+
+                // Show dialog to get user's answer
+                val answeredQuestion = com.zps.zest.testgen.ui.dialogs.UserQuestionDialog.showAndGetAnswer(
+                    project,
+                    question
+                )
+
+                if (answeredQuestion != null) {
+                    LOG.info("User answered: ${answeredQuestion.answerForLLM}")
+
+                    // Get the coordinator agent and continue with answer
+                    synchronized(stateMachineLock) {
+                        val stateMachine = currentStateMachine
+                        if (stateMachine != null) {
+                            val planningHandler = stateMachine.getHandler(
+                                com.zps.zest.testgen.statemachine.TestGenerationState.PLANNING_TESTS,
+                                com.zps.zest.testgen.statemachine.handlers.TestPlanningHandler::class.java
+                            )
+
+                            if (planningHandler != null) {
+                                val coordinatorAgent = planningHandler.coordinatorAgent
+                                if (coordinatorAgent != null) {
+                                    // Continue planning with the answer
+                                    coordinatorAgent.continueWithAnswer(answeredQuestion)
+                                    LOG.info("Answered question sent to coordinator agent")
+                                } else {
+                                    LOG.warn("CoordinatorAgent not available")
+                                }
+                            } else {
+                                LOG.warn("TestPlanningHandler not found")
+                            }
+                        }
+                    }
+                } else {
+                    LOG.info("User cancelled the question")
+                    // TODO: Handle cancellation - maybe cancel the whole planning?
+                }
+            }
+        }
+
         override fun onMergerAgentCreated(mergerAgent: com.zps.zest.testgen.agents.AITestMergerAgent) {
             SwingUtilities.invokeLater {
                 // Set the merger agent immediately when it's created

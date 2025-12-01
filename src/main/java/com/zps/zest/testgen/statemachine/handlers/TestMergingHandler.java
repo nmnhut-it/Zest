@@ -387,7 +387,7 @@ public class TestMergingHandler extends AbstractStateHandler {
                 streamingCallback.accept("Will retry up to 5 times if errors remain (some may be unfixable)\n");
             }
 
-            int maxFixAttempts = 5; // Retry up to 5 times if validation errors remain
+            int maxFixAttempts = 1; // Retry up to 5 times if validation errors remain
             mergedCode = aiMerger.fixUsingTools(testClassName, compilationErrors, logicIssues, contextTools, maxFixAttempts);
         } else {
             if (streamingCallback != null) {

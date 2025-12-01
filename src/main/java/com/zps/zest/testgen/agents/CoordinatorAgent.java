@@ -11,6 +11,7 @@ import com.zps.zest.testgen.planning.CodePatternAnalyzer;
 import com.zps.zest.testgen.planning.TestBudgetCalculator;
 import com.zps.zest.testgen.ui.model.TestPlanDisplayData;
 import com.zps.zest.testgen.ui.model.ScenarioDisplayData;
+import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.AgenticServices;
 import dev.langchain4j.memory.ChatMemory;
@@ -40,6 +41,9 @@ public class CoordinatorAgent extends StreamingBaseAgent {
 
     // Flag to stop system message streaming when AI starts responding
     private volatile boolean aiResponseStarted = false;
+
+    // Pending question from LLM (set when askUserQuestion tool is called)
+    private volatile UserQuestion pendingQuestion = null;
 
     public CoordinatorAgent(@NotNull Project project,
                           @NotNull ZestLangChain4jService langChainService,
@@ -134,8 +138,13 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         PHASE 2: TOOL EXECUTION
 
         1. Call setTargetClass with fully qualified class name
-        2. Call addTestScenarios with ALL scenarios at once (based on your brainstorming above)
-        3. Call setTestingNotes with testing approach recommendations
+        2. (OPTIONAL) Call askUserQuestion if you need user input to make better planning decisions
+           - Use when you're uncertain about testing approach, integration test requirements, or priorities
+           - Provide 2-4 clear options with descriptions
+           - Example: Asking whether to focus on unit vs integration tests
+           - WARNING: Use sparingly - only when user input significantly impacts test quality
+        3. Call addTestScenarios with ALL scenarios at once (based on your brainstorming above)
+        4. Call setTestingNotes with testing approach recommendations
 
         Prefer quality over quantity. Focus on the selected methods only, preventing potential bugs. Ensure all paths and branches of the SELECTED methods are tested.
 
@@ -342,8 +351,13 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         PHASE 2: TOOL EXECUTION
 
         1. Call setTargetClass with fully qualified class name
-        2. Call addTestScenarios with ALL scenarios at once (based on your brainstorming above)
-        3. Call setTestingNotes with testing approach recommendations
+        2. (OPTIONAL) Call askUserQuestion if you need user input to make better planning decisions
+           - Use when you're uncertain about testing approach, integration test requirements, or priorities
+           - Provide 2-4 clear options with descriptions
+           - Example: Asking whether to focus on unit vs integration tests
+           - WARNING: Use sparingly - only when user input significantly impacts test quality
+        3. Call addTestScenarios with ALL scenarios at once (based on your brainstorming above)
+        4. Call setTestingNotes with testing approach recommendations
 
         CRITICAL: Both phases are REQUIRED. Don't skip the reasoning - it helps users understand your testing strategy.
 
@@ -360,6 +374,44 @@ public class CoordinatorAgent extends StreamingBaseAgent {
      */
     public void setPlanUpdateCallback(@Nullable Consumer<TestPlan> callback) {
         // Will be set when planning starts
+    }
+
+    /**
+     * Get the pending question from LLM (if any)
+     */
+    @Nullable
+    public UserQuestion getPendingQuestion() {
+        return pendingQuestion;
+    }
+
+    /**
+     * Clear the pending question (after user answers)
+     */
+    public void clearPendingQuestion() {
+        this.pendingQuestion = null;
+    }
+
+    /**
+     * Continue planning with user's answer to a question
+     */
+    public void continueWithAnswer(@NotNull UserQuestion answeredQuestion) {
+        if (!answeredQuestion.isAnswered()) {
+            throw new IllegalArgumentException("Question must be answered before continuing");
+        }
+
+        // Add user's answer to chat memory so LLM sees it
+        String answerMessage = String.format(
+            "User answered your question '%s': %s",
+            answeredQuestion.getHeader(),
+            answeredQuestion.getAnswerForLLM()
+        );
+
+        chatMemory.add(dev.langchain4j.data.message.UserMessage.from(answerMessage));
+
+        LOG.info("Added user answer to chat memory: " + answerMessage);
+
+        // Clear pending question
+        clearPendingQuestion();
     }
     
     /**
@@ -1069,6 +1121,75 @@ public class CoordinatorAgent extends StreamingBaseAgent {
             notifyTool("lookupClass", className);
             return coordinatorAgent.contextTools.lookupClass(className);
         }
+
+        @Tool("Ask the user a question during test planning. " +
+              "Use this when you need user input to make better planning decisions. " +
+              "Examples: choosing between testing approaches, selecting integration test types, determining priority. " +
+              "You must provide 2-4 options for the user to choose from. " +
+              "IMPORTANT: Tool execution will pause until user responds - use sparingly.")
+        public String askUserQuestion(
+                @P("The complete question to ask (be clear and specific, end with '?')")
+                String question,
+
+                @P("Short label for the question (max 12 chars, e.g. 'Test Type', 'Approach')")
+                String header,
+
+                @P("Can user select multiple options? (true for multi-select, false for single choice)")
+                boolean multiSelect,
+
+                @P("List of 2-4 option labels (e.g. ['Unit Tests Only', 'Integration Tests', 'Both'])")
+                List<String> optionLabels,
+
+                @P("List of descriptions for each option (same order as labels, explain what each choice means)")
+                List<String> optionDescriptions) {
+
+            notifyTool("askUserQuestion", header);
+
+            // Validate inputs
+            if (optionLabels == null || optionLabels.size() < 2 || optionLabels.size() > 4) {
+                return "ERROR: Must provide 2-4 options";
+            }
+
+            if (optionDescriptions == null || optionDescriptions.size() != optionLabels.size()) {
+                return "ERROR: Must provide description for each option (same count as labels)";
+            }
+
+            if (header.length() > 12) {
+                header = header.substring(0, 12);
+            }
+
+            // Create question
+            List<com.zps.zest.testgen.model.UserQuestion.QuestionOption> options = new ArrayList<>();
+            for (int i = 0; i < optionLabels.size(); i++) {
+                options.add(new com.zps.zest.testgen.model.UserQuestion.QuestionOption(
+                    optionLabels.get(i),
+                    optionDescriptions.get(i)
+                ));
+            }
+
+            com.zps.zest.testgen.model.UserQuestion.QuestionType type = multiSelect ?
+                com.zps.zest.testgen.model.UserQuestion.QuestionType.MULTI_CHOICE :
+                com.zps.zest.testgen.model.UserQuestion.QuestionType.SINGLE_CHOICE;
+
+            String questionId = "q_" + System.currentTimeMillis();
+            com.zps.zest.testgen.model.UserQuestion userQuestion =
+                new com.zps.zest.testgen.model.UserQuestion(
+                    questionId,
+                    question,
+                    header,
+                    type,
+                    options
+                );
+
+            // Signal to coordinator that we need to pause and wait for user
+            coordinatorAgent.pendingQuestion = userQuestion;
+
+            // Notify UI about the question
+            coordinatorAgent.sendToUI("\n❓ Question for user: " + question + "\n");
+            coordinatorAgent.sendToUI("Waiting for your response...\n");
+
+            return "QUESTION_PENDING: Waiting for user response to '" + header + "'. Planning will pause until answered.";
+        }
     }
 
     /**
@@ -1297,8 +1418,13 @@ public class CoordinatorAgent extends StreamingBaseAgent {
         PHASE 2: TOOL EXECUTION
 
         1. Call setTargetClass with fully qualified class name
-        2. Call addTestScenarios with ALL scenarios at once (based on your brainstorming above)
-        3. Call setTestingNotes with testing approach recommendations
+        2. (OPTIONAL) Call askUserQuestion if you need user input to make better planning decisions
+           - Use when you're uncertain about testing approach, integration test requirements, or priorities
+           - Provide 2-4 clear options with descriptions
+           - Example: Asking whether to focus on unit vs integration tests
+           - WARNING: Use sparingly - only when user input significantly impacts test quality
+        3. Call addTestScenarios with ALL scenarios at once (based on your brainstorming above)
+        4. Call setTestingNotes with testing approach recommendations
 
         CRITICAL: Both phases are REQUIRED. Don't skip the reasoning - it helps users understand your testing strategy.
 

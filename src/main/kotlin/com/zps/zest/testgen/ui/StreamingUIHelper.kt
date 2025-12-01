@@ -40,6 +40,9 @@ interface StreamingEventListener {
 
     // Manual tool activity (called from Java code, not LLM)
     fun onManualToolActivity(toolName: String, detail: String = "") {}
+
+    // User question from LLM during planning
+    fun onUserQuestionAsked(question: UserQuestion) {}  // When LLM asks a question
 }
 
 /**

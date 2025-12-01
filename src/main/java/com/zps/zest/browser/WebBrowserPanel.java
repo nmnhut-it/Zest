@@ -140,6 +140,28 @@ public class WebBrowserPanel implements Disposable {
         // Set default mode to Agent Mode (index 3)
         setMode(browserModes.get(3)); // Agent Mode
 
+        // Add load handler to inject tool server URL when page loads
+        browserManager.getBrowser().getJBCefClient().addLoadHandler(new org.cef.handler.CefLoadHandlerAdapter() {
+            @Override
+            public void onLoadEnd(org.cef.browser.CefBrowser browser, org.cef.browser.CefFrame frame, int httpStatusCode) {
+                setMode(currentMode);
+
+                // Get tool server URL from service
+                com.zps.zest.mcp.ToolApiServerService toolServerService = project.getService(com.zps.zest.mcp.ToolApiServerService.class);
+                if (toolServerService != null && toolServerService.isRunning()) {
+                    String toolServerUrl = toolServerService.getBaseUrl();
+
+                    if (toolServerUrl != null) {
+                        // Inject tool server URL for JavaScript access
+                        String script = "window.__tool_server_url__ = '" + toolServerUrl + "';";
+                        browserManager.executeJavaScript(script);
+                        LOG.info("Injected tool server URL for project " + project.getName() + ": " + toolServerUrl);
+                    }
+                }
+            }
+        }, browserManager.getBrowser().getCefBrowser());
+
+        LOG.info("WebBrowserPanel created for project: " + project.getName() + " with purpose: " + purpose);
     }
 
     /**

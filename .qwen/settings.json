@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "zest-intellij": {
+      "url": "http://localhost:45450/sse",
+      "timeout": 30000
+    }
+  }
+}

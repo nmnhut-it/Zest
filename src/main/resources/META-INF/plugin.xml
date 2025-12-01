@@ -38,10 +38,14 @@
         <!-- MCP Tool Server Service -->
         <applicationService serviceImplementation="com.zps.zest.mcp.ZestMcpToolServerService"/>
 
+        <!-- Tool API Server Service (OpenWebUI integration) -->
+        <projectService serviceImplementation="com.zps.zest.mcp.ToolApiServerService"/>
+
         <!-- Project-level service for project-specific settings -->
         <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
         <!-- Using backgroundPostStartupActivity for better performance -->
         <backgroundPostStartupActivity implementation="com.zps.zest.mcp.ZestMcpToolServerStartupActivity"/>
+        <backgroundPostStartupActivity implementation="com.zps.zest.mcp.ToolApiServerStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
@@ -437,8 +441,8 @@
 
     <!-- Change notes for version updates -->
     <change-notes><![CDATA[
-        <h3>Version 1.9.910 - MCP Server Enhancement & Qwen Integration 🔌</h3>
-        <h4>🛠️ Enhanced MCP Tools</h4>
+        <h3>Version 1.9.910 - Dual Server Architecture & Complete Tool Integration 🔌</h3>
+        <h4>🛠️ Enhanced MCP Tools (Qwen CLI)</h4>
         <ul>
             <li><b>analyzeMethodUsage Tool</b> - Discover real usage patterns, edge cases, and integration contexts from actual codebase usage</li>
             <li><b>getGitStatus Tool</b> - Retrieve git status showing modified, added, and deleted files</li>
@@ -460,14 +464,32 @@
             <li><b>Enhanced Documentation</b> - Comprehensive README with slash command examples and usage patterns</li>
         </ul>
 
-        <h4>📋 Developer Experience</h4>
+        <h4>🌐 Tool API Server Restored (OpenWebUI Integration)</h4>
         <ul>
-            <li><b>Zero Configuration</b> - Qwen CLI automatically inherits API credentials from IntelliJ plugin settings</li>
-            <li><b>Prompt Templates</b> - Rich, detailed prompts with methodologies for code review and analysis</li>
-            <li><b>Tool Budget Awareness</b> - Prompts include guidance on efficient tool usage</li>
+            <li><b>Dual Server Support</b> - MCP Server (port 45450) for Qwen + Tool API Server (ports 8765-8865) for OpenWebUI</li>
+            <li><b>Auto-Registration</b> - JavaScript bridge automatically registers tool server with OpenWebUI settings API</li>
+            <li><b>Request Interceptor</b> - tool-interceptor.js injects tools into every chat request in Agent Mode</li>
+            <li><b>Settings Injector</b> - tool-injector.js persists tools in OpenWebUI settings for long-term availability</li>
+            <li><b>OpenAPI 3.1.0 Schema</b> - Auto-generated from langchain4j @Tool annotations</li>
         </ul>
 
-        <p><em>Major MCP server enhancement with powerful prompts and seamless Qwen integration! 🚀</em></p>
+        <h4>🎯 Dual Auto-Binding Architecture</h4>
+        <ul>
+            <li><b>Settings API Integration</b> - Tools persist in OpenWebUI user settings via REST API</li>
+            <li><b>Runtime Injection</b> - fetch() interceptor adds tools to every request dynamically</li>
+            <li><b>Tool Server URL</b> - Automatically injected as window.__tool_server_url__ on page load</li>
+            <li><b>Agent Mode Only</b> - Tools only active in Agent Mode for focused workflow</li>
+        </ul>
+
+        <h4>📋 Developer Experience</h4>
+        <ul>
+            <li><b>Zero Configuration</b> - Both servers start automatically, no manual setup needed</li>
+            <li><b>Separate Tool Instances</b> - MCP and Tool API use independent tool instances to avoid conflicts</li>
+            <li><b>Always-On Architecture</b> - Both servers run together for maximum compatibility</li>
+            <li><b>Debug Utilities</b> - Browser console helpers for troubleshooting (checkZestToolInjection, debugZestToolInjection)</li>
+        </ul>
+
+        <p><em>Complete dual-server architecture with MCP for terminal + Tool API for browser! 🚀</em></p>
 
         <h3>Version 1.9.909 - Intelligent Test Generation Overhaul 🧪</h3>
         <h4>🧠 Project-Aware Test Generation</h4>

@@ -15,7 +15,6 @@ import com.zps.zest.testgen.tools.LookupClassTool;
 import com.zps.zest.testgen.tools.LookupMethodTool;
 import com.zps.zest.testgen.analysis.UsageAnalyzer;
 import com.zps.zest.testgen.analysis.UsageContext;
-import com.zps.zest.git.GitService;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import java.io.BufferedReader;
@@ -33,9 +32,14 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * MCP HTTP Server for Zest using SSE transport over HTTP.
@@ -176,65 +180,89 @@ public class ZestMcpHttpServer {
                 }
         ));
 
-        McpSchema.Tool gitStatusTool = McpSchema.Tool.builder()
-                .name("getGitStatus")
-                .description("Get git status of the project showing modified, added, deleted files")
-                .inputSchema(jsonMapper, buildGitStatusSchema())
+        // Testgen tools
+        McpSchema.Tool getJavaCodeUnderTestTool = McpSchema.Tool.builder()
+                .name("getJavaCodeUnderTest")
+                .description("Interactive GUI to select Java code to test, returns complete source + static analysis")
+                .inputSchema(jsonMapper, buildGetJavaCodeUnderTestSchema())
                 .build();
 
         mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
-                gitStatusTool,
+                getJavaCodeUnderTestTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
-                    return handleGetGitStatus(projectPath);
+                    return handleGetJavaCodeUnderTest(projectPath);
                 }
         ));
 
-        McpSchema.Tool gitDiffTool = McpSchema.Tool.builder()
-                .name("getGitDiff")
-                .description("Get git diff for all changed files in the project")
-                .inputSchema(jsonMapper, buildGitDiffSchema())
+        McpSchema.Tool validateCodeTool = McpSchema.Tool.builder()
+                .name("validateCode")
+                .description("Validate Java code for compilation errors. Returns error count and detailed error messages with code context.")
+                .inputSchema(jsonMapper, buildValidateCodeSchema())
                 .build();
 
         mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
-                gitDiffTool,
+                validateCodeTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
-                    return handleGetGitDiff(projectPath);
+                    String code = (String) arguments.get("code");
+                    String className = (String) arguments.get("className");
+                    return handleValidateCode(projectPath, code, className);
                 }
         ));
 
-        LOG.info("Registered 6 MCP tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getGitStatus, getGitDiff");
+        LOG.info("Registered 6 MCP tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode");
     }
 
     private void registerPrompts() {
         registerPrompt("review", "Review code quality and suggest improvements",
-                List.of(new McpSchema.PromptArgument("code", "Code to review", false)),
+                List.of(),
                 """
-                You are an experienced code reviewer. Follow this systematic methodology to conduct a thorough review.
+                You are an experienced code reviewer. Guide users through interactive code review with multiple-choice options.
 
-                REVIEW METHODOLOGY (Step-by-Step):
+                WORKFLOW:
 
-                STEP 1: Understand Structure
-                  Tool: lookupClass(className)
-                  Purpose: Get class signature, inheritance, methods, fields
-                  Output: "This is a UserService class with methods: getUserById, createUser..."
+                PHASE 1: CHOOSE WHAT TO REVIEW
 
-                STEP 2: Analyze Real Usage (CRITICAL - This is the killer feature!)
-                  Tool: analyzeMethodUsage(className, methodName)
-                  Purpose: Discover edge cases from REAL production code
-                  Why: Shows how callers actually use it - null checks, error handling, patterns
-                  Example: "8 out of 15 callers do null checks → method CAN return null"
-                  Example: "3 callers wrap in try-catch for NotFoundException"
-                  Example: "2 callers use @Transactional annotation"
+                Ask user to choose:
+                ```
+                What would you like to review?
 
-                STEP 3: Read Implementation
-                  Tool: getCurrentFile() or readFile(filePath)
-                  Purpose: Examine actual code logic
-                  Focus: Look for bugs, security issues, performance problems
+                1. Current file (the file open in editor)
 
-                STEP 4: Check Impact (if needed)
-                  Tool: analyzeMethodUsage to see who would be affected by changes
+                2. Specify custom files or classes
+
+                Type 1 or 2
+                ```
+
+                Then:
+                - Option 1: Use getCurrentFile() tool
+                - Option 2: Wait for user to specify files, then use lookupClass() to read them
+
+                PHASE 2: ANALYZE USAGE PATTERNS (CRITICAL!)
+
+                Before reviewing implementation, understand how code is ACTUALLY used:
+
+                1. Extract Classes/Methods
+                   Parse the code to identify key classes and methods
+
+                2. Analyze Real Usage
+                   Tool: analyzeMethodUsage(className, methodName)
+                   Purpose: Discover edge cases from REAL production code
+
+                   What to look for:
+                   - "8 out of 15 callers do null checks → method CAN return null"
+                   - "3 callers wrap in try-catch for NotFoundException"
+                   - "2 callers use @Transactional annotation"
+                   - Common patterns and integration contexts
+
+                3. Get Class Structure
+                   Tool: lookupClass(className)
+                   Purpose: Understand inheritance, methods, fields
+
+                PHASE 3: REVIEW IMPLEMENTATION
+
+                Now review the actual code with insights from usage analysis.
 
                 REVIEW CATEGORIES:
 
@@ -258,61 +286,81 @@ public class ZestMcpHttpServer {
 
                 **CODE QUALITY:**
                 - Naming: Unclear variable/method names
-                - Complexity: Methods >20 lines, deep nesting
+                - Complexity: Methods >30 lines, deep nesting
                 - Duplication: Repeated code blocks
                 - Testability: Tight coupling, no dependency injection
 
                 OUTPUT FORMAT:
+
                 For each issue:
                 1. **Category**: [BUGS/SECURITY/PERFORMANCE/QUALITY]
                 2. **Severity**: [Critical/High/Medium/Low]
-                3. **Location**: Method or line number
+                3. **Location**: Class/method/line
                 4. **Issue**: What's wrong
                 5. **Evidence**: What analyzeMethodUsage revealed (if applicable)
                 6. **Fix**: Specific solution with code example
-                7. **Impact**: Who/what is affected
+                7. **Impact**: Who/what is affected (from usage analysis)
 
                 Summary:
                 - **Quality Rating**: Poor/Fair/Good/Excellent
                 - **Top 3 Priorities**: Most critical fixes
                 - **Edge Cases Found**: From usage analysis
+                - **Affected Callers**: How many call sites would be impacted by fixes
 
-                Code to review:
-                {{code}}
+                TIPS:
+                - ALWAYS analyze usage before reviewing implementation
+                - Usage patterns reveal hidden requirements and edge cases
+                - Focus on issues that affect real callers
                 """);
 
         registerPrompt("explain", "Explain how code works",
-                List.of(new McpSchema.PromptArgument("code", "Code to explain", false)),
+                List.of(),
                 """
-                You are a technical educator. Follow this methodology to explain code clearly to developers.
+                You are a technical educator. Guide users through interactive code explanation with multiple-choice options.
 
-                EXPLANATION METHODOLOGY (Step-by-Step):
+                WORKFLOW:
 
-                STEP 1: High-Level Understanding
-                  Tool: lookupClass(className)
-                  Purpose: Understand class structure and responsibilities
-                  Output: "This is a UserService class that manages user operations"
-                  What to extract: Class purpose, methods, inheritance
+                PHASE 1: CHOOSE WHAT TO EXPLAIN
 
-                STEP 2: Read the Implementation
-                  Tool: getCurrentFile() or readFile(filePath)
-                  Purpose: Understand algorithm and logic
-                  Focus: How does it work? What's the flow?
+                Ask user to choose:
+                ```
+                What would you like me to explain?
 
-                STEP 3: See Real-World Examples
-                  Tool: analyzeMethodUsage(className, methodName)
-                  Purpose: Show how code is ACTUALLY used in practice
-                  Why: Real examples are better than theoretical descriptions
-                  Output: "In practice, controllers call this with userId from request.getParameter()"
-                          "Service layer wraps calls in @Transactional context"
-                          "Tests use mockUserId = 123 as example data"
+                1. Current file (the file open in editor)
 
-                STEP 4: Understand Dependencies (if complex)
-                  Tool: lookupClass(dependencyClassName)
-                  Purpose: Explain related classes and their roles
-                  When: If code uses complex dependencies
+                2. Specify custom files or classes
 
-                STRUCTURE YOUR EXPLANATION:
+                Type 1 or 2
+                ```
+
+                Then:
+                - Option 1: Use getCurrentFile() tool
+                - Option 2: Wait for user to specify files/classes, then use lookupClass() to look them up
+
+                PHASE 2: ANALYZE STRUCTURE & USAGE
+
+                1. Get Class Structure
+                   Tool: lookupClass(className)
+                   Purpose: Understand class structure and responsibilities
+                   Extract: Class purpose, methods, inheritance
+
+                2. See Real-World Usage
+                   Tool: analyzeMethodUsage(className, methodName)
+                   Purpose: Show how code is ACTUALLY used in practice
+                   Why: Real examples are better than theoretical descriptions
+
+                   Examples:
+                   - "Controllers call this with userId from request.getParameter()"
+                   - "Service layer wraps calls in @Transactional context"
+                   - "Tests use mockUserId = 123 as example data"
+
+                3. Understand Dependencies (if complex)
+                   Tool: lookupClass(dependencyClassName)
+                   Purpose: Explain related classes and their roles
+
+                PHASE 3: EXPLAIN CLEARLY
+
+                Structure your explanation:
 
                 **PURPOSE** (What problem does it solve?)
                 - The business/technical problem this code addresses
@@ -340,162 +388,417 @@ public class ZestMcpHttpServer {
                 - External systems or libraries
                 - Assumptions and preconditions
 
-                Use clear language, avoid jargon. When mentioning technical terms, explain them.
-                Provide concrete examples from usage analysis.
-
-                Code to explain:
-                {{code}}
+                TIPS:
+                - Use clear language, avoid jargon
+                - Explain technical terms when you use them
+                - Provide concrete examples from usage analysis
+                - Show real code snippets from callers when helpful
                 """);
 
-        registerPrompt("commit", "Interactive git commit with natural language",
-                List.of(new McpSchema.PromptArgument("projectPath", "Project path for git operations", false)),
+        registerPrompt("commit", "Interactive git commit assistant",
+                List.of(),
                 """
-                You are a conversational git assistant. Guide users through the entire commit workflow using natural language.
+                You are a git commit assistant. Help users create clean, well-structured commits.
 
-                GIT COMMIT WORKFLOW (Step-by-Step):
+                WORKFLOW:
 
-                STEP 1: Check Repository Status
-                  Command: git status
-                  Purpose: See all changed files (staged, unstaged, untracked)
-                  Action: Show user a clear summary:
-                    - Files already staged for commit
-                    - Modified files not yet staged
-                    - Untracked files
-                  Note: Run in {{projectPath}}
+                1. CHECK STATUS
+                   Run: git status
+                   Show user what files are modified/staged/untracked
 
-                STEP 2: Ask User What to Stage (if there are unstaged changes)
-                  Question: "I see you have [N] unstaged files. Which files would you like to include in this commit?"
-                  Options:
-                    - List files clearly with context
-                    - Suggest grouping related changes
-                    - Warn about unrelated changes that should be separate commits
-                  User Response: Wait for user to specify which files
+                2. SMART STAGING
+                   Group related files logically and ask user:
+                   - "Stage all changes?" or
+                   - Present 2-3 logical groupings (by feature, by type)
+                   Run: git add <files>
 
-                STEP 3: Stage Selected Files
-                  Command: git add <file1> <file2> ...
-                  Purpose: Stage the files user wants to commit
-                  Action: Confirm "Staged [N] files for commit"
-                  Note: Skip if files are already staged
+                3. GENERATE COMMIT MESSAGE
+                   Run: git diff --cached
+                   Create message following these rules:
 
-                STEP 4: Review What Will Be Committed
-                  Command: git diff --cached
-                  Purpose: See the actual changes that will be committed
-                  Action: Analyze the diff to understand the changes
+                   FORMAT: <type>(<scope>): <subject>
 
-                STEP 5: Check Commit History Style
-                  Command: git log -n 3 --oneline
-                  Purpose: Match existing commit message conventions
-                  Action: Note the style (conventional commits, simple messages, etc.)
+                   TYPES: feat, fix, refactor, test, docs, chore, style, perf
 
-                STEP 6: Understand Context (if needed)
-                  Tool: lookupClass(className)
-                  Purpose: Understand what changed classes do
-                  When: Changes aren't self-explanatory from diff
+                   RULES:
+                   - Subject max 50 chars, imperative mood ("add" not "added")
+                   - Lowercase, no period at end
+                   - Scope is optional but helpful (e.g., mcp, auth, ui)
 
-                STEP 7: Analyze and Categorize Changes
-                  Determine TYPE:
-                  - feat: New feature (new class, new method, new functionality)
-                  - fix: Bug fix (fixing incorrect behavior)
-                  - refactor: Code restructuring (no behavior change)
-                  - perf: Performance improvement
-                  - docs: Documentation only
-                  - test: Test files only
-                  - chore: Build, dependencies, tooling, config
+                   Offer 2-3 message options, let user pick or customize
 
-                  Determine SCOPE:
-                  - Extract from package/directory: api, auth, ui, mcp, git, test, etc.
-                  - Component affected
+                4. EXECUTE
+                   Run: git commit -m "message"
+                   Confirm success
 
-                STEP 8: Generate Commit Message
-
-                CONVENTIONAL COMMITS FORMAT:
-                ```
-                <type>(<scope>): <subject>
-
-                <body>
-
-                <footer>
-                ```
-
-                **TYPE** (required):
-                - feat, fix, refactor, perf, docs, test, chore, style, ci
-
-                **SCOPE** (optional but recommended):
-                - Module/component: api, auth, ui, db, mcp, etc.
-
-                **SUBJECT** (required):
-                - Imperative mood: "add" not "added"
-                - Lowercase first letter
-                - No period at end
-                - Max 50 characters
-                - Be specific: "add user authentication" not "add feature"
-
-                **BODY** (optional):
-                - Explain WHAT and WHY (not how)
-                - Wrap at 72 characters
-                - Blank line after subject
-
-                **FOOTER** (optional):
-                - Breaking changes: BREAKING CHANGE: description
-                - Issue refs: Fixes #123
-
-                EXAMPLES:
-
-                ```
-                feat(auth): add JWT token refresh mechanism
-
-                Implement automatic token refresh to improve UX.
-                Tokens refresh 5 minutes before expiration.
-
-                Closes #234
-                ```
-
-                ```
-                fix(mcp): prevent null pointer in project lookup
-
-                Add null check before accessing project.basePath to avoid NPE
-                when project path is not set.
-
-                Fixes #567
-                ```
-
-                ```
-                refactor(git): extract batch diff logic to helper
-
-                Move getBatchFileDiffs implementation to GitServiceHelper
-                for better code organization and testability.
-                ```
-
-                STEP 9: Present and Confirm
-                  Action: Show the generated commit message to the user
-                  Question: "Would you like to commit with this message? (yes/no)"
-                  Or: "Would you like me to modify the message?"
-                  User Response: Wait for confirmation
-
-                STEP 10: Execute Commit
-                  Command: git commit -m "the commit message"
-                  Purpose: Create the commit with the approved message
-                  Action: Confirm "Committed successfully" or show any errors
-                  Note: Only run if user confirmed
-
-                CONVERSATION STYLE:
-                - Be friendly and conversational
-                - Explain what you're doing at each step
-                - Ask before staging or committing files
-                - Suggest best practices (e.g., "These test changes should be in a separate commit")
-                - Help users understand git concepts in simple terms
-
-                EDGE CASES:
-                - No changes: "Your working directory is clean. Nothing to commit."
-                - Only unstaged: Ask which files to stage first
-                - Mix of staged/unstaged: Focus on staged first, then ask about unstaged
-                - Untracked files: Mention them but don't stage automatically
-                - Large commits: Suggest splitting into multiple commits
-
-                Project path: {{projectPath}}
+                INTERACTION:
+                - Be concise, use numbered options
+                - Warn if mixing unrelated changes
+                - Ask before any destructive action
                 """);
 
-        LOG.info("Registered 3 MCP prompts: review, explain, commit");
+        // ========== Test Generation Workflow Prompts ==========
+        // These prompts guide modern AI agents through test generation workflow.
+        // Each prompt produces a markdown file that feeds into the next step.
+
+        registerPrompt("zest-test-context", "Gather context for test generation",
+                List.of(),
+                """
+                You are a test context gatherer. Collect information needed to write comprehensive tests.
+                **INTERACTIVE workflow** - ask clarifying questions before proceeding.
+
+                ## AVAILABLE TOOLS
+
+                **MCP Tools (Zest/IntelliJ):**
+                - `getJavaCodeUnderTest`: Shows class picker, returns static analysis, creates session
+                - `lookupClass`: Look up class signatures (project, JARs, JDK)
+                - `lookupMethod`: Look up specific method signatures
+                - `analyzeMethodUsage`: Find call sites and usage patterns
+
+                **Agent's Built-in Tools:**
+                - Search codebase for patterns
+                - Read files
+                - Write to files
+
+                ## WORKFLOW
+
+                ### Phase 1: Get Static Analysis
+                Call `getJavaCodeUnderTest` - this returns:
+                - ✅ Source code with line numbers
+                - ✅ Public method signatures
+                - ✅ Usage analysis (call sites, error patterns from real callers)
+                - ✅ Related class signatures (dependencies)
+                - ✅ External dependency detection (DB, HTTP, etc.)
+
+                ### Phase 2: Review What's Already Known
+                Present to user what the static analysis found:
+                - "[N] public methods found: [list them]"
+                - "[M] call sites analyzed showing usage patterns"
+                - "Dependencies detected: [list]"
+
+                ### Phase 3: ASK User (up to 3 questions)
+
+                **Q1 - Test Scope:**
+                "Which methods should I focus on?"
+                - All public methods
+                - Specific methods: [list them as options]
+                - Only complex methods (methods with dependencies)
+
+                **Q2 - Test Type:**
+                "What type of tests?"
+                - Unit tests (fast, isolated)
+                - Integration tests (real dependencies)
+                - Both
+
+                **Q3 - Priority:**
+                "Testing priority?"
+                - Happy paths first
+                - Edge cases and error handling
+                - Cover specific scenarios: [ask user to describe]
+
+                ### Phase 4: Explore Gaps (if needed)
+                Based on user's answers, explore what static analysis CANNOT capture:
+
+                **Only explore if CRUCIAL for testing:**
+                - **SCHEMA**: External files (SQL, configs) → Read file
+                - **INDIRECT**: Reflection, observers, event handlers → Search codebase
+                - **TESTS**: Existing test patterns to match → Search for "@Test.*ClassName"
+
+                **Skip exploration if:**
+                - Pre-computed usage shows clear patterns
+                - Methods are straightforward
+                - User wants simple unit tests only
+
+                Use ReAct pattern for each exploration:
+                🤔 Thought: What specific info do I need?
+                🎯 Action: [tool call]
+                👁️ Observation: What did I find?
+                ⚡ Next: Continue or done?
+
+                ### Phase 5: Persist Data & Confirm
+
+                **IMPORTANT**: APPEND to the existing context file - do NOT overwrite.
+                The file already contains static analysis from Phase 1. Add your findings at the end.
+
+                **Append** the following sections to `.zest/<ClassName>-context.md`:
+                ```markdown
+                ---
+
+                ## User Testing Goals
+                - Scope: [answer]
+                - Type: [answer]
+                - Priority: [answer]
+                - Additional requests: [any specific scenarios user mentioned]
+
+                ## Additional Findings
+                [only if explored - with file:line references]
+                ```
+
+                Confirm with user: "Context updated. Run `/zest-test-plan` to create test plan."
+                """);
+
+        registerPrompt("zest-test-plan", "Create a test plan from context",
+                List.of(),
+                """
+                You are a test architect. Create a test plan using systematic testing techniques.
+                **INTERACTIVE workflow** - ask clarifying questions before finalizing.
+
+                ## FILE LOCATIONS
+                - **Context file**: `.zest/<ClassName>-context.md` (read this first)
+                - **Plan file**: `.zest/<ClassName>-plan.md` (write here)
+
+                ## AVAILABLE TOOLS
+
+                **MCP Tools (Zest/IntelliJ):**
+                - `lookupClass`, `lookupMethod`: Look up signatures if needed
+
+                **Agent's Built-in Tools:**
+                - Read files (context file, existing tests)
+                - Search codebase for existing test patterns
+                - Write to files (test plan)
+
+                ## WORKFLOW
+
+                ### Phase 1: Load Context
+                Read `.zest/<ClassName>-context.md` to get:
+                - Source code and method signatures
+                - Usage analysis (call sites, patterns)
+                - User's testing goals from context gathering phase
+
+                ### Phase 2: Analyze & Draft Scenarios
+                Apply systematic testing techniques based on user's goals:
+
+                **Techniques to apply:**
+                - **Equivalence Partitioning**: Divide inputs into valid/invalid classes
+                - **Boundary Value Analysis**: Test at edges (min, max, empty, null)
+                - **Decision Table**: Cover all conditional branches
+                - **State Transitions**: For stateful objects
+
+                **Draft scenarios for each method in scope:**
+                - Happy path: Normal valid input → expected output
+                - Boundaries: Edge cases from input domains
+                - Errors: Invalid inputs, nulls, exceptions
+
+                ### Phase 3: ASK User (up to 3 questions)
+
+                Present draft summary and ask for feedback:
+
+                **Q1 - Scenario Review:**
+                "I've drafted [N] test scenarios:
+                - [X] happy path
+                - [Y] boundary cases
+                - [Z] error handling
+
+                Any to add/remove/modify?"
+
+                **Q2 - Test Data:**
+                "For [method], I'll use these inputs: [list]
+                Any specific values you want tested?"
+
+                **Q3 - Dependencies (if detected):**
+                "External dependencies found: [list]
+                How to handle?
+                - Testcontainers (real DB)
+                - WireMock (HTTP mock)
+                - Skip integration tests"
+
+                ### Phase 4: Finalize & Write Plan
+
+                Incorporate feedback and write to `.zest/<ClassName>-plan.md`:
+
+                ```markdown
+                # Test Plan: <ClassName>
+
+                ## Overview
+                - **Class**: [full class name]
+                - **Test Type**: UNIT | INTEGRATION
+                - **Framework**: JUnit 5 (or detected)
+                - **Total Scenarios**: N
+
+                ## User Preferences
+                - Scope: [from context]
+                - Priority: [from context]
+                - Feedback: [from Phase 3]
+
+                ## Test Scenarios
+
+                ### 1. methodName_scenario_expectedResult
+                - **Method**: `methodName()`
+                - **Type**: UNIT | INTEGRATION
+                - **Priority**: HIGH | MEDIUM | LOW
+                - **Input**: Specific test data
+                - **Expected**: Verifiable outcome
+                - **Setup**: Prerequisites
+                - **Notes**: Any special handling
+                ```
+
+                ### Phase 5: Save & Confirm
+                1. Write to `.zest/<ClassName>-plan.md`
+                2. Tell user: "Plan saved with [N] scenarios. Run `/zest-test-write` to generate tests."
+                """);
+
+        registerPrompt("zest-test-write", "Write tests from context and plan",
+                List.of(),
+                """
+                You are a test writer. Write production-quality tests following the plan.
+                **Execute workflow** - minimal interaction, implement the plan.
+
+                ## FILE LOCATIONS
+                - **Context file**: `.zest/<ClassName>-context.md` (read this)
+                - **Plan file**: `.zest/<ClassName>-plan.md` (read this)
+                - **Test output**: `src/test/java/<package>/<ClassName>Test.java` (write here)
+
+                ## AVAILABLE TOOLS
+
+                **MCP Tools (Zest/IntelliJ):**
+                - `lookupClass`, `lookupMethod`: Verify signatures if unsure
+                - `validateCode`: Validate before saving (REQUIRED)
+
+                **Agent's Built-in Tools:**
+                - Read files (context, plan, existing tests)
+                - Write to files (test class)
+                - Search codebase for existing test patterns
+
+                ## WORKFLOW
+
+                ### Phase 1: Load Inputs
+                Read `.zest/<ClassName>-context.md` and `.zest/<ClassName>-plan.md`:
+                - Source code and method signatures
+                - User preferences (scope, type, priority)
+                - Test scenarios to implement
+
+                ### Phase 2: Check Existing Tests
+                Search for existing test class (e.g., "class.*<ClassName>Test" in Java files).
+                If exists, read to avoid duplicates and match style.
+
+                ### Phase 3: Generate Test Class
+
+                **Test path:** `src/main/java/.../Foo.java` → `src/test/java/.../FooTest.java`
+
+                **NO MOCKING - Use real alternatives:**
+                - DB: Testcontainers (`PostgreSQLContainer`, etc.)
+                - HTTP: WireMock
+                - Private fields: `ReflectionTestUtils.setField()`
+
+                **Structure:**
+                ```java
+                @DisplayName("ClassName Tests")
+                class ClassNameTest {
+                    private ClassName underTest;
+
+                    @BeforeEach
+                    void setUp() { underTest = new ClassName(); }
+
+                    @Nested
+                    @DisplayName("methodName")
+                    class MethodNameTests {
+                        @Test
+                        @DisplayName("should X when Y")
+                        void methodName_scenario_expected() {
+                            // Arrange
+                            // Act
+                            // Assert
+                        }
+                    }
+                }
+                ```
+
+                **Naming:** `methodName_scenario_expectedResult`
+                **Assertions:** Use AssertJ (`assertThat(...).isEqualTo(...)`)
+
+                ### Phase 4: Validate
+                Call `validateCode` with the generated code.
+                - ✅ Compiles → proceed to save
+                - ❌ Errors → fix and re-validate (up to 3 attempts)
+
+                ### Phase 5: Save
+                Write test class to `src/test/java/<package>/<ClassName>Test.java`
+
+                ### Phase 6: Report
+                Tell user:
+                - Test file location
+                - Tests written: [N]
+                - Validation: ✅ compiles / ❌ [N] errors remaining
+                - If issues: "Run `/zest-test-fix` to debug"
+                """);
+
+        registerPrompt("zest-test-fix", "Fix failing tests or compilation errors",
+                List.of(
+                        new McpSchema.PromptArgument("errorOutput", "Error output (optional - will call validateCode if not provided)", false)
+                ),
+                """
+                You are a test debugger. Diagnose and fix test failures systematically.
+                **Debug workflow** - iterate until tests compile.
+
+                ## FILE LOCATIONS
+                - **Context file**: `.zest/<ClassName>-context.md` (source code & signatures)
+                - **Plan file**: `.zest/<ClassName>-plan.md` (intended test scenarios)
+                - **Test file**: `src/test/java/<package>/<ClassName>Test.java` (fix this)
+
+                ## AVAILABLE TOOLS
+
+                **MCP Tools (Zest/IntelliJ):**
+                - `lookupClass`, `lookupMethod`: Verify types and signatures
+                - `validateCode`: Check if fix compiles (CALL AFTER EACH FIX)
+
+                **Agent's Built-in Tools:**
+                - Read files (test file, context files)
+                - Write/edit files to apply fixes
+
+                ## WORKFLOW
+
+                ### Phase 1: Get Context
+                1. Read `.zest/<ClassName>-context.md` for source code and signatures
+                2. Read the test file from `src/test/java/<package>/<ClassName>Test.java`
+                3. If no errorOutput provided, call `validateCode` to get current errors
+
+                ### Phase 2: Diagnose (use ReAct pattern)
+
+                For each error:
+                🤔 **Thought**: What type of error? What's the root cause?
+                🎯 **Action**: Look up signature or read context
+                👁️ **Observation**: What did I find?
+                ⚡ **Fix**: What change will resolve this?
+
+                **Error Categories:**
+
+                **Compilation:**
+                - `cannot find symbol` → Missing import, typo, wrong package
+                - `incompatible types` → Check actual return type in context
+                - `method does not exist` → Call `lookupMethod` to verify signature
+
+                **Runtime/Assertion:**
+                - `NullPointerException` → Missing setup, uninitialized field
+                - `AssertionError` → Wrong expectation, check context for actual behavior
+                - `expected X but was Y` → Update assertion to match reality
+
+                ### Phase 3: Fix Iteratively
+
+                For each error:
+                1. Apply minimal fix (don't rewrite entire test)
+                2. Call `validateCode` to check
+                3. If new errors, continue fixing
+                4. Max 5 iterations per error
+
+                **Common Fixes:**
+                - Wrong type → check context, update assertion
+                - Missing import → add import statement
+                - Wrong method name → use `lookupMethod` to find correct name
+                - NPE → initialize in @BeforeEach
+
+                ### Phase 4: Save & Report
+
+                When all errors fixed (or max iterations reached):
+                1. Write fixed test to file
+                2. Report to user:
+                   - Errors fixed: [list]
+                   - Remaining issues: [if any]
+                   - Status: ✅ compiles / ❌ needs manual review
+
+                {{errorOutput}}
+                """);
+
+        LOG.info("Registered 7 MCP prompts: review, explain, commit, zest-test-context, zest-test-plan, zest-test-write, zest-test-fix");
     }
 
     private void registerPrompt(String name, String description, List<McpSchema.PromptArgument> arguments, String promptTemplate) {
@@ -691,36 +994,6 @@ public class ZestMcpHttpServer {
                 """;
     }
 
-    private String buildGitStatusSchema() {
-        return """
-                {
-                  "type": "object",
-                  "properties": {
-                    "projectPath": {
-                      "type": "string",
-                      "description": "Absolute path to the IntelliJ project"
-                    }
-                  },
-                  "required": ["projectPath"]
-                }
-                """;
-    }
-
-    private String buildGitDiffSchema() {
-        return """
-                {
-                  "type": "object",
-                  "properties": {
-                    "projectPath": {
-                      "type": "string",
-                      "description": "Absolute path to the IntelliJ project"
-                    }
-                  },
-                  "required": ["projectPath"]
-                }
-                """;
-    }
-
     private McpSchema.CallToolResult handleAnalyzeMethodUsage(String projectPath, String className, String memberName) {
         try {
             Project project = findProject(projectPath);
@@ -773,114 +1046,6 @@ public class ZestMcpHttpServer {
         }
     }
 
-    private McpSchema.CallToolResult handleGetGitStatus(String projectPath) {
-        try {
-            Project project = findProject(projectPath);
-            if (project == null) {
-                return new McpSchema.CallToolResult(
-                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
-                        false
-                );
-            }
-
-            GitService gitService = project.getService(GitService.class);
-            if (gitService == null) {
-                return new McpSchema.CallToolResult(
-                        List.of(new McpSchema.TextContent("GitService not available for project")),
-                        false
-                );
-            }
-
-            String statusJson = gitService.getGitStatus();
-
-            if (statusJson == null || statusJson.trim().isEmpty() || statusJson.equals("{}")) {
-                return new McpSchema.CallToolResult(
-                        List.of(new McpSchema.TextContent("No changes in working directory")),
-                        false
-                );
-            }
-
-            return new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(statusJson)), false);
-
-        } catch (Exception e) {
-            LOG.error("Error getting git status", e);
-            return new McpSchema.CallToolResult(
-                    List.of(new McpSchema.TextContent("ERROR: " + e.getMessage())),
-                    true
-            );
-        }
-    }
-
-    private McpSchema.CallToolResult handleGetGitDiff(String projectPath) {
-        try {
-            Project project = findProject(projectPath);
-            if (project == null) {
-                return new McpSchema.CallToolResult(
-                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
-                        false
-                );
-            }
-
-            GitService gitService = project.getService(GitService.class);
-            if (gitService == null) {
-                return new McpSchema.CallToolResult(
-                        List.of(new McpSchema.TextContent("GitService not available for project")),
-                        false
-                );
-            }
-
-            String statusJson = gitService.getGitStatus();
-            if (statusJson == null || statusJson.trim().isEmpty() || statusJson.equals("{}")) {
-                return new McpSchema.CallToolResult(
-                        List.of(new McpSchema.TextContent("No changes in working directory")),
-                        false
-                );
-            }
-
-            com.google.gson.JsonObject statusObj = gson.fromJson(statusJson, com.google.gson.JsonObject.class);
-            String changedFiles = statusObj.get("changedFiles").getAsString();
-
-            if (changedFiles == null || changedFiles.trim().isEmpty()) {
-                return new McpSchema.CallToolResult(
-                        List.of(new McpSchema.TextContent("No changes in working directory")),
-                        false
-                );
-            }
-
-            com.google.gson.JsonArray filesArray = new com.google.gson.JsonArray();
-            String[] lines = changedFiles.split("\\n");
-
-            for (String line : lines) {
-                if (line.trim().isEmpty()) continue;
-
-                String[] parts = line.split("\\t", 2);
-                if (parts.length == 2) {
-                    String status = parts[0].trim();
-                    String filePath = parts[1].trim();
-
-                    com.google.gson.JsonObject fileObj = new com.google.gson.JsonObject();
-                    fileObj.addProperty("filePath", filePath);
-                    fileObj.addProperty("status", status);
-                    filesArray.add(fileObj);
-                }
-            }
-
-            com.google.gson.JsonObject diffRequest = new com.google.gson.JsonObject();
-            diffRequest.add("files", filesArray);
-
-            String diffsJson = gitService.getBatchFileDiffs(diffRequest);
-
-            return new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(diffsJson)), false);
-
-        } catch (Exception e) {
-            LOG.error("Error getting git diff", e);
-            return new McpSchema.CallToolResult(
-                    List.of(new McpSchema.TextContent("ERROR: " + e.getMessage())),
-                    true
-            );
-        }
-    }
-
     private Project findProject(String projectPath) {
         if (projectPath == null || projectPath.trim().isEmpty()) {
             return null;
@@ -910,8 +1075,8 @@ public class ZestMcpHttpServer {
         jettyServer.start();
         LOG.info("✅ Zest MCP HTTP Server started successfully");
         LOG.info("📋 MCP endpoint: http://localhost:" + port + MESSAGE_ENDPOINT);
-        LOG.info("🔧 Available tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getGitStatus, getGitDiff");
-        LOG.info("💬 Available prompts: review, explain, commit");
+        LOG.info("🔧 Available tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode");
+        LOG.info("💬 Available prompts: review, explain, commit, zest-test-context, zest-test-plan, zest-test-write, zest-test-fix");
     }
 
     public void stop() throws Exception {
@@ -930,5 +1095,372 @@ public class ZestMcpHttpServer {
 
     public int getPort() {
         return port;
+    }
+
+    // ========== New Testgen MCP Tools ==========
+
+    private String buildGetJavaCodeUnderTestSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to the IntelliJ project"
+                    }
+                  },
+                  "required": ["projectPath"]
+                }
+                """;
+    }
+
+    private McpSchema.CallToolResult handleGetJavaCodeUnderTest(String projectPath) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            // Show GUI to select Java class
+            String[] selection = showJavaCodeSelectionDialog(project);
+            if (selection == null || selection.length == 0) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("No selection made (user cancelled)")),
+                        false
+                );
+            }
+
+            String className = selection[0];
+
+            // Find class and generate context
+            String[] result = new String[2]; // [0] = content, [1] = filePath
+            ApplicationManager.getApplication().runReadAction(() -> {
+                JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
+                PsiClass psiClass = facade.findClass(className, GlobalSearchScope.allScope(project));
+
+                if (psiClass == null) {
+                    result[0] = "Class not found: " + className;
+                    return;
+                }
+
+                // Generate comprehensive context
+                result[0] = formatCodeUnderTest(psiClass, project);
+            });
+
+            if (result[0] == null || result[0].startsWith("Class not found")) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent(result[0] != null ? result[0] : "Error generating context")),
+                        false
+                );
+            }
+
+            // Write to .zest folder
+            String filePath = writeContextToTempFile(result[0], className, project);
+
+            // Extract simple class name for file naming convention
+            String simpleClassName = className.contains(".")
+                    ? className.substring(className.lastIndexOf('.') + 1)
+                    : className;
+
+            // Return content with file path info
+            StringBuilder response = new StringBuilder();
+            response.append(result[0]);
+            response.append("\n---\n\n");
+            response.append("## File Locations\n\n");
+            response.append("- **Context file**: `").append(filePath).append("`\n");
+            response.append("- **Plan file** (create next): `.zest/").append(simpleClassName).append("-plan.md`\n");
+            response.append("- **Test file**: `src/test/java/.../").append(simpleClassName).append("Test.java`\n\n");
+            response.append("Next step: Ask user clarifying questions, then run `/zest-test-plan`.\n");
+
+            return new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(response.toString())), false);
+
+        } catch (Exception e) {
+            LOG.error("Error getting Java code under test", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    private String[] showJavaCodeSelectionDialog(Project project) {
+        // Show GUI dialog on EDT thread
+        String[] result = new String[1];
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+            String className = JavaClassSelectionDialog.showAndGetClassName(project);
+            if (className != null) {
+                result[0] = className;
+            }
+        });
+        return result[0] != null ? result : null;
+    }
+
+    private String buildValidateCodeSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to the IntelliJ project"
+                    },
+                    "code": {
+                      "type": "string",
+                      "description": "Java code to validate"
+                    },
+                    "className": {
+                      "type": "string",
+                      "description": "Name of the class (used for error reporting)"
+                    }
+                  },
+                  "required": ["projectPath", "code", "className"]
+                }
+                """;
+    }
+
+    private McpSchema.CallToolResult handleValidateCode(String projectPath, String code, String className) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            // Use TestCodeValidator to check for compilation errors
+            com.zps.zest.testgen.evaluation.TestCodeValidator.ValidationResult validation =
+                    com.zps.zest.testgen.evaluation.TestCodeValidator.validate(project, code, className);
+
+            StringBuilder result = new StringBuilder();
+            result.append("## Validation Result: ").append(className).append("\n\n");
+
+            if (validation.compiles()) {
+                result.append("**Status:** ✅ Code compiles successfully\n");
+                result.append("**Errors:** 0\n");
+            } else {
+                result.append("**Status:** ❌ Compilation errors found\n");
+                result.append("**Errors:** ").append(validation.getErrorCount()).append("\n\n");
+                result.append("### Error Details\n\n");
+
+                for (String error : validation.getErrors()) {
+                    result.append("```\n");
+                    result.append(error);
+                    result.append("```\n\n");
+                }
+            }
+
+            return new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(result.toString())), false);
+
+        } catch (Exception e) {
+            LOG.error("Error validating code", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    /**
+     * Formats comprehensive test context for a class.
+     * Includes: source code, usage analysis, related classes, dependencies.
+     */
+    private String formatCodeUnderTest(PsiClass psiClass, Project project) {
+        StringBuilder result = new StringBuilder();
+        String className = psiClass.getQualifiedName() != null ? psiClass.getQualifiedName() : psiClass.getName();
+
+        // Header
+        result.append("# Test Context: ").append(className).append("\n\n");
+
+        // File path
+        PsiFile containingFile = psiClass.getContainingFile();
+        if (containingFile != null && containingFile.getVirtualFile() != null) {
+            result.append("**File:** `").append(containingFile.getVirtualFile().getPath()).append("`\n\n");
+        }
+
+        // Section 1: Source Code
+        result.append("## 1. Source Code\n\n");
+        result.append("```java\n");
+        if (containingFile != null) {
+            String[] lines = containingFile.getText().split("\n");
+            for (int i = 0; i < lines.length; i++) {
+                result.append(String.format("%4d  %s\n", i + 1, lines[i]));
+            }
+        }
+        result.append("```\n\n");
+
+        // Section 2: Public Methods Summary
+        result.append("## 2. Public Methods\n\n");
+        for (PsiMethod method : psiClass.getMethods()) {
+            if (method.hasModifierProperty(PsiModifier.PUBLIC) && !method.isConstructor()) {
+                result.append("- `").append(getMethodSignature(method)).append("`\n");
+            }
+        }
+        result.append("\n");
+
+        // Section 3: Usage Analysis (call sites)
+        result.append("## 3. Usage Analysis\n\n");
+        UsageAnalyzer usageAnalyzer = new UsageAnalyzer(project);
+        boolean hasUsage = false;
+        for (PsiMethod method : psiClass.getMethods()) {
+            if (method.hasModifierProperty(PsiModifier.PUBLIC) && !method.isConstructor()) {
+                UsageContext usage = usageAnalyzer.analyzeMethod(method);
+                if (!usage.isEmpty()) {
+                    hasUsage = true;
+                    result.append(usage.formatForLLM()).append("\n");
+                }
+            }
+        }
+        if (!hasUsage) {
+            result.append("_No call sites found in project. This may be a new class or entry point._\n\n");
+        }
+
+        // Section 4: Related Classes (dependencies)
+        result.append("## 4. Related Classes\n\n");
+        Set<PsiClass> relatedClasses = new HashSet<>();
+        com.zps.zest.ClassAnalyzer.collectRelatedClasses(psiClass, relatedClasses);
+
+        if (relatedClasses.isEmpty()) {
+            result.append("_No project dependencies found._\n\n");
+        } else {
+            for (PsiClass related : relatedClasses) {
+                if (related.equals(psiClass)) continue;
+                String qualifiedName = related.getQualifiedName();
+                if (qualifiedName == null || qualifiedName.startsWith("java.") || qualifiedName.startsWith("javax.")) {
+                    continue;
+                }
+                result.append("### ").append(related.getName()).append("\n\n");
+                result.append("```java\n");
+                appendClassSignature(result, related);
+                result.append("```\n\n");
+            }
+        }
+
+        // Section 5: External Dependencies (for test type recommendation)
+        result.append("## 5. External Dependencies\n\n");
+        Set<String> dependencies = com.zps.zest.ClassAnalyzer.detectExternalDependencies(psiClass);
+        if (dependencies.isEmpty()) {
+            result.append("_No external dependencies detected. Unit tests recommended._\n\n");
+        } else {
+            result.append(com.zps.zest.ClassAnalyzer.formatDependenciesForTests(dependencies)).append("\n\n");
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Gets method signature as a string.
+     */
+    private String getMethodSignature(PsiMethod method) {
+        StringBuilder sig = new StringBuilder();
+        PsiType returnType = method.getReturnType();
+        if (returnType != null) {
+            sig.append(returnType.getPresentableText()).append(" ");
+        }
+        sig.append(method.getName()).append("(");
+        PsiParameter[] params = method.getParameterList().getParameters();
+        for (int i = 0; i < params.length; i++) {
+            if (i > 0) sig.append(", ");
+            sig.append(params[i].getType().getPresentableText()).append(" ").append(params[i].getName());
+        }
+        sig.append(")");
+        return sig.toString();
+    }
+
+    /**
+     * Appends class signature (fields + method signatures, no bodies).
+     */
+    private void appendClassSignature(StringBuilder sb, PsiClass cls) {
+        // Class declaration
+        if (cls.isInterface()) {
+            sb.append("interface ");
+        } else {
+            sb.append("class ");
+        }
+        sb.append(cls.getName());
+
+        PsiClass superClass = cls.getSuperClass();
+        if (superClass != null && !"Object".equals(superClass.getName())) {
+            sb.append(" extends ").append(superClass.getName());
+        }
+
+        PsiClassType[] interfaces = cls.getImplementsListTypes();
+        if (interfaces.length > 0) {
+            sb.append(" implements ");
+            for (int i = 0; i < interfaces.length; i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(interfaces[i].getClassName());
+            }
+        }
+        sb.append(" {\n");
+
+        // Fields
+        for (PsiField field : cls.getFields()) {
+            if (field.getName().contains("$")) continue;
+            sb.append("    ");
+            if (field.hasModifierProperty(PsiModifier.PRIVATE)) sb.append("private ");
+            if (field.hasModifierProperty(PsiModifier.PROTECTED)) sb.append("protected ");
+            if (field.hasModifierProperty(PsiModifier.PUBLIC)) sb.append("public ");
+            if (field.hasModifierProperty(PsiModifier.STATIC)) sb.append("static ");
+            if (field.hasModifierProperty(PsiModifier.FINAL)) sb.append("final ");
+            sb.append(field.getType().getPresentableText()).append(" ").append(field.getName()).append(";\n");
+        }
+
+        sb.append("\n");
+
+        // Method signatures only
+        for (PsiMethod method : cls.getMethods()) {
+            if (method.isConstructor()) continue;
+            sb.append("    ");
+            if (method.hasModifierProperty(PsiModifier.PUBLIC)) sb.append("public ");
+            if (method.hasModifierProperty(PsiModifier.PROTECTED)) sb.append("protected ");
+            if (method.hasModifierProperty(PsiModifier.STATIC)) sb.append("static ");
+            PsiType returnType = method.getReturnType();
+            if (returnType != null) {
+                sb.append(returnType.getPresentableText()).append(" ");
+            }
+            sb.append(method.getName()).append("(");
+            PsiParameter[] params = method.getParameterList().getParameters();
+            for (int i = 0; i < params.length; i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(params[i].getType().getPresentableText());
+            }
+            sb.append(");\n");
+        }
+        sb.append("}\n");
+    }
+
+    /**
+     * Writes context to a temp file and returns the file path.
+     */
+    private String writeContextToTempFile(String content, String className, Project project) {
+        try {
+            // Use project's .zest directory
+            String basePath = project.getBasePath();
+            if (basePath == null) {
+                basePath = System.getProperty("java.io.tmpdir");
+            }
+            File zestDir = new File(basePath, ".zest");
+            if (!zestDir.exists()) {
+                zestDir.mkdirs();
+            }
+
+            String simpleClassName = className.contains(".")
+                    ? className.substring(className.lastIndexOf('.') + 1)
+                    : className;
+            File contextFile = new File(zestDir, simpleClassName + "-context.md");
+
+            try (FileWriter writer = new FileWriter(contextFile)) {
+                writer.write(content);
+            }
+
+            return contextFile.getAbsolutePath();
+        } catch (IOException e) {
+            LOG.error("Failed to write context file", e);
+            return null;
+        }
     }
 }

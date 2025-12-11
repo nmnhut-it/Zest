@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.910">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.911">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -9,12 +9,40 @@
             <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI.</p>
         ]]></description>
         <change-notes><![CDATA[
+            <h3>Version 1.9.911 - Test Generation Workflow as MCP Prompts 🧪</h3>
+            <h4>🔄 Testgen Migrated to Composable MCP Prompts</h4>
+            <ul>
+                <li><b>zest-test-context</b> - Interactive context gathering with class picker GUI, static analysis, and user Q&A</li>
+                <li><b>zest-test-plan</b> - Creates test plan using systematic techniques (Equivalence Partitioning, Boundary Value, Decision Tables)</li>
+                <li><b>zest-test-write</b> - Generates production-quality tests following the plan with NO mocking (Testcontainers, WireMock)</li>
+                <li><b>zest-test-fix</b> - Debugs and fixes test compilation errors with ReAct pattern</li>
+            </ul>
+
+            <h4>🛠️ New MCP Tools</h4>
+            <ul>
+                <li><b>getJavaCodeUnderTest</b> - GUI class picker + static analysis (source code, usage patterns, dependencies)</li>
+                <li><b>validateCode</b> - Check Java code for compilation errors with detailed error context</li>
+            </ul>
+
+            <h4>📁 File-Based Data Flow</h4>
+            <ul>
+                <li><b>Context file</b> - `.zest/&lt;ClassName&gt;-context.md` with source code and analysis</li>
+                <li><b>Plan file</b> - `.zest/&lt;ClassName&gt;-plan.md` with test scenarios</li>
+                <li><b>Agent-agnostic</b> - Works with any agent (Claude, GPT, Qwen) using standard file operations</li>
+            </ul>
+
+            <h4>🧹 Cleanup</h4>
+            <ul>
+                <li><b>Removed git tools</b> - getGitStatus, getGitDiff removed (agents use git commands directly)</li>
+                <li><b>Simplified commit prompt</b> - Now guides agents to use git commands with conventions</li>
+            </ul>
+
+            <p><em>Test generation now works as composable prompts for modern AI agents! 🚀</em></p>
+
             <h3>Version 1.9.910 - Dual Server Architecture & Complete Tool Integration 🔌</h3>
             <h4>🛠️ Enhanced MCP Tools (Qwen CLI)</h4>
             <ul>
                 <li><b>analyzeMethodUsage Tool</b> - Discover real usage patterns, edge cases, and integration contexts from actual codebase usage</li>
-                <li><b>getGitStatus Tool</b> - Retrieve git status showing modified, added, and deleted files</li>
-                <li><b>getGitDiff Tool</b> - Get comprehensive git diff for all changed files in the project</li>
             </ul>
 
             <h4>💬 Intelligent MCP Prompts (Slash Commands)</h4>

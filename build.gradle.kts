@@ -8,13 +8,15 @@ plugins {
 }
 
 group = "com.zps"
-version = "1.9.911"
+version = "1.9.912"
 
 repositories {
     mavenCentral()
     intellijPlatform {
         defaultRepositories()
     }
+    // RemoteRobot for UI testing
+    maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
 }
 
 dependencies {
@@ -54,6 +56,10 @@ dependencies {
 
     // MockWebServer for integration testing with mock HTTP server
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+
+    // JetBrains RemoteRobot for UI testing
+    testImplementation("com.intellij.remoterobot:remote-robot:0.11.23")
+    testImplementation("com.intellij.remoterobot:remote-fixtures:0.11.23")
 
     // Kotlin Coroutines - use compileOnly to avoid conflicts with IntelliJ Platform's bundled version
     // The IntelliJ Platform 2024.3 bundles kotlinx-coroutines 1.8+
@@ -164,6 +170,10 @@ tasks {
     // Configure the test task for IntelliJ platform tests
     test {
         useJUnit()
+
+        // Exclude UI tests from regular test runs - they need a running IDE
+        exclude("**/ui/**")
+        exclude("**/*UITest*")
 
         // IntelliJ Platform specific JVM arguments
         jvmArgs(
@@ -293,6 +303,59 @@ tasks {
         doLast {
             println("✅ All completion service tests completed!")
         }
+    }
+
+    // UI Tests with RemoteRobot
+    register<Test>("testUI") {
+        description = "Run UI tests with RemoteRobot"
+        group = "verification"
+
+        useJUnit()
+        include("**/ui/**")
+        include("**/*UITest*")
+
+        // Always run UI tests - don't use caching
+        outputs.upToDateWhen { false }
+
+        // UI tests need the IDE to be running separately
+        // Run: ./gradlew runIdeForUiTests
+        // Then: ./gradlew testUI
+
+        systemProperties(
+            mapOf(
+                "robot.host" to "127.0.0.1",
+                "robot.port" to "8082"
+            )
+        )
+
+        // Extended timeout for UI tests
+        timeout.set(Duration.ofMinutes(30))
+
+        testLogging {
+            events("started", "passed", "skipped", "failed")
+            showStandardStreams = true
+        }
+
+        doFirst {
+            println("Running UI Tests with RemoteRobot...")
+            println("Make sure IDE is running with: ./gradlew runIdeForUiTests")
+        }
+    }
+
+    // Run IDE with RemoteRobot plugin for UI testing
+    runIde {
+        // Enable RemoteRobot server when running for UI tests
+        systemProperty("robot.server.port", "8082")
+        systemProperty("idea.trust.all.projects", "true")
+        systemProperty("ide.mac.message.dialogs.as.sheets", "false")
+        systemProperty("ide.show.tips.on.startup.default.value", "false")
+    }
+
+    // Separate task for running IDE specifically for UI tests
+    register("runIdeForUiTests") {
+        group = "intellij"
+        description = "Run IDE with RemoteRobot enabled for UI testing"
+        dependsOn("runIde")
     }
 
     patchPluginXml {

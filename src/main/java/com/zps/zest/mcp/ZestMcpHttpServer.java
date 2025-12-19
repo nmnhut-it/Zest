@@ -211,7 +211,22 @@ public class ZestMcpHttpServer {
                 }
         ));
 
-        LOG.info("Registered 6 MCP tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode");
+        McpSchema.Tool showFileTool = McpSchema.Tool.builder()
+                .name("showFile")
+                .description("Open a file in IntelliJ editor to present it to the user. Use this to show generated test files, context files, or any file the user should see.")
+                .inputSchema(jsonMapper, buildShowFileSchema())
+                .build();
+
+        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+                showFileTool,
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String filePath = (String) arguments.get("filePath");
+                    return handleShowFile(projectPath, filePath);
+                }
+        ));
+
+        LOG.info("Registered 7 MCP tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode, showFile");
     }
 
     private void registerPrompts() {
@@ -434,7 +449,8 @@ public class ZestMcpHttpServer {
                 INTERACTION:
                 - Be concise, use numbered options
                 - Warn if mixing unrelated changes
-                - Ask before any destructive action
+                - Ask before any destructive action 
+                - Max 3 questions
                 """);
 
         // ========== Test Generation Workflow Prompts ==========
@@ -454,6 +470,7 @@ public class ZestMcpHttpServer {
                 - `lookupClass`: Look up class signatures (project, JARs, JDK)
                 - `lookupMethod`: Look up specific method signatures
                 - `analyzeMethodUsage`: Find call sites and usage patterns
+                - `showFile`: Open a file in IntelliJ editor to present to user
 
                 **Agent's Built-in Tools:**
                 - Search codebase for patterns
@@ -534,7 +551,20 @@ public class ZestMcpHttpServer {
                 [only if explored - with file:line references]
                 ```
 
-                Confirm with user: "Context updated. Run `/zest-test-plan` to create test plan."
+                ### Phase 6: Show Context File & Next Steps
+
+                1. Use `showFile` to open the context file in IntelliJ so user can review it
+                2. Tell user:
+
+                ```
+                ✅ Context saved to: .zest/<ClassName>-context.md
+
+                📋 NEXT STEP: To save tokens, run one of these:
+                   - `/clear` - Clear conversation and run `/zest-test-plan`
+                   - Start a new conversation and run `/zest-test-plan`
+
+                The context file contains all information needed for the next step.
+                ```
                 """);
 
         registerPrompt("zest-test-plan", "Create a test plan from context",
@@ -551,6 +581,7 @@ public class ZestMcpHttpServer {
 
                 **MCP Tools (Zest/IntelliJ):**
                 - `lookupClass`, `lookupMethod`: Look up signatures if needed
+                - `showFile`: Open a file in IntelliJ editor to present to user
 
                 **Agent's Built-in Tools:**
                 - Read files (context file, existing tests)
@@ -632,9 +663,22 @@ public class ZestMcpHttpServer {
                 - **Notes**: Any special handling
                 ```
 
-                ### Phase 5: Save & Confirm
-                1. Write to `.zest/<ClassName>-plan.md`
-                2. Tell user: "Plan saved with [N] scenarios. Run `/zest-test-write` to generate tests."
+                ### Phase 5: Show Plan File & Next Steps
+
+                1. Write plan to `.zest/<ClassName>-plan.md`
+                2. Use `showFile` to open the plan file in IntelliJ so user can review it
+                3. Tell user:
+
+                ```
+                ✅ Plan saved to: .zest/<ClassName>-plan.md
+                   [N] test scenarios planned
+
+                📋 NEXT STEP: To save tokens, run one of these:
+                   - `/clear` - Clear conversation and run `/zest-test-write`
+                   - Start a new conversation and run `/zest-test-write`
+
+                The plan file contains all information needed for the next step.
+                ```
                 """);
 
         registerPrompt("zest-test-write", "Write tests from context and plan",
@@ -653,6 +697,7 @@ public class ZestMcpHttpServer {
                 **MCP Tools (Zest/IntelliJ):**
                 - `lookupClass`, `lookupMethod`: Verify signatures if unsure
                 - `validateCode`: Validate before saving (REQUIRED)
+                - `showFile`: Open a file in IntelliJ editor to present to user
 
                 **Agent's Built-in Tools:**
                 - Read files (context, plan, existing tests)
@@ -711,15 +756,23 @@ public class ZestMcpHttpServer {
                 - ✅ Compiles → proceed to save
                 - ❌ Errors → fix and re-validate (up to 3 attempts)
 
-                ### Phase 5: Save
-                Write test class to `src/test/java/<package>/<ClassName>Test.java`
+                ### Phase 5: Save & Show
+                1. Write test class to `src/test/java/<package>/<ClassName>Test.java`
+                2. Use `showFile` to open the test file in IntelliJ so user can review it
 
-                ### Phase 6: Report
+                ### Phase 6: Report & Next Steps
                 Tell user:
-                - Test file location
-                - Tests written: [N]
-                - Validation: ✅ compiles / ❌ [N] errors remaining
-                - If issues: "Run `/zest-test-fix` to debug"
+
+                ```
+                ✅ Test file saved to: src/test/java/<package>/<ClassName>Test.java
+                   [N] tests written
+                   Validation: ✅ compiles / ❌ [N] errors remaining
+
+                📋 NEXT STEPS:
+                   - Run tests in IntelliJ to verify they pass
+                   - If errors: `/clear` and run `/zest-test-fix`
+                   - If all good: You're done! 🎉
+                ```
                 """);
 
         registerPrompt("zest-test-fix", "Fix failing tests or compilation errors",
@@ -740,6 +793,7 @@ public class ZestMcpHttpServer {
                 **MCP Tools (Zest/IntelliJ):**
                 - `lookupClass`, `lookupMethod`: Verify types and signatures
                 - `validateCode`: Check if fix compiles (CALL AFTER EACH FIX)
+                - `showFile`: Open a file in IntelliJ editor to present to user
 
                 **Agent's Built-in Tools:**
                 - Read files (test file, context files)
@@ -786,14 +840,23 @@ public class ZestMcpHttpServer {
                 - Wrong method name → use `lookupMethod` to find correct name
                 - NPE → initialize in @BeforeEach
 
-                ### Phase 4: Save & Report
+                ### Phase 4: Save, Show & Report
 
                 When all errors fixed (or max iterations reached):
                 1. Write fixed test to file
-                2. Report to user:
-                   - Errors fixed: [list]
-                   - Remaining issues: [if any]
-                   - Status: ✅ compiles / ❌ needs manual review
+                2. Use `showFile` to open the fixed test file in IntelliJ
+                3. Report to user:
+
+                ```
+                ✅ Test file fixed: src/test/java/<package>/<ClassName>Test.java
+                   Errors fixed: [list]
+                   Status: ✅ compiles / ❌ [N] issues need manual review
+
+                📋 NEXT STEPS:
+                   - Run tests in IntelliJ to verify they pass
+                   - If more errors: `/clear` and run `/zest-test-fix` again
+                   - If all good: You're done! 🎉
+                ```
 
                 {{errorOutput}}
                 """);
@@ -1075,7 +1138,7 @@ public class ZestMcpHttpServer {
         jettyServer.start();
         LOG.info("✅ Zest MCP HTTP Server started successfully");
         LOG.info("📋 MCP endpoint: http://localhost:" + port + MESSAGE_ENDPOINT);
-        LOG.info("🔧 Available tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode");
+        LOG.info("🔧 Available tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode, showFile");
         LOG.info("💬 Available prompts: review, explain, commit, zest-test-context, zest-test-plan, zest-test-write, zest-test-fix");
     }
 
@@ -1221,6 +1284,25 @@ public class ZestMcpHttpServer {
                 """;
     }
 
+    private String buildShowFileSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to the IntelliJ project"
+                    },
+                    "filePath": {
+                      "type": "string",
+                      "description": "Absolute path to the file to open in the editor"
+                    }
+                  },
+                  "required": ["projectPath", "filePath"]
+                }
+                """;
+    }
+
     private McpSchema.CallToolResult handleValidateCode(String projectPath, String code, String className) {
         try {
             Project project = findProject(projectPath);
@@ -1257,6 +1339,47 @@ public class ZestMcpHttpServer {
 
         } catch (Exception e) {
             LOG.error("Error validating code", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    private McpSchema.CallToolResult handleShowFile(String projectPath, String filePath) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            File file = new File(filePath);
+            if (!file.exists()) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("File not found: " + filePath)),
+                        false
+                );
+            }
+
+            // Open file in editor on EDT
+            ApplicationManager.getApplication().invokeLater(() -> {
+                VirtualFile virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
+                        .refreshAndFindFileByIoFile(file);
+                if (virtualFile != null) {
+                    FileEditorManager.getInstance(project).openFile(virtualFile, true);
+                }
+            });
+
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("Opened file in editor: " + filePath)),
+                    false
+            );
+
+        } catch (Exception e) {
+            LOG.error("Error opening file", e);
             return new McpSchema.CallToolResult(
                     List.of(new McpSchema.TextContent("ERROR: " + e.getMessage())),
                     true

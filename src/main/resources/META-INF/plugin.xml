@@ -119,6 +119,12 @@
 
         <!-- Inline Completion Services -->
         <projectService serviceImplementation="com.zps.zest.completion.ZestInlineCompletionService"/>
+
+        <!-- Continue.dev MCP Configuration Service -->
+        <projectService serviceImplementation="com.zps.zest.continuedev.ContinueConfigurationService"/>
+
+        <!-- Code Health v2 Display Service -->
+        <projectService serviceImplementation="com.zps.zest.codehealth.v2.intellij.CodeHealthDisplayService"/>
     </extensions>
     
     <actions>
@@ -388,6 +394,14 @@
                 text="Create/Open Zest Rules File / Tạo/Mở file quy tắc"
                 description="Create or open custom rules file / Tạo hoặc mở file định nghĩa quy tắc riêng cho AI">
             <add-to-group group-id="ZestGroup" anchor="first"/>
+        </action>
+
+        <!-- Continue.dev MCP Setup Action -->
+        <action id="Zest.SetupContinueMcp"
+                class="com.zps.zest.continuedev.SetupContinueMcpAction"
+                text="Install MCP for Continue.dev / Cài MCP cho Continue.dev"
+                description="Setup Zest MCP server config for Continue.dev (VS Code) / Cài đặt MCP server Zest cho Continue.dev">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
         </action>
         
         <!-- Open Chat in Editor (also in Tools menu) -->

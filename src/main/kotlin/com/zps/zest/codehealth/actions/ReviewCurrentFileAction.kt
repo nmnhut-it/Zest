@@ -9,7 +9,6 @@ import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -21,9 +20,8 @@ import com.intellij.psi.PsiManager
 import com.intellij.psi.PsiFile
 import com.zps.zest.codehealth.BackgroundHealthReviewer
 import com.zps.zest.codehealth.CodeHealthAnalyzer
-import com.zps.zest.codehealth.CodeHealthReportStorage
 import com.zps.zest.codehealth.ProjectChangesTracker
-import com.zps.zest.codehealth.ui.editor.CodeHealthOverviewVirtualFile
+import com.zps.zest.codehealth.v2.intellij.CodeHealthDisplayService
 import com.zps.zest.completion.metrics.ActionMetricsHelper
 import com.zps.zest.completion.metrics.FeatureType
 import org.jetbrains.kotlin.psi.KtFile
@@ -103,20 +101,15 @@ class ReviewCurrentFileAction : AnAction() {
                     
                     val results = future.get(3000, TimeUnit.SECONDS)
                     
-                    // 4. Store results and open Code Health Editor
+                    // 4. Store results and open Code Health Editor via V2 API
+                    // Using V2 coordinator ensures fresh report is stored as "current"
+                    // and avoids stale data bug where old reports were shown
                     ApplicationManager.getApplication().invokeLater {
-                        // Store results for the editor to display
-                        val storage = CodeHealthReportStorage.getInstance(project)
-                        storage.saveImmediateReviewResults(file.name, results)
-                        
-                        // Open Code Health Editor
-                        openCodeHealthEditor(project)
-                        
+                        CodeHealthDisplayService.getInstance(project)
+                            .showImmediateReport(file.name, results)
+
                         // Show notification
                         showReviewNotification(project, file, results)
-                        
-                        // Clear all tracking after review completes
-//                        tracker.clearAllTracking()
                     }
                     
                 } catch (e: Exception) {
@@ -203,21 +196,14 @@ class ReviewCurrentFileAction : AnAction() {
         // For JS/TS, we'll use file path with line numbers as identifiers
         val methods = mutableListOf<String>()
         val filePath = file.path
-        
+
         // Simple approach: track the whole file as regions
         // The analyzer will handle the actual method extraction
         methods.add("$filePath:1")
-        
+
         return methods
     }
-    
-    private fun openCodeHealthEditor(project: Project) {
-        // Open the Code Health Overview Editor
-        val healthFile = CodeHealthOverviewVirtualFile()
-        val editorManager = FileEditorManager.getInstance(project)
-        editorManager.openFile(healthFile, true)
-    }
-    
+
     private fun showReviewNotification(
         project: Project,
         file: VirtualFile,

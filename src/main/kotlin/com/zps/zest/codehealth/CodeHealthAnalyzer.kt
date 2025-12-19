@@ -273,7 +273,17 @@ class CodeHealthAnalyzer(private val project: Project) {
         val callerSnippets: List<CallerSnippet> = emptyList(),
         val range: Range? = null,
         val anchors: Anchors? = null
-    )
+    ) {
+        /** True if this issue was detected but verification was intentionally skipped. */
+        fun isVerificationSkipped(): Boolean = verificationReason?.contains("skipped", ignoreCase = true) == true
+
+        /**
+         * Returns true if this issue should be displayed to the user.
+         * Shows: verified issues OR detected issues where verification was skipped.
+         * Hides: confirmed false positives.
+         */
+        fun shouldDisplay(): Boolean = !falsePositive && (verified || isVerificationSkipped())
+    }
 
     data class CallerSnippet(
         val callerFqn: String,
@@ -426,7 +436,7 @@ class CodeHealthAnalyzer(private val project: Project) {
         cancelled: AtomicBoolean
     ) {
         val issueCount = result.issues.size
-        val verifiedCount = result.issues.count { it.verified && !it.falsePositive }
+        val verifiedCount = result.issues.count { it.shouldDisplay() }
         println("[CodeHealthAnalyzer] Complete: ${result.fqn} -> $issueCount issues, $verifiedCount verified")
 
         // ALWAYS store result, even if empty or partial
@@ -537,8 +547,9 @@ class CodeHealthAnalyzer(private val project: Project) {
     private fun finalizeDetection(detectionResult: MethodHealthResult): MethodHealthResult {
         if (detectionResult.issues.isEmpty() || !SKIP_VERIFICATION) return detectionResultOrVerified(detectionResult)
         println("[CodeHealthAnalyzer] Skipping verification (SKIP_VERIFICATION=true)")
+        // Mark as unverified to honestly reflect that LLM verification was not performed
         return detectionResult.copy(issues = detectionResult.issues.map {
-            it.copy(verified = true, verificationReason = "Verification skipped")
+            it.copy(verified = false, verificationReason = "Verification skipped - unverified detection")
         })
     }
 
@@ -871,7 +882,7 @@ class CodeHealthAnalyzer(private val project: Project) {
         val verifiedIssues = result.issues.toMutableList()
         val arr = json.getAsJsonArray("verifications") ?: return result
         arr.forEach { applyVerificationObject(it.asJsonObject, verifiedIssues) }
-        val realIssues = verifiedIssues.filter { it.verified && !it.falsePositive }
+        val realIssues = verifiedIssues.filter { it.shouldDisplay() }
         val newScore = calculateHealthScore(realIssues, result.modificationCount, result.impactedCallers.size)
         println("[CodeHealthAnalyzer] Verified ${realIssues.size}/${verifiedIssues.size} issues as real for ${result.fqn}")
         return result.copy(issues = verifiedIssues, healthScore = newScore)

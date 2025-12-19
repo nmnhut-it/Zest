@@ -554,8 +554,8 @@ class ProjectChangesTracker(private val project: Project) :
                 
                 if (allResults.isNotEmpty()) {
                     val totalIssues = allResults.sumOf { it.issues.size }
-                    val verifiedIssues = allResults.sumOf { result -> 
-                        result.issues.count { it.verified && !it.falsePositive } 
+                    val verifiedIssues = allResults.sumOf { result ->
+                        result.issues.count { it.shouldDisplay() }
                     }
 //                    println("[CodeHealth] Total issues: $totalIssues, Verified: $verifiedIssues")
                     

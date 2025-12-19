@@ -41,6 +41,9 @@ class BackgroundHealthReviewer(private val project: Project) {
     private val gson = Gson()
     
     init {
+        // Load persisted reviewed methods from storage on startup
+        loadReviewedMethodsFromStorage()
+
         // Schedule periodic check for methods ready to review
         scheduler.scheduleWithFixedDelay(
             ::checkAndReviewInactiveMethods,
@@ -48,7 +51,7 @@ class BackgroundHealthReviewer(private val project: Project) {
             CHECK_INTERVAL_MS / 1000, // Period in seconds
             TimeUnit.SECONDS
         )
-        
+
         println("[BackgroundHealthReviewer] Initialized with check interval: ${CHECK_INTERVAL_MS}ms")
     }
     
@@ -360,36 +363,57 @@ class BackgroundHealthReviewer(private val project: Project) {
     }
     
     /**
-     * Save reviewed methods to persistent storage
+     * Save reviewed methods to persistent storage.
+     * Persists all reviewed methods to V1 storage for recovery after IDE restart.
      */
     private fun saveReviewedMethods() {
         try {
-            val tracker = ProjectChangesTracker.getInstance(project)
-            val state = tracker.state
-            
-            // Serialize reviewed methods
-            val serialized = reviewedMethods.mapValues { (_, result) ->
-                gson.toJson(result)
-            }
-            
-            // Store in state (you'll need to add this field to State)
-            // For now, we'll just keep in memory
-            
+            if (project.isDisposed || reviewedMethods.isEmpty()) return
+
+            // Persist to V1 storage for durability across IDE restarts
+            val storage = CodeHealthReportStorage.getInstance(project)
+            val allResults = reviewedMethods.values.toList()
+            storage.saveImmediateReviewResults("background_review", allResults)
+
+            println("[BackgroundHealthReviewer] Persisted ${allResults.size} reviewed methods to storage")
         } catch (e: Exception) {
             println("[BackgroundHealthReviewer] Error saving reviewed methods: ${e.message}")
         }
     }
     
     /**
-     * Load reviewed methods from persistent storage
+     * Load reviewed methods from persistent V1 storage on startup.
+     * Restores background review cache after IDE restart.
      */
+    fun loadReviewedMethodsFromStorage() {
+        try {
+            if (project.isDisposed) return
+
+            val storage = CodeHealthReportStorage.getInstance(project)
+            val storedResults = storage.getImmediateReviewResults()
+
+            if (storedResults != null) {
+                storedResults.forEach { result ->
+                    reviewedMethods[result.fqn] = result
+                }
+                println("[BackgroundHealthReviewer] Loaded ${reviewedMethods.size} reviewed methods from storage")
+            }
+        } catch (e: Exception) {
+            println("[BackgroundHealthReviewer] Error loading reviewed methods: ${e.message}")
+        }
+    }
+
+    /**
+     * Load reviewed methods from serialized JSON data (legacy method).
+     */
+    @Deprecated("Use loadReviewedMethodsFromStorage() instead")
     fun loadReviewedMethods(serializedData: Map<String, String>) {
         try {
             serializedData.forEach { (fqn, json) ->
                 val result = gson.fromJson(json, MethodHealthResult::class.java)
                 reviewedMethods[fqn] = result
             }
-            println("[BackgroundHealthReviewer] Loaded ${reviewedMethods.size} reviewed methods from storage")
+            println("[BackgroundHealthReviewer] Loaded ${reviewedMethods.size} reviewed methods from legacy data")
         } catch (e: Exception) {
             println("[BackgroundHealthReviewer] Error loading reviewed methods: ${e.message}")
         }

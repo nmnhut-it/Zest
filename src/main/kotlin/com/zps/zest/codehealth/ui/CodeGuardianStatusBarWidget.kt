@@ -420,7 +420,7 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
 
                 if (lastResults != null) {
                     val realIssues = lastResults.flatMap { it.issues }
-                        .filter { it.verified && !it.falsePositive }
+                        .filter { it.shouldDisplay() }
 
                     val totalIssues = realIssues.size
                     val criticalIssues = realIssues.count { it.severity >= 4 }
@@ -570,7 +570,7 @@ class CodeGuardianStatusBarWidget(project: Project) : EditorBasedWidget(project)
             }
 
             val realIssues = results.flatMap { it.issues }
-                .filter { it.verified && !it.falsePositive }
+                .filter { it.shouldDisplay() }
 
             val totalIssues = realIssues.size
             val criticalIssues = realIssues.count { it.severity >= 4 }

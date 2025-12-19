@@ -91,7 +91,8 @@ class CodeHealthOverviewEditor(
 
     private fun createToolbar(): JComponent {
         val group = DefaultActionGroup().apply {
-            add(action("Refresh Data", AllIcons.Actions.Refresh) { refreshData() })
+            add(action("Refresh View", AllIcons.Actions.Refresh) { refreshView() })
+            add(action("Load Latest Report", AllIcons.Actions.Download) { loadLatestReport() })
             add(action("Run Analysis", AllIcons.Actions.Execute) { runNewAnalysis() })
             add(action("Review All Pending", AllIcons.Actions.StartDebugger) { reviewAllPending() })
             add(action("Clear Tracking", AllIcons.Actions.GC) { clearTracking() })
@@ -411,14 +412,14 @@ class CodeHealthOverviewEditor(
     private fun calculateSummaryMetrics(): SummaryMetrics {
         val data = currentData ?: return SummaryMetrics(0, 0, 0, 0)
         val overall = if (data.isNotEmpty()) data.map { it.healthScore }.average().toInt() else 0
-        val verified = data.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
+        val verified = data.flatMap { it.issues }.filter { it.shouldDisplay() }
         return SummaryMetrics(overall, data.size, verified.size, verified.count { it.severity >= 4 })
     }
 
     private fun getAllIssues(): List<Pair<CodeHealthAnalyzer.MethodHealthResult, CodeHealthAnalyzer.HealthIssue>> {
         val data = currentData ?: return emptyList()
         return data.flatMap { m ->
-            m.issues.filter { it.verified && !it.falsePositive }
+            m.issues.filter { it.shouldDisplay() }
                 .sortedByDescending { it.severity }.map { m to it }
         }
     }
@@ -427,7 +428,7 @@ class CodeHealthOverviewEditor(
             List<Pair<CodeHealthAnalyzer.MethodHealthResult, List<CodeHealthAnalyzer.HealthIssue>>> {
         val data = currentData ?: return emptyList()
         return data.mapNotNull { m ->
-            val list = m.issues.filter { it.severity >= 4 && it.verified && !it.falsePositive }
+            val list = m.issues.filter { it.severity >= 4 && it.shouldDisplay() }
             if (list.isNotEmpty()) m to list else null
         }.take(10)
     }
@@ -436,7 +437,7 @@ class CodeHealthOverviewEditor(
             List<Pair<CodeHealthAnalyzer.MethodHealthResult, List<CodeHealthAnalyzer.HealthIssue>>> {
         val data = currentData ?: return emptyList()
         return data.mapNotNull { m ->
-            val list = m.issues.filter { it.severity in 1..3 && it.verified && !it.falsePositive }
+            val list = m.issues.filter { it.severity in 1..3 && it.shouldDisplay() }
             if (list.isNotEmpty()) m to list else null
         }.take(20)
     }
@@ -484,10 +485,23 @@ class CodeHealthOverviewEditor(
         return null
     }
 
-    private fun refreshData() {
+    /**
+     * Refresh the view without reloading data from storage.
+     * This keeps the current report visible (fixes stale data bug).
+     */
+    private fun refreshView() {
+        refreshUI()
+        Messages.showInfoMessage(project, "View refreshed", "Refreshed")
+    }
+
+    /**
+     * Load the latest report from storage (may show different report).
+     * Use this when user explicitly wants to see newer data.
+     */
+    private fun loadLatestReport() {
         loadRecentData()
         refreshUI()
-        Messages.showInfoMessage(project, "Code Health data refreshed", "Data Refreshed")
+        Messages.showInfoMessage(project, "Loaded latest report from storage", "Report Loaded")
     }
 
     private fun runNewAnalysis() {

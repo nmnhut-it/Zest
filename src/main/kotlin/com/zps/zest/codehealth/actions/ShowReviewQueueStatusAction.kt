@@ -67,9 +67,9 @@ class ShowReviewQueueStatusAction : AnAction() {
                         appendLine("Method: $fqn")
                         appendLine("  - Health Score: ${result.healthScore}/100")
                         appendLine("  - Issues: ${result.issues.size}")
-                        appendLine("  - Verified Issues: ${result.issues.count { it.verified && !it.falsePositive }}")
+                        appendLine("  - Verified Issues: ${result.issues.count { it.shouldDisplay() }}")
                         if (result.issues.isNotEmpty()) {
-                            result.issues.filter { it.verified && !it.falsePositive }.forEach { issue ->
+                            result.issues.filter { it.shouldDisplay() }.forEach { issue ->
                                 appendLine("    * [${issue.issueCategory}] ${issue.title} (Severity: ${issue.severity}/5)")
                             }
                         }

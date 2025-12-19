@@ -26,7 +26,7 @@ object CodeHealthNotification {
         // Get the actual model from the first result (they should all use the same model)
         val actualModel = results.firstOrNull()?.actualModel ?: "local-model-mini"
 
-        val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
+        val realIssues = results.flatMap { it.issues }.filter { it.shouldDisplay() }
         val totalIssues = realIssues.size
         val criticalIssues = realIssues.count { it.severity >= 4 }
         val highIssues = realIssues.count { it.severity == 3 }
@@ -334,7 +334,7 @@ object CodeHealthNotification {
             
             // Collect detailed metrics
             val issuesByCategory = results.flatMap { it.issues }
-                .filter { it.verified && !it.falsePositive }
+                .filter { it.shouldDisplay() }
                 .groupBy { it.issueCategory }
                 .mapValues { it.value.size }
             
@@ -409,21 +409,11 @@ object CodeHealthNotification {
     }
 
     private fun showDetailedReport(project: Project, results: List<CodeHealthAnalyzer.MethodHealthResult>, isGitTriggered: Boolean = false) {
-        // Store the results based on type
-        if (isGitTriggered) {
-            CodeHealthReportStorage.getInstance(project).storeGitTriggeredReport(results)
-        } else {
-            CodeHealthReportStorage.getInstance(project).storeReport(results)
-        }
-        
-        // Open Code Health Overview in editor tab instead of old tool window
-        ApplicationManager.getApplication().invokeLater {
-            val overviewFile = com.zps.zest.codehealth.ui.editor.CodeHealthOverviewVirtualFile()
-            val editorManager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project) as com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
-            
-            // Open in split view for better UX
-            editorManager.openFile(overviewFile, true)
-        }
+        // Use v2 service which properly handles storage priority
+        // This fixes the bug where stale reports were shown instead of fresh ones
+        com.zps.zest.codehealth.v2.intellij.CodeHealthDisplayService
+            .getInstance(project)
+            .showReport(results, isGitTriggered)
     }
 
     // Old HTML-based dialog - kept for reference, replaced by SwingHealthReportDialog
@@ -653,7 +643,7 @@ object CodeHealthNotification {
                     return
                 }
                 val result = results[resultIndex]
-                val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
+                val verifiedIssues = result.issues.filter { it.shouldDisplay() }
                 if (issueIndex >= verifiedIssues.size) {
                     println("[CodeHealthNotification] Issue index out of bounds: $issueIndex >= ${verifiedIssues.size}")
                     return
@@ -860,7 +850,7 @@ object CodeHealthNotification {
         }
 
         private fun generateHtmlReport(): String {
-            val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
+            val realIssues = results.flatMap { it.issues }.filter { it.shouldDisplay() }
             val totalMethods = results.size
             val averageScore = if (results.isNotEmpty()) results.map { it.healthScore }.average().toInt() else 100
             
@@ -1053,13 +1043,13 @@ object CodeHealthNotification {
                         </table>
                     </div>
                     
-                    ${if (results.any { it.issues.any { issue -> issue.verified && !issue.falsePositive } }) """
+                    ${if (results.any { it.issues.any { issue -> issue.shouldDisplay() } }) """
                         <h2>🔍 Detailed Findings</h2>
                         
-                        ${results.filter { it.issues.any { issue -> issue.verified && !issue.falsePositive } }
+                        ${results.filter { it.issues.any { issue -> issue.shouldDisplay() } }
                             .sortedBy { it.healthScore }
                             .joinToString("") { result ->
-                                val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
+                                val verifiedIssues = result.issues.filter { it.shouldDisplay() }
                                 
                                 """
                                 <div class="method">
@@ -1143,7 +1133,7 @@ object CodeHealthNotification {
         }
 
         private fun generateTextReport(): String {
-            val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
+            val realIssues = results.flatMap { it.issues }.filter { it.shouldDisplay() }
             val totalMethods = results.size
             val totalIssues = realIssues.size
             val averageScore = if (results.isNotEmpty()) results.map { it.healthScore }.average().toInt() else 100
@@ -1173,7 +1163,7 @@ object CodeHealthNotification {
                 appendLine("=".repeat(80))
                 
                 results.forEach { result ->
-                    val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
+                    val verifiedIssues = result.issues.filter { it.shouldDisplay() }
                     
                     appendLine()
                     appendLine("METHOD: ${result.fqn}")
@@ -1222,7 +1212,7 @@ object CodeHealthNotification {
         }
 
         private fun generateMarkdownReport(): String {
-            val realIssues = results.flatMap { it.issues }.filter { it.verified && !it.falsePositive }
+            val realIssues = results.flatMap { it.issues }.filter { it.shouldDisplay() }
             
             return buildString {
                 appendLine("# 🛡️ Zest Code Guardian Report")
@@ -1236,7 +1226,7 @@ object CodeHealthNotification {
                 appendLine("## 🔧 Detailed Issues")
                 
                 results.forEach { result ->
-                    val verifiedIssues = result.issues.filter { it.verified && !it.falsePositive }
+                    val verifiedIssues = result.issues.filter { it.shouldDisplay() }
                     if (verifiedIssues.isNotEmpty()) {
                         appendLine()
                         appendLine("### `${result.fqn}`")

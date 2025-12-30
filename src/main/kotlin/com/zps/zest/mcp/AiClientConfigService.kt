@@ -34,6 +34,7 @@ class AiClientConfigService(private val project: Project) {
         val displayName: String,
         val configFileName: String
     ) {
+        CONTINUE_DEV("Continue.dev", "zest.json"),
         CLAUDE_DESKTOP("Claude Desktop", "claude_desktop_config.json"),
         CURSOR("Cursor", "mcp.json"),
         CLINE("Cline", "cline_mcp_settings.json"),
@@ -52,6 +53,7 @@ class AiClientConfigService(private val project: Project) {
         val isWindows = System.getProperty("os.name").lowercase().contains("windows")
 
         return when (client) {
+            ClientType.CONTINUE_DEV -> Paths.get(userHome, ".continue", "mcpServers")
             ClientType.CLAUDE_DESKTOP -> {
                 if (isWindows) {
                     Paths.get(System.getenv("APPDATA") ?: "$userHome/AppData/Roaming", "Claude")
@@ -233,11 +235,41 @@ class AiClientConfigService(private val project: Project) {
 
     /**
      * Check if a client is available/installed on the system.
+     * Checks both config directories and CLI commands in PATH.
      */
     fun isClientAvailable(client: ClientType): Boolean {
+        // First check if config directory exists
         val configDir = getConfigPath(client)
-        // Check if parent directory exists (indicates client might be installed)
-        return Files.exists(configDir.parent) || Files.exists(configDir)
+        if (Files.exists(configDir) || Files.exists(configDir.parent)) {
+            return true
+        }
+
+        // Also check for CLI commands in PATH
+        return when (client) {
+            ClientType.CLAUDE_CODE -> isCommandInPath("claude")
+            ClientType.CURSOR -> isCommandInPath("cursor")
+            ClientType.WINDSURF -> isCommandInPath("windsurf")
+            else -> false
+        }
+    }
+
+    /**
+     * Check if a command exists in PATH.
+     */
+    private fun isCommandInPath(command: String): Boolean {
+        return try {
+            val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+            val process = if (isWindows) {
+                ProcessBuilder("where", command)
+            } else {
+                ProcessBuilder("which", command)
+            }
+            process.redirectErrorStream(true)
+            val result = process.start()
+            result.waitFor() == 0
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /**

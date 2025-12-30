@@ -57,7 +57,7 @@
             <add-to-group group-id="ZestMcpSetupGroup"/>
         </separator>
 
-        <action id="Zest.SetupContinueMcp" class="com.zps.zest.continuedev.SetupContinueMcpAction"
+        <action id="Zest.SetupContinueMcp" class="com.zps.zest.mcp.SetupContinueDevMcpAction"
                 text="Continue.dev" description="Setup Zest MCP for Continue.dev">
             <add-to-group group-id="ZestMcpSetupGroup"/>
         </action>

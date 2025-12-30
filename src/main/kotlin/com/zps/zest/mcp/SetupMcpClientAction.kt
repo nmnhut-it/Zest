@@ -120,76 +120,46 @@ class SetupMcpClientAction : AnAction() {
 }
 
 /**
- * Individual action for Claude Desktop setup.
+ * Base class for client-specific MCP setup actions.
+ * Only shows when the client is detected on the system.
  */
-class SetupClaudeDesktopMcpAction : AnAction() {
+abstract class BaseSetupMcpAction(private val clientType: AiClientConfigService.ClientType) : AnAction() {
+
     override fun actionPerformed(e: AnActionEvent) {
-        setupClient(e, AiClientConfigService.ClientType.CLAUDE_DESKTOP)
+        setupClient(e, clientType)
     }
+
     override fun update(e: AnActionEvent) {
-        e.presentation.isEnabledAndVisible = e.project != null
+        val project = e.project
+        if (project == null) {
+            e.presentation.isEnabledAndVisible = false
+            return
+        }
+        val service = AiClientConfigService.getInstance(project)
+        e.presentation.isEnabledAndVisible = service.isClientAvailable(clientType)
     }
 }
 
-/**
- * Individual action for Cursor setup.
- */
-class SetupCursorMcpAction : AnAction() {
-    override fun actionPerformed(e: AnActionEvent) {
-        setupClient(e, AiClientConfigService.ClientType.CURSOR)
-    }
-    override fun update(e: AnActionEvent) {
-        e.presentation.isEnabledAndVisible = e.project != null
-    }
-}
+/** Claude Desktop - shows when Claude Desktop config directory exists */
+class SetupClaudeDesktopMcpAction : BaseSetupMcpAction(AiClientConfigService.ClientType.CLAUDE_DESKTOP)
 
-/**
- * Individual action for Cline setup.
- */
-class SetupClineMcpAction : AnAction() {
-    override fun actionPerformed(e: AnActionEvent) {
-        setupClient(e, AiClientConfigService.ClientType.CLINE)
-    }
-    override fun update(e: AnActionEvent) {
-        e.presentation.isEnabledAndVisible = e.project != null
-    }
-}
+/** Cursor - shows when ~/.cursor exists */
+class SetupCursorMcpAction : BaseSetupMcpAction(AiClientConfigService.ClientType.CURSOR)
 
-/**
- * Individual action for Windsurf setup.
- */
-class SetupWindsurfMcpAction : AnAction() {
-    override fun actionPerformed(e: AnActionEvent) {
-        setupClient(e, AiClientConfigService.ClientType.WINDSURF)
-    }
-    override fun update(e: AnActionEvent) {
-        e.presentation.isEnabledAndVisible = e.project != null
-    }
-}
+/** Cline - shows when VS Code Cline extension directory exists */
+class SetupClineMcpAction : BaseSetupMcpAction(AiClientConfigService.ClientType.CLINE)
 
-/**
- * Individual action for Claude Code CLI setup.
- */
-class SetupClaudeCodeMcpAction : AnAction() {
-    override fun actionPerformed(e: AnActionEvent) {
-        setupClient(e, AiClientConfigService.ClientType.CLAUDE_CODE)
-    }
-    override fun update(e: AnActionEvent) {
-        e.presentation.isEnabledAndVisible = e.project != null
-    }
-}
+/** Windsurf - shows when ~/.windsurf exists */
+class SetupWindsurfMcpAction : BaseSetupMcpAction(AiClientConfigService.ClientType.WINDSURF)
 
-/**
- * Individual action for Kilo Code setup.
- */
-class SetupKiloCodeMcpAction : AnAction() {
-    override fun actionPerformed(e: AnActionEvent) {
-        setupClient(e, AiClientConfigService.ClientType.KILO_CODE)
-    }
-    override fun update(e: AnActionEvent) {
-        e.presentation.isEnabledAndVisible = e.project != null
-    }
-}
+/** Claude Code CLI - shows when ~/.claude exists */
+class SetupClaudeCodeMcpAction : BaseSetupMcpAction(AiClientConfigService.ClientType.CLAUDE_CODE)
+
+/** Kilo Code - shows when VS Code Kilo Code extension directory exists */
+class SetupKiloCodeMcpAction : BaseSetupMcpAction(AiClientConfigService.ClientType.KILO_CODE)
+
+/** Continue.dev - shows when ~/.continue exists */
+class SetupContinueDevMcpAction : BaseSetupMcpAction(AiClientConfigService.ClientType.CONTINUE_DEV)
 
 /**
  * Helper function to setup a single client.

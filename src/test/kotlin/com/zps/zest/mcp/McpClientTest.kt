@@ -2,7 +2,7 @@ package com.zps.zest.mcp
 
 import io.modelcontextprotocol.client.McpClient
 import io.modelcontextprotocol.client.McpSyncClient
-import io.modelcontextprotocol.client.transport.HttpClientSseClientTransport
+import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport
 import io.modelcontextprotocol.spec.McpSchema
 import org.junit.After
 import org.junit.Assert.*
@@ -13,14 +13,14 @@ import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Tests for MCP SSE server using the official MCP Java SDK client.
+ * Tests for MCP HTTP server using the official MCP Java SDK client.
  *
- * These tests use HttpClientSseClientTransport which properly handles:
- * - SSE connection establishment
- * - Session ID management
- * - Response routing via SSE stream
+ * These tests use HttpClientStreamableClientTransport which properly handles:
+ * - Streamable HTTP transport (MCP 2025-03-26 spec)
+ * - Session management via /mcp endpoint
+ * - Bidirectional communication over HTTP
  *
- * This is the correct way to test MCP SSE servers.
+ * This is the correct way to test MCP Streamable HTTP servers.
  */
 class McpClientTest {
 
@@ -53,15 +53,18 @@ class McpClientTest {
 
     private fun createMcpClient(): McpSyncClient? {
         return try {
-            val transport = HttpClientSseClientTransport.builder("http://localhost:$testPort")
-                .sseEndpoint("/sse")
+            val transport = HttpClientStreamableHttpTransport.builder("http://localhost:$testPort")
+                .endpoint("/mcp")
                 .build()
 
             McpClient.sync(transport)
                 .clientInfo(McpSchema.Implementation("test-client", "1.0.0"))
+                .requestTimeout(Duration.ofSeconds(30))
+                .initializationTimeout(Duration.ofSeconds(30))
                 .build()
         } catch (e: Exception) {
             println("Failed to create MCP client: ${e.message}")
+            e.printStackTrace()
             null
         }
     }
@@ -122,7 +125,7 @@ class McpClientTest {
             val toolNames = tools.tools.map { it.name }
             assertTrue("Should have getCurrentFile tool", "getCurrentFile" in toolNames)
             assertTrue("Should have lookupClass tool", "lookupClass" in toolNames)
-            assertTrue("Should have lookupMethod tool", "lookupMethod" in toolNames)
+            assertTrue("Should have getJavaCodeUnderTest tool", "getJavaCodeUnderTest" in toolNames)
 
         } finally {
             try { client.close() } catch (e: Exception) { }

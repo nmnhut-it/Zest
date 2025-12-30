@@ -222,6 +222,12 @@ class McpPromptsTest {
         - lookupClass, lookupMethod: Look up signatures if needed
         - showFile: Open a file in IntelliJ editor to present to user
 
+        ### Phase 3: Create Test Scenarios
+        Define test scenario for each method:
+        - Happy path scenarios
+        - Edge case scenarios
+        - Error handling scenarios
+
         ### Phase 5: Show Plan File & Next Steps
         1. Write plan to .zest/<ClassName>-plan.md
         2. Use showFile to open the plan file in IntelliJ so user can review it

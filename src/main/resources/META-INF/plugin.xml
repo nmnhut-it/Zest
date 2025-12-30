@@ -1,551 +1,105 @@
 <idea-plugin>
-    <!-- Plugin name displayed in the IDE -->
-    <!-- Read more: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
     <name>Zest</name>
-    
-    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>com.zps.Zest</id>
-    
-    <!-- Plugin version -->
-    <version>1.9.910</version>
-
-    <!-- Vendor information -->
+    <version>2.0.0</version>
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
-    <!-- Plugin description -->
+
     <description><![CDATA[
-   <h2>Zest: Smarter Java Development with AI</h2>
-   <p><b>Zest</b> supercharges your IntelliJ workflow. Instantly generate JUnit tests, implement TODOs, and refactor for testability—all powered by AI. Enjoy one-click code reviews, auto-generated commit messages, and smart comments. Boost productivity, ship quality code, and let Zest handle the repetitive stuff so you can focus on building great software. Try Zest and make testing effortless.</p>]]></description>
-    
-    <!-- Compatibility version range -->
-    <!-- Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
+   <h2>Zest: AI-Powered Test Generation via MCP</h2>
+   <p><b>Zest</b> provides intelligent test generation powered by AI through the Model Context Protocol (MCP).
+   Use with Claude Desktop, Cursor, Continue.dev, or any MCP-compatible client.</p>]]></description>
+
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.java</depends>
     <depends>org.jetbrains.plugins.terminal</depends>
     <idea-version since-build="223.0" until-build="259.*"/>
-    
-    <projectListeners>
-        <listener class="com.zps.zest.inlinechat.JCefInitializer"
-                  topic="com.intellij.openapi.startup.ProjectActivity"/>
-        <listener class="com.zps.zest.qwen.QwenConfigurationProjectListener"
-                  topic="com.intellij.openapi.project.ProjectManagerListener"/>
-    </projectListeners>
 
-    <!-- Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <!-- Application-level service for global settings -->
         <applicationService serviceImplementation="com.zps.zest.settings.ZestGlobalSettings"/>
-
-        <!-- MCP Tool Server Service -->
         <applicationService serviceImplementation="com.zps.zest.mcp.ZestMcpToolServerService"/>
-
-        <!-- Tool API Server Service (OpenWebUI integration) -->
-        <projectService serviceImplementation="com.zps.zest.mcp.ToolApiServerService"/>
-
-        <!-- Project-level service for project-specific settings -->
         <projectService serviceImplementation="com.zps.zest.settings.ZestProjectSettings"/>
-        <!-- Using backgroundPostStartupActivity for better performance -->
+
         <backgroundPostStartupActivity implementation="com.zps.zest.mcp.ZestMcpToolServerStartupActivity"/>
-        <backgroundPostStartupActivity implementation="com.zps.zest.mcp.ToolApiServerStartupActivity"/>
-        <backgroundPostStartupActivity implementation="com.zps.zest.completion.ZestCompletionStartupActivity"/>
-        <backgroundPostStartupActivity implementation="com.zps.zest.codehealth.CodeGuardianStartupActivity"/>
         <backgroundPostStartupActivity implementation="com.zps.zest.settings.SettingsMigrationNotice"/>
-        <backgroundPostStartupActivity implementation="com.zps.zest.startup.PromptMigrationStartupActivity"/>
-        <backgroundPostStartupActivity implementation="com.zps.zest.update.VersionUpdateNotifier"/>
-        <backgroundPostStartupActivity implementation="com.zps.zest.testgen.snapshot.SnapshotCleanupActivity"/>
-        <editorFactoryListener implementation="com.zps.zest.events.ZestEditorFactoryListener"/>
-        <actionPromoter order="first" implementation="com.zps.zest.completion.actions.ZestActionPromoter"/>
 
-                    
-
-            
-        <projectConfigurable
-                groupId="tools"
-                instance="com.zps.zest.settings.ZestSettingsConfigurable"
-                displayName="Zest Plugin"
-                id="zest.settings"
-                nonDefaultProject="true"/>
-
-                
-        <projectConfigurable
-                instance="com.zps.zest.codehealth.CodeHealthConfigurable"
-                displayName="Code Health"
-                id="zest.codeguardian"
-                parentId="zest.settings"
-                nonDefaultProject="true"/>
+        <projectConfigurable groupId="tools" instance="com.zps.zest.settings.ZestSettingsConfigurable"
+                displayName="Zest Plugin" id="zest.settings" nonDefaultProject="true"/>
 
         <notificationGroup id="Zest LLM" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
-        <notificationGroup id="Code Health" displayType="BALLOON" toolWindowId="Terminal" isLogByDefault="false"/>
-        <notificationGroup id="Zest Completion Debug" displayType="BALLOON" isLogByDefault="false"/>
-        <notificationGroup id="Zest Updates" displayType="BALLOON" isLogByDefault="false"/>
 
-
-        <!-- Status Bar Widgets -->
-        <statusBarWidgetFactory id="ZestCompletionStatus" 
-                               implementation="com.zps.zest.completion.ui.ZestCompletionStatusBarWidgetFactory" 
-                               order="last"/>
-        <statusBarWidgetFactory id="CodeHealthStatusBarWidget" 
-                               implementation="com.zps.zest.codehealth.ui.CodeGuardianStatusBarWidgetFactory" 
-                               order="last"/>
-
-        
-        <!-- Code Health Notification Group -->
-        <notificationGroup id="Zest Code Health" displayType="BALLOON" isLogByDefault="false"/>
-        
-        <!-- Code Health Editor Provider -->
-        <fileEditorProvider implementation="com.zps.zest.codehealth.ui.editor.CodeHealthEditorProvider"/>
-        
-
-        
-        <!-- Zest Chat Editor Provider -->
-        <fileEditorProvider implementation="com.zps.zest.browser.editor.ZestChatEditorProvider"/>
-        
-        <!-- Test Generation Editor Provider -->
-        <fileEditorProvider implementation="com.zps.zest.testgen.ui.TestGenerationFileEditorProvider"/>
-        
-
-        <!-- LangChain4j Services for agentic retrieval and AI task management -->
         <projectService serviceImplementation="com.zps.zest.langchain4j.ZestLangChain4jService"/>
         <projectService serviceImplementation="com.zps.zest.langchain4j.naive_service.NaiveStreamingLLMService"/>
-        <projectService serviceImplementation="com.zps.zest.retrieval.core.EmbeddingService"/>
-        
-        <!-- Test Generation Service -->
-        <projectService serviceImplementation="com.zps.zest.testgen.StateMachineTestGenerationService"/>
-        
-        <!-- Chat UI Service -->
-        <projectService serviceImplementation="com.zps.zest.chatui.ChatUIService"/>
-
-        <!-- Browser Services -->
-        <projectService serviceImplementation="com.zps.zest.browser.JCEFBrowserService"/>
-
-        <!-- Inline Completion Services -->
-        <projectService serviceImplementation="com.zps.zest.completion.ZestInlineCompletionService"/>
-
-        <!-- Continue.dev MCP Configuration Service -->
         <projectService serviceImplementation="com.zps.zest.continuedev.ContinueConfigurationService"/>
-
-        <!-- Code Health v2 Display Service -->
-        <projectService serviceImplementation="com.zps.zest.codehealth.v2.intellij.CodeHealthDisplayService"/>
+        <projectService serviceImplementation="com.zps.zest.mcp.AiClientConfigService"/>
     </extensions>
-    
+
     <actions>
-        <group id="Zest.InlineCompletion" text="Zest Inline Completion">
-            <action id="Zest.InlineCompletion.Trigger"
-                    class="com.zps.zest.completion.actions.ZestTrigger"
-                    text="Trigger Inline Completion / Gợi ý code thông minh"
-                    description="Trigger smart code suggestions at cursor position / Gợi ý code thông minh tại vị trí con trỏ">
-                <keyboard-shortcut first-keystroke="ctrl alt SPACE" keymap="$default"/>
-
-            </action>
-
-            <action id="Zest.InlineCompletion.TabAccept"
-                    class="com.zps.zest.completion.actions.ZestTabAccept"
-                    text="Accept Completion (Tab) / Chấp nhận gợi ý (Tab)"
-                    description="Accept suggestion with Tab key / Chấp nhận gợi ý bằng phím Tab">
-                <keyboard-shortcut first-keystroke="TAB" keymap="$default"/>
-            </action>
-
-            <!-- Temporarily disabled - needs reimplementation
-            <action id="Zest.InlineCompletion.Accept"
-                    class="com.zps.zest.completion.actions.ZestAccept"
-                    text="Accept Completion"
-                    description="Chấp nhận gợi ý bằng Ctrl+Tab">
-                <keyboard-shortcut first-keystroke="ctrl TAB" keymap="$default"/>
-            </action>
-            -->
-
-            <!-- Temporarily disabled - needs reimplementation
-            <action id="Zest.InlineCompletion.CycleNext"
-                    class="com.zps.zest.completion.actions.ZestCycleNext"
-                    text="Cycle Next Completion"
-                    description="Xem gợi ý tiếp theo (Alt+Down)">
-                <keyboard-shortcut first-keystroke="alt DOWN" keymap="$default"/>
-            </action>
-
-            <action id="Zest.InlineCompletion.CyclePrevious"
-                    class="com.zps.zest.completion.actions.ZestCyclePrevious"
-                    text="Cycle Previous Completion"
-                    description="Xem gợi ý trước đó (Alt+Up)">
-                <keyboard-shortcut first-keystroke="alt UP" keymap="$default"/>
-            </action>
-            -->
-
-            <action id="Zest.InlineCompletion.Dismiss"
-                    class="com.zps.zest.completion.actions.ZestDismiss"
-                    text="Dismiss Completion / Hủy bỏ gợi ý"
-                    description="Cancel suggestion with Escape / Hủy gợi ý bằng phím Escape">
-                <keyboard-shortcut first-keystroke="ESCAPE" keymap="$default"/>
-            </action>
-
-            <action id="Zest.TriggerQuickAction"
-                    class="com.zps.zest.completion.actions.ZestTriggerQuickAction"
-                    text="Quick Action... / Thao tác nhanh..."
-                    description="Perform specific task on selected code / Thực hiện tác vụ cụ thể trên code đã chọn">
-                <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="$default"/>
-                <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="Mac OS X"/>
-                <keyboard-shortcut first-keystroke="ctrl SPACE" keymap="Mac OS X 10.5+"/>
-            </action>
-
-        </group>
-
-        <group id="ZestGroup" text="Zest" description="AI-powered tools for development / Công cụ AI hỗ trợ lập trình" popup="true"
-               icon="com.zps.zest.ZestIcons.ZEST">
+        <group id="ZestGroup" text="Zest" description="AI-powered tools" popup="true" icon="com.zps.zest.core.ZestIcons.ZEST">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>
-        
-        <!-- Simple Chat Dialog Action -->
-<!--        <action id="Zest.OpenSimpleChat"-->
-<!--                class="com.zps.zest.chatui.OpenChatDialogAction"-->
-<!--                text="💬 Open Chat - Simple / Mở hộp thoại chat trong Intelij"-->
-<!--                description="Open simple chat dialog for AI assistance / Mở hộp thoại chat đơn giản với AI">-->
-<!--            <add-to-group group-id="ZestGroup" anchor="first"/>-->
-<!--        </action>-->
-        
-        <!-- Open Chat in Editor Action -->
-        <action id="Zest.OpenChatInEditor"
-                class="com.zps.zest.browser.actions.OpenChatInEditorAction"
-                text="Open Chat / Mở chat toàn màn hình"
-                description="Open ZPS Chat in full-screen editor tab / Mở chat AI trong tab toàn màn hình">
+
+        <action id="Zest.ShowMcpConfig" class="com.zps.zest.mcp.ShowMcpConfigAction"
+                text="MCP Server Config" description="Show MCP configuration for AI clients (Claude, Cursor, Continue.dev, etc.)">
             <add-to-group group-id="ZestGroup" anchor="first"/>
         </action>
 
-
-
-        <!-- Toolbar Actions -->
-        <action id="Zest.OpenChat"
-                class="com.zps.zest.browser.actions.OpenZestChatAction"
-                text="Chat / Trò chuyện với AI"
-                icon="com.zps.zest.ZestIcons.ZPS_CHAT"
-                description="Open ZPS AI Chat / Mở cửa sổ trò chuyện với AI">
-            <add-to-group group-id="MainToolbarRight" anchor="last"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift C"/>
-        </action>
-
-        <action id="Zest.OpenCodeHealth"
-                class="com.zps.zest.codehealth.actions.OpenCodeHealthAction"
-                text="Health / Kiểm tra sức khỏe code"
-                icon="com.zps.zest.ZestIcons.CODE_HEALTH"
-                description="Open Code Health Overview / Mở bảng kiểm tra chất lượng code">
-            <add-to-group group-id="MainToolbarRight" anchor="after" relative-to-action="Zest.OpenChat"/>
-        </action>
-
-        <action id="Zest.SendCodeReviewToChatBox"
-                class="com.zps.zest.browser.actions.SendCodeReviewToChatBox"
-                text="Code Review (Chat) / Nhờ AI xem code"
-                icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
-                description="AI reviews and suggests improvements / AI xem xét code và đưa ra gợi ý cải thiện">
+        <!-- MCP Setup Submenu -->
+        <group id="ZestMcpSetupGroup" text="Install MCP For..." description="Setup Zest MCP for AI clients" popup="true">
             <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Zest.ReviewCurrentFile"/>
-        </action>
-
-        <action id="Zest.GitCommitMessageGeneratorAction"
-                class="com.zps.zest.GitCommitMessageGeneratorAction"
-                text="Git Commit and Push / Lưu và đẩy code lên Git"
-                icon="com.zps.zest.ZestIcons.ZPS_CHAT_16"
-                description="Open Git UI with AI-generated commit message / Mở giao diện Git với AI tự động viết mô tả commit">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-        </action>
-
-
-
-        <!-- Removed Start Tools action - proxy server is now controlled via settings -->
-        
-        <!-- Test Generation Action -->
-        <action id="Zest.GenerateTests"
-                class="com.zps.zest.testgen.actions.GenerateTestAction"
-                text="Generate Tests (AI) / Tạo test tự động"
-                icon="com.zps.zest.ZestIcons.TEST_WRITING_16"
-                description="Generate tests using AI agents / Dùng AI để viết test cho code của bạn">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Generate"/>
-            <keyboard-shortcut first-keystroke="ctrl alt T" keymap="$default"/>
-        </action>
-
-        <!-- Test Generation Help Action -->
-        <action id="Zest.ShowTestGenerationHelp"
-                class="com.zps.zest.testgen.actions.ShowTestGenerationHelpAction"
-                icon="AllIcons.Actions.MoveToWindow"
-                text="Test Generation Guide / Hướng dẫn tạo test"
-                description="View comprehensive test generation documentation / Xem tài liệu chi tiết về tạo test">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.GenerateTests"/>
-        </action>
-
-        <!-- Snapshot Manager Action -->
-        <action id="Zest.OpenSnapshotManager"
-                class="com.zps.zest.testgen.actions.OpenSnapshotManagerAction"
-                text="Manage Test Generation Snapshots / Quản lý snapshot test"
-                description="View, resume, and manage saved test generation checkpoints / Xem, tiếp tục và quản lý các checkpoint đã lưu">
-            <add-to-group group-id="ZestGroup" anchor="after" relative-to-action="Zest.ShowTestGenerationHelp"/>
-        </action>
-
-        <!-- Batch Test Generation Action -->
-        <action id="Zest.BatchTestGeneration"
-                class="com.zps.zest.testgen.batch.BatchTestGenerationAction"
-                text="Batch Test Generation (Evaluation) / Tạo test hàng loạt"
-                description="Generate tests for multiple files to evaluate feature effectiveness / Tạo test cho nhiều file để đánh giá hiệu quả">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
-
-        <action id="Zest.TestContextSummarization"
-                class="com.zps.zest.testgen.actions.TestContextSummarizationAction"
-                text="🧪 Test Context Summarization"
-                description="Test the context summarization system with real classes">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-        </action>
-
-        <!-- Code Health Group -->
-        <group id="Zest.CodeHealth" text="Code Health / Sức khỏe code" popup="true">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-            <!-- Removed from ToolsMenu - available in ZestGroup -->
-            
-            <!-- Removed non-functional "Activate Code Health" action -->
-            
-<!--            <action id="Zest.AddMethodAtCaret"-->
-<!--                    class="com.zps.zest.codehealth.actions.AddMethodAtCaretAction"-->
-<!--                    text="🎯 Track This Method / Theo Dõi Method Này"-->
-<!--                    description="Add method to quality monitoring queue / Thêm method vào hàng đợi giám sát chất lượng">-->
-<!--            </action>-->
-            
-<!--            <action id="Zest.TriggerBackgroundReview"-->
-<!--                    class="com.zps.zest.codehealth.actions.TriggerBackgroundReviewAction"-->
-<!--                    text="🔄 Process Review Queue / Xử Lý Hàng Đợi"-->
-<!--                    description="Review all pending methods in background / Đánh giá các method đang chờ">-->
-<!--            </action>-->
-
-            <action id="Zest.ReviewCurrentFile"
-                    class="com.zps.zest.codehealth.actions.ReviewCurrentFileAction"
-                    text="Review This File Now / Kiểm tra file ngay"
-                    description="Immediately analyze current file / Phân tích ngay file hiện tại">
-                <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="Zest.GenerateTests"/>
-                <keyboard-shortcut first-keystroke="ctrl alt H" keymap="$default"/>
-            </action>
-            
-            <action id="Zest.TriggerFinalReview"
-                    class="com.zps.zest.codehealth.actions.TriggerFinalReviewAction"
-                    text="📊 Daily Health Report / Báo cáo chất lượng hàng ngày"
-                    description="Generate comprehensive daily report / Tạo báo cáo tổng hợp chất lượng code hàng ngày">
-            </action>
-            <action id="Zest.ShowGuardianHelp"
-                    class="com.zps.zest.codehealth.actions.ShowGuardianHelpAction"
-                    text="Usage Guide / Hướng dẫn sử dụng"
-                    description="View Code Health usage guide / Xem hướng dẫn sử dụng kiểm tra sức khỏe code">
-            </action>
         </group>
 
-        <!-- Ripgrep Tool Testing Action -->
-        <action id="Zest.TestRipgrepTool"
-                class="com.zps.zest.explanation.tools.testing.TestRipgrepToolAction"
-                text="Test Ripgrep Tool / Kiểm tra công cụ tìm kiếm"
-                description="Open manual testing dialog / Mở hộp thoại kiểm thử công cụ tìm kiếm code">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
-            <add-to-group group-id="CodeMenu" anchor="last"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F12"/>
+        <action id="Zest.SetupMcpClients" class="com.zps.zest.mcp.SetupMcpClientAction"
+                text="All Clients..." description="Setup Zest MCP for multiple AI clients at once">
+            <add-to-group group-id="ZestMcpSetupGroup" anchor="first"/>
         </action>
 
-        <!-- Code Context Agent Testing Action -->
-        <action id="Zest.TestCodeContext"
-                class="com.zps.zest.context.ui.TestCodeContextAction"
-                text="Test Code Context Agent / Kiểm tra tìm hiểu ngữ cảnh code"
-                description="Open test dialog for Code Context Agent / Mở hộp thoại thử nghiệm tìm hiểu code">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        <separator>
+            <add-to-group group-id="ZestMcpSetupGroup"/>
+        </separator>
+
+        <action id="Zest.SetupContinueMcp" class="com.zps.zest.continuedev.SetupContinueMcpAction"
+                text="Continue.dev" description="Setup Zest MCP for Continue.dev">
+            <add-to-group group-id="ZestMcpSetupGroup"/>
         </action>
 
-        <!-- Metrics Testing Action -->
-        <action id="Zest.TestMetrics"
-                class="com.zps.zest.completion.metrics.testing.ui.TestMetricsAction"
-                text="Test Metrics System / Kiểm tra hệ thống metrics"
-                description="Open test dialog for Metrics System / Mở hộp thoại thử nghiệm metrics">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        <action id="Zest.SetupClaudeDesktopMcp" class="com.zps.zest.mcp.SetupClaudeDesktopMcpAction"
+                text="Claude Desktop" description="Setup Zest MCP for Claude Desktop">
+            <add-to-group group-id="ZestMcpSetupGroup"/>
         </action>
 
-        <!-- View Metrics Session Log Action -->
-        <action id="Zest.ViewMetricsSession"
-                class="com.zps.zest.completion.metrics.testing.ui.ViewMetricsSessionAction"
-                text="View Metrics Session Log / Xem log session metrics"
-                description="View complete session log of all metrics events / Xem log đầy đủ tất cả sự kiện metrics">
-            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        <action id="Zest.SetupCursorMcp" class="com.zps.zest.mcp.SetupCursorMcpAction"
+                text="Cursor" description="Setup Zest MCP for Cursor editor">
+            <add-to-group group-id="ZestMcpSetupGroup"/>
         </action>
 
-        <!-- Code Health Debug Actions Group -->
-        <group id="Zest.CodeHealthDebug" text="Debug Tools / Công cụ gỡ lỗi" popup="true">
-<!--            <add-to-group group-id="Zest.CodeHealth" anchor="last"/>-->
-
-            <action id="Zest.ShowReviewQueueStatus"
-                    class="com.zps.zest.codehealth.actions.ShowReviewQueueStatusAction"
-                    text="Review Queue Status / Xem danh sách chờ kiểm tra"
-                    description="View methods being monitored / Xem các phương thức đang được theo dõi">
-            </action>
-            
-            <action id="Zest.DebugHealthAction"
-                    class="com.zps.zest.codehealth.DebugHealthAction"
-                    text="Test Mode / Chế độ thử nghiệm"
-                    description="Reset and add test data / Đặt lại và thêm dữ liệu thử nghiệm">
-            </action>
-            
-            <separator/>
-            
-
-        </group>
-        
-        <!-- Moved debug actions to a debug submenu -->
-        
-        <!-- Zest Rules Management Action -->
-        <action id="Zest.CreateRulesFile"
-                class="com.zps.zest.actions.CreateZestRulesAction"
-                text="Create/Open Zest Rules File / Tạo/Mở file quy tắc"
-                description="Create or open custom rules file / Tạo hoặc mở file định nghĩa quy tắc riêng cho AI">
-            <add-to-group group-id="ZestGroup" anchor="first"/>
+        <action id="Zest.SetupClineMcp" class="com.zps.zest.mcp.SetupClineMcpAction"
+                text="Cline" description="Setup Zest MCP for Cline (VS Code)">
+            <add-to-group group-id="ZestMcpSetupGroup"/>
         </action>
 
-        <!-- Continue.dev MCP Setup Action -->
-        <action id="Zest.SetupContinueMcp"
-                class="com.zps.zest.continuedev.SetupContinueMcpAction"
-                text="Install MCP for Continue.dev / Cài MCP cho Continue.dev"
-                description="Setup Zest MCP server config for Continue.dev (VS Code) / Cài đặt MCP server Zest cho Continue.dev">
-            <add-to-group group-id="ZestGroup" anchor="last"/>
-        </action>
-        
-        <!-- Open Chat in Editor (also in Tools menu) -->
-        <action id="Zest.OpenChatInEditorTools"
-                class="com.zps.zest.browser.actions.OpenChatInEditorAction"
-                text="ZPS Chat (Editor) / Chat toàn màn hình"
-                description="Open ZPS Chat in full-screen editor tab / Mở chat AI ở chế độ toàn màn hình">
-<!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
+        <action id="Zest.SetupWindsurfMcp" class="com.zps.zest.mcp.SetupWindsurfMcpAction"
+                text="Windsurf" description="Setup Zest MCP for Windsurf">
+            <add-to-group group-id="ZestMcpSetupGroup"/>
         </action>
 
-        <!-- Tool-Enabled Chat Action -->
-        <action id="Zest.OpenToolEnabledChat"
-                class="com.zps.zest.browser.actions.OpenToolEnabledChatAction"
-                text="Chat with Tools / Chat với công cụ mạnh"
-                description="Open chat with code exploration tools / Mở chat với khả năng tìm kiếm và phân tích code">
-<!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
-        </action>
-        
-        <!-- Zest Update Info Action -->
-        <action id="Zest.ShowUpdateInfo"
-                class="com.zps.zest.update.ShowUpdateInfoAction"
-                text="Check for Zest Updates... / Kiểm tra cập nhật"
-                description="Show update information / Hiển thị thông tin và tùy chọn tải bản mới">
-<!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
+        <action id="Zest.SetupClaudeCodeMcp" class="com.zps.zest.mcp.SetupClaudeCodeMcpAction"
+                text="Claude Code" description="Setup Zest MCP for Claude Code CLI">
+            <add-to-group group-id="ZestMcpSetupGroup"/>
         </action>
 
-        <!-- Zest Debug Menu (only in Tools menu) -->
-        <group id="Zest.DebugMenu" text="Zest Debug / Gỡ lỗi Zest" popup="true">
-<!--            <add-to-group group-id="ToolsMenu" anchor="last"/>-->
-            
-            <action id="Zest.ShowCompletionTimingDebug"
-                    class="com.zps.zest.actions.ZestCompletionTimingDebugAction"
-                    text="Completion Timing Debug... / Kiểm tra tốc độ gợi ý"
-                    description="Show timing breakdown / Hiển thị phân tích thời gian gợi ý code"/>
-            
-            <!-- Temporarily disabled - debug action removed
-            <action id="Zest.ToggleCompletionDebug"
-                    class="com.zps.zest.actions.ToggleCompletionDebugAction"
-                    text="Toggle Completion Debug Logging"
-                    description="Enable/disable verbose debug logging for completion"/>
-            -->
-            
-            <action id="Zest.ToggleDevTools"
-                    class="com.zps.zest.browser.actions.ToggleDevToolsAction"
-                    text="Toggle Browser DevTools / Bật/tắt công cụ debug"
-                    description="Toggle developer tools / Bật/tắt công cụ debug trình duyệt chat"/>
-                    
-
-        </group>
+        <action id="Zest.SetupKiloCodeMcp" class="com.zps.zest.mcp.SetupKiloCodeMcpAction"
+                text="Kilo Code" description="Setup Zest MCP for Kilo Code (VS Code)">
+            <add-to-group group-id="ZestMcpSetupGroup"/>
+        </action>
     </actions>
 
-    <!-- Change notes for version updates -->
     <change-notes><![CDATA[
-        <h3>Version 1.9.910 - Dual Server Architecture & Complete Tool Integration 🔌</h3>
-        <h4>🛠️ Enhanced MCP Tools (Qwen CLI)</h4>
+        <h3>Version 2.0.0 - MCP-First</h3>
         <ul>
-            <li><b>analyzeMethodUsage Tool</b> - Discover real usage patterns, edge cases, and integration contexts from actual codebase usage</li>
-            <li><b>getGitStatus Tool</b> - Retrieve git status showing modified, added, and deleted files</li>
-            <li><b>getGitDiff Tool</b> - Get comprehensive git diff for all changed files in the project</li>
+            <li><b>MCP Server:</b> Full test generation via MCP protocol</li>
+            <li><b>Prompts:</b> /zest-test-context, /zest-test-plan, /zest-test-write workflow</li>
+            <li><b>Tools:</b> analyzeTestability, generateTestPlan, generateTestCode, analyzeTestGaps</li>
+            <li><b>Integration:</b> Works with Claude Desktop, Cursor, Continue.dev</li>
         </ul>
-
-        <h4>💬 Intelligent MCP Prompts (Slash Commands)</h4>
-        <ul>
-            <li><b>/review Prompt</b> - Systematic code quality review using structured methodology (bugs, security, performance, quality)</li>
-            <li><b>/explain Prompt</b> - Step-by-step code explanation with real-world usage examples from the codebase</li>
-            <li><b>/commit Prompt</b> - Interactive git commit workflow with conventional commit format guidance</li>
-        </ul>
-
-        <h4>🔧 Qwen CLI Integration</h4>
-        <ul>
-            <li><b>Auto .env Generation</b> - Automatically creates/updates .env file with OpenAI-compatible credentials from Zest settings</li>
-            <li><b>Safe Merge Logic</b> - Preserves existing .env variables while updating Zest-managed ones</li>
-            <li><b>SSE Transport</b> - Updated MCP settings.json to use SSE transport for better reliability</li>
-            <li><b>Enhanced Documentation</b> - Comprehensive README with slash command examples and usage patterns</li>
-        </ul>
-
-        <h4>🌐 Tool API Server Restored (OpenWebUI Integration)</h4>
-        <ul>
-            <li><b>Dual Server Support</b> - MCP Server (port 45450) for Qwen + Tool API Server (ports 8765-8865) for OpenWebUI</li>
-            <li><b>Auto-Registration</b> - JavaScript bridge automatically registers tool server with OpenWebUI settings API</li>
-            <li><b>Request Interceptor</b> - tool-interceptor.js injects tools into every chat request in Agent Mode</li>
-            <li><b>Settings Injector</b> - tool-injector.js persists tools in OpenWebUI settings for long-term availability</li>
-            <li><b>OpenAPI 3.1.0 Schema</b> - Auto-generated from langchain4j @Tool annotations</li>
-        </ul>
-
-        <h4>🎯 Dual Auto-Binding Architecture</h4>
-        <ul>
-            <li><b>Settings API Integration</b> - Tools persist in OpenWebUI user settings via REST API</li>
-            <li><b>Runtime Injection</b> - fetch() interceptor adds tools to every request dynamically</li>
-            <li><b>Tool Server URL</b> - Automatically injected as window.__tool_server_url__ on page load</li>
-            <li><b>Agent Mode Only</b> - Tools only active in Agent Mode for focused workflow</li>
-        </ul>
-
-        <h4>📋 Developer Experience</h4>
-        <ul>
-            <li><b>Zero Configuration</b> - Both servers start automatically, no manual setup needed</li>
-            <li><b>Separate Tool Instances</b> - MCP and Tool API use independent tool instances to avoid conflicts</li>
-            <li><b>Always-On Architecture</b> - Both servers run together for maximum compatibility</li>
-            <li><b>Debug Utilities</b> - Browser console helpers for troubleshooting (checkZestToolInjection, debugZestToolInjection)</li>
-        </ul>
-
-        <p><em>Complete dual-server architecture with MCP for terminal + Tool API for browser! 🚀</em></p>
-
-        <h3>Version 1.9.909 - Intelligent Test Generation Overhaul 🧪</h3>
-        <h4>🧠 Project-Aware Test Generation</h4>
-        <ul>
-            <li><b>Understands Your Codebase:</b> AI analyzes your actual project classes, methods, and dependencies - not just generic patterns from training data</li>
-            <li><b>Works for Niche Projects:</b> No longer limited by AI's general knowledge - learns your specific domain, frameworks, and custom libraries</li>
-            <li><b>Compile-Ready Output:</b> Generated tests typically compile without errors - AI knows your exact class structures, imports, and types</li>
-            <li><b>Smart Context Collection:</b> Optimized strategy gathers only relevant context - faster execution, better results</li>
-        </ul>
-
-        <h4>⚡ Streaming & Performance</h4>
-        <ul>
-            <li><b>Real-Time Progress:</b> Watch test generation as it happens with streaming updates - know exactly what the AI is doing</li>
-            <li><b>Faster Execution:</b> Smarter context gathering reduces processing time significantly</li>
-            <li><b>Cancellation Support:</b> Cancel test generation at any time during the process</li>
-            <li><b>Better UX:</b> Clear phase indicators, progress feedback, and status updates throughout</li>
-        </ul>
-
-        <h4>🎯 Enhanced Context Agent</h4>
-        <ul>
-            <li><b>Structured Investigation:</b> 3-phase workflow - Planning, Investigation, Validation for thorough analysis</li>
-            <li><b>Category-Based Notes:</b> USAGE, ERROR, SCHEMA, INTEGRATION, EDGE_CASE categories for organized findings</li>
-            <li><b>Exploration Planning:</b> Smart tool budget management with follow-through rules</li>
-            <li><b>Better Tool Selection:</b> Discover via searchCode, Understand via readFile, Analyze via analyzeMethodUsage</li>
-        </ul>
-
-        <h4>🔧 Test Generation Stability</h4>
-        <ul>
-            <li><b>Improved File Handling:</b> Better virtual file system integration and test file management</li>
-            <li><b>Enhanced Test Merging:</b> Cleaner UI for reviewing and merging generated tests</li>
-            <li><b>Ripgrep Security:</b> Fixed command injection vulnerabilities, added regex validation</li>
-            <li><b>Comprehensive Testing:</b> 550+ lines of new test coverage for core components</li>
-        </ul>
-
-        <h4>🚀 Additional Improvements</h4>
-        <ul>
-            <li><b>Pochi CLI Integration:</b> Custom prompt shortcuts with Shift+1-9 for quick actions</li>
-            <li><b>Side-by-Side Completion:</b> Compare 2 completion options with syntax highlighting</li>
-            <li><b>Lightweight Components:</b> Extracted prompts to .md files, added lightweight JCEF browser</li>
-            <li><b>Windows Support:</b> Bundled ripgrep binaries for better cross-platform compatibility</li>
-        </ul>
-
-        <p><em>Major focus on making test generation actually understand your specific codebase! 🎉</em></p>
     ]]></change-notes>
 </idea-plugin>

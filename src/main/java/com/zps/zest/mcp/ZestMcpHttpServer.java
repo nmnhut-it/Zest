@@ -1408,15 +1408,26 @@ public class ZestMcpHttpServer {
         }
     }
 
+    /**
+     * Find project by path, or return the first open project if path is invalid/empty.
+     * This makes tools more resilient when LLMs pass incorrect paths like "/workspace/project".
+     */
     private Project findProject(String projectPath) {
-        if (projectPath == null || projectPath.trim().isEmpty()) {
+        Project[] openProjects = ProjectManager.getInstance().getOpenProjects();
+
+        // If no projects are open, return null
+        if (openProjects.length == 0) {
             return null;
+        }
+
+        // If projectPath is empty or null, return the first open project
+        if (projectPath == null || projectPath.trim().isEmpty()) {
+            return openProjects[0];
         }
 
         try {
             Path requestedPath = Paths.get(projectPath).toAbsolutePath().normalize();
 
-            Project[] openProjects = ProjectManager.getInstance().getOpenProjects();
             for (Project project : openProjects) {
                 String basePath = project.getBasePath();
                 if (basePath != null) {
@@ -1427,10 +1438,13 @@ public class ZestMcpHttpServer {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Invalid project path: " + projectPath, e);
+            // Path parsing failed (e.g., Linux path on Windows) - fall through to default
+            LOG.debug("Could not parse project path '" + projectPath + "', using default project");
         }
 
-        return null;
+        // If no match found or path was invalid, return the first open project
+        LOG.info("Project path '" + projectPath + "' not found, using: " + openProjects[0].getBasePath());
+        return openProjects[0];
     }
 
     public void start() throws Exception {

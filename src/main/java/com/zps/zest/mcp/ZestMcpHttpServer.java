@@ -21,6 +21,7 @@ import io.modelcontextprotocol.json.schema.jackson.DefaultJsonSchemaValidator;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServer;
+import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
 import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
@@ -39,23 +40,33 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * MCP HTTP Server for Zest using Streamable HTTP transport.
+ * MCP HTTP Server for Zest with dual transport support.
  * Provides IntelliJ project tools via HTTP endpoints using MCP protocol.
  *
- * The server uses a single /mcp endpoint that handles:
- * - POST: JSON-RPC requests from clients (returns JSON or SSE stream)
- * - GET: Server-Sent Events for server-to-client notifications
+ * Supports two transports for maximum client compatibility:
+ * - /mcp: Streamable HTTP (MCP 2025-03-26 spec, recommended)
+ * - /sse: Server-Sent Events (legacy, for older clients)
+ *
+ * Streamable HTTP (/mcp):
+ * - POST: JSON-RPC requests (returns JSON or SSE stream)
+ * - GET: Server-Sent Events for notifications
  * - DELETE: Session cleanup
  *
- * This is the MCP 2025-03-26 spec compliant transport (replaces deprecated SSE).
+ * SSE (/sse):
+ * - GET /sse: SSE stream for server events
+ * - POST /message: JSON-RPC messages
  */
 public class ZestMcpHttpServer {
     private static final Logger LOG = Logger.getInstance(ZestMcpHttpServer.class);
-    private static final String MESSAGE_ENDPOINT = "/mcp";
+    private static final String STREAMABLE_ENDPOINT = "/mcp";
+    private static final String SSE_ENDPOINT = "/sse";
+    private static final String SSE_MESSAGE_ENDPOINT = "/message";
 
-    private final McpSyncServer mcpServer;
+    private final McpSyncServer mcpServerStreamable;
+    private final McpSyncServer mcpServerSse;
     private final Server jettyServer;
-    private final HttpServletStreamableServerTransportProvider transport;
+    private final HttpServletStreamableServerTransportProvider streamableTransport;
+    private final HttpServletSseServerTransportProvider sseTransport;
     private final int port;
 
     public ZestMcpHttpServer(int port) {
@@ -64,12 +75,13 @@ public class ZestMcpHttpServer {
         ObjectMapper objectMapper = new ObjectMapper();
         JacksonMcpJsonMapper mcpJsonMapper = new JacksonMcpJsonMapper(objectMapper);
 
-        this.transport = HttpServletStreamableServerTransportProvider.builder()
+        // Streamable HTTP transport (new, recommended)
+        this.streamableTransport = HttpServletStreamableServerTransportProvider.builder()
                 .jsonMapper(mcpJsonMapper)
-                .mcpEndpoint(MESSAGE_ENDPOINT)
+                .mcpEndpoint(STREAMABLE_ENDPOINT)
                 .build();
 
-        this.mcpServer = McpServer.sync(transport)
+        this.mcpServerStreamable = McpServer.sync(streamableTransport)
                 .jsonMapper(mcpJsonMapper)
                 .serverInfo("zest-intellij-http-tools", "1.0.0")
                 .jsonSchemaValidator(new DefaultJsonSchemaValidator())
@@ -80,12 +92,30 @@ public class ZestMcpHttpServer {
                         .build())
                 .build();
 
+        // SSE transport (legacy, for backward compatibility)
+        this.sseTransport = HttpServletSseServerTransportProvider.builder()
+                .jsonMapper(mcpJsonMapper)
+                .messageEndpoint(SSE_MESSAGE_ENDPOINT)
+                .build();
+
+        this.mcpServerSse = McpServer.sync(sseTransport)
+                .jsonMapper(mcpJsonMapper)
+                .serverInfo("zest-intellij-http-tools", "1.0.0")
+                .jsonSchemaValidator(new DefaultJsonSchemaValidator())
+                .capabilities(McpSchema.ServerCapabilities.builder()
+                        .tools(true)
+                        .prompts(true)
+                        .logging()
+                        .build())
+                .build();
+
+        // Register tools and prompts on both servers
         registerTools();
         registerPrompts();
 
         this.jettyServer = createJettyServer();
 
-        LOG.info("Zest MCP HTTP Server created on port " + port);
+        LOG.info("Zest MCP HTTP Server created on port " + port + " with dual transport support");
     }
 
     private Server createJettyServer() {
@@ -103,12 +133,35 @@ public class ZestMcpHttpServer {
         ServletContextHandler context = new ServletContextHandler();
         context.setContextPath("/");
 
-        ServletHolder transportServlet = new ServletHolder(transport);
-        context.addServlet(transportServlet, "/*");
+        // Streamable HTTP transport at /mcp
+        ServletHolder streamableServlet = new ServletHolder(streamableTransport);
+        context.addServlet(streamableServlet, STREAMABLE_ENDPOINT);
+        context.addServlet(streamableServlet, STREAMABLE_ENDPOINT + "/*");
+
+        // SSE transport at /sse and /message
+        ServletHolder sseServlet = new ServletHolder(sseTransport);
+        context.addServlet(sseServlet, SSE_ENDPOINT);
+        context.addServlet(sseServlet, SSE_MESSAGE_ENDPOINT);
 
         server.setHandler(context);
 
         return server;
+    }
+
+    /**
+     * Add a tool to both MCP servers (Streamable HTTP and SSE).
+     */
+    private void addToolToBoth(McpServerFeatures.SyncToolSpecification tool) {
+        mcpServerStreamable.addTool(tool);
+        mcpServerSse.addTool(tool);
+    }
+
+    /**
+     * Add a prompt to both MCP servers (Streamable HTTP and SSE).
+     */
+    private void addPromptToBoth(McpServerFeatures.SyncPromptSpecification prompt) {
+        mcpServerStreamable.addPrompt(prompt);
+        mcpServerSse.addPrompt(prompt);
     }
 
     private void registerTools() {
@@ -123,7 +176,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildGetCurrentFileSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 currentFileTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -137,7 +190,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildLookupClassSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 lookupClassTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -153,7 +206,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildGetJavaCodeUnderTestSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 getJavaCodeUnderTestTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -167,7 +220,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildShowFileSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 showFileTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -184,7 +237,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildFindUsagesSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 findUsagesTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -200,7 +253,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildFindImplementationsSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 findImplementationsTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -216,7 +269,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildGetTypeHierarchySchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 getTypeHierarchyTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -231,7 +284,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildGetCallHierarchySchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 getCallHierarchyTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -250,7 +303,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildRenameSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 renameTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -267,7 +320,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildGetMethodBodySchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 getMethodBodyTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -286,7 +339,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildExtractConstantSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 extractConstantTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -305,7 +358,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildExtractMethodSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 extractMethodTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -325,7 +378,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildSafeDeleteSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 safeDeleteTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -342,7 +395,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildFindDeadCodeSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 findDeadCodeTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -358,7 +411,7 @@ public class ZestMcpHttpServer {
                 .inputSchema(jsonMapper, buildMoveClassSchema())
                 .build();
 
-        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
                 moveClassTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
@@ -1276,7 +1329,7 @@ public class ZestMcpHttpServer {
     private void registerPrompt(String name, String description, List<McpSchema.PromptArgument> arguments, String promptTemplate) {
         McpSchema.Prompt prompt = new McpSchema.Prompt(name, description, arguments);
 
-        mcpServer.addPrompt(new McpServerFeatures.SyncPromptSpecification(
+        addPromptToBoth(new McpServerFeatures.SyncPromptSpecification(
                 prompt,
                 (exchange, request) -> {
                     String filledPrompt = promptTemplate;
@@ -1449,9 +1502,10 @@ public class ZestMcpHttpServer {
 
     public void start() throws Exception {
         jettyServer.start();
-        LOG.info("✅ Zest MCP HTTP Server started successfully (Streamable HTTP transport)");
-        LOG.info("📋 MCP endpoint: http://localhost:" + port + MESSAGE_ENDPOINT);
-        LOG.info("🔧 Available tools (10): getCurrentFile, lookupClass, getJavaCodeUnderTest, showFile, findUsages, findImplementations, getTypeHierarchy, getCallHierarchy, rename, getMethodBody");
+        LOG.info("✅ Zest MCP HTTP Server started with dual transport support");
+        LOG.info("📋 Streamable HTTP (new): http://localhost:" + port + STREAMABLE_ENDPOINT);
+        LOG.info("📋 SSE (legacy): http://localhost:" + port + SSE_ENDPOINT + " + " + SSE_MESSAGE_ENDPOINT);
+        LOG.info("🔧 Available tools (15): getCurrentFile, lookupClass, getJavaCodeUnderTest, showFile, findUsages, findImplementations, getTypeHierarchy, getCallHierarchy, rename, getMethodBody, extractConstant, extractMethod, safeDelete, findDeadCode, moveClass");
         LOG.info("💬 Available prompts (9): review, explain, commit, zest-test-context, zest-test-plan, zest-test-write, zest-test-fix, zest-test-review, zest-analyze-gaps");
     }
 
@@ -1459,8 +1513,11 @@ public class ZestMcpHttpServer {
         if (jettyServer != null) {
             jettyServer.stop();
         }
-        if (mcpServer != null) {
-            mcpServer.close();
+        if (mcpServerStreamable != null) {
+            mcpServerStreamable.close();
+        }
+        if (mcpServerSse != null) {
+            mcpServerSse.close();
         }
         LOG.info("Zest MCP HTTP Server stopped");
     }

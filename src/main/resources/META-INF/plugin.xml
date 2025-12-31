@@ -88,6 +88,16 @@
                 text="Kilo Code" description="Setup Zest MCP for Kilo Code (VS Code)">
             <add-to-group group-id="ZestMcpSetupGroup"/>
         </action>
+
+        <action id="Zest.SetupQwenCoderMcp" class="com.zps.zest.mcp.SetupQwenCoderMcpAction"
+                text="Qwen Coder" description="Setup Zest MCP for Qwen Coder">
+            <add-to-group group-id="ZestMcpSetupGroup"/>
+        </action>
+
+        <action id="Zest.SetupGeminiCliMcp" class="com.zps.zest.mcp.SetupGeminiCliMcpAction"
+                text="Gemini CLI" description="Setup Zest MCP for Gemini CLI">
+            <add-to-group group-id="ZestMcpSetupGroup"/>
+        </action>
     </actions>
 
     <change-notes><![CDATA[

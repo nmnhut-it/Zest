@@ -161,6 +161,12 @@ class SetupKiloCodeMcpAction : BaseSetupMcpAction(AiClientConfigService.ClientTy
 /** Continue.dev - shows when ~/.continue exists */
 class SetupContinueDevMcpAction : BaseSetupMcpAction(AiClientConfigService.ClientType.CONTINUE_DEV)
 
+/** Qwen Coder - shows when qwen-coder config exists */
+class SetupQwenCoderMcpAction : BaseSetupMcpAction(AiClientConfigService.ClientType.QWEN_CODER)
+
+/** Gemini CLI - shows when gemini config exists */
+class SetupGeminiCliMcpAction : BaseSetupMcpAction(AiClientConfigService.ClientType.GEMINI_CLI)
+
 /**
  * Helper function to setup a single client.
  */

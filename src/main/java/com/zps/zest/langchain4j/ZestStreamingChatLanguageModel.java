@@ -2,10 +2,10 @@ package com.zps.zest.langchain4j;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.zps.zest.ConfigurationManager;
-import com.zps.zest.ZestNotifications;
+import com.zps.zest.settings.ConfigurationManager;
+import com.zps.zest.core.ZestNotifications;
 import com.zps.zest.langchain4j.naive_service.NaiveLLMService;
-import com.zps.zest.browser.utils.ChatboxUtilities;
+import com.zps.zest.util.LLMUsage;
 import com.zps.zest.util.EnvLoader;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.ModelProvider;
@@ -34,7 +34,7 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
     private static final Logger LOG = Logger.getInstance(ZestStreamingChatLanguageModel.class);
     private final OpenAiStreamingChatModel delegateModel;
     private final NaiveLLMService naiveLlmService;
-    private final ChatboxUtilities.EnumUsage usage;
+    private final LLMUsage usage;
     private final ConfigurationManager config;
     private final com.zps.zest.langchain4j.http.CancellableJdkHttpClient cancellableHttpClient;
 
@@ -92,11 +92,11 @@ public class ZestStreamingChatLanguageModel implements StreamingChatModel {
         action.run();
     }
 
-    public ZestStreamingChatLanguageModel(NaiveLLMService naiveLlmService, ChatboxUtilities.EnumUsage usage) {
+    public ZestStreamingChatLanguageModel(NaiveLLMService naiveLlmService, LLMUsage usage) {
         this(naiveLlmService, usage, null);
     }
 
-    public ZestStreamingChatLanguageModel(NaiveLLMService naiveLlmService, ChatboxUtilities.EnumUsage usage, String selectedModel) {
+    public ZestStreamingChatLanguageModel(NaiveLLMService naiveLlmService, LLMUsage usage, String selectedModel) {
         if (selectedModel == null)
             selectedModel = "local-model";
         this.naiveLlmService = naiveLlmService;

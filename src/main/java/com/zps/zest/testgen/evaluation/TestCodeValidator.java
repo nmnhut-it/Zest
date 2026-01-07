@@ -5,164 +5,184 @@ import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
-import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ContentEntry;
-import com.intellij.openapi.roots.ModuleRootManager;
-import com.intellij.openapi.roots.SourceFolder;
 import com.intellij.openapi.vcs.CodeSmellDetector;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.testFramework.LightVirtualFile;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
- * Utility for validating test code using IntelliJ's CodeSmellDetector.
- * Extracted from AITestMergerAgent for reuse in metrics tracking.
+ * Validates Java code using IntelliJ's CodeSmellDetector.
+ * Detects real compilation errors without running the compiler.
+ *
+ * Note: Uses LightVirtualFile which may not resolve all imports.
+ * Best for syntax checking; some semantic errors may be missed or false positives.
  */
 public class TestCodeValidator {
     private static final Logger LOG = Logger.getInstance(TestCodeValidator.class);
+    private static final int VALIDATION_TIMEOUT_SECONDS = 600;  // 10 minutes
 
     /**
-     * Count compilation errors in test code.
-     * Uses IntelliJ's CodeSmellDetector to find all ERROR-level issues.
+     * Count compilation errors in code.
+     * Uses IntelliJ's CodeSmellDetector to find ERROR-level issues.
      *
-     * @return Number of compilation errors, or -1 if validation failed/skipped
+     * @return Number of compilation errors, or -1 if validation failed
      */
-    public static int countCompilationErrors(@NotNull Project project, @NotNull String testCode, @NotNull String className) {
-        ValidationResult result = validate(project, testCode, className);
-        return result.getErrorCount();
+    public static int countCompilationErrors(@NotNull Project project, @NotNull String code, @NotNull String className) {
+        ValidationResult result = validate(project, code, className);
+        return result.isSuccess() ? result.getErrorCount() : -1;
     }
 
     /**
-     * Check if test code compiles successfully (no errors).
-     *
-     * @return true if no compilation errors, false otherwise
+     * Check if code compiles without errors.
      */
-    public static boolean testCompiles(@NotNull Project project, @NotNull String testCode, @NotNull String className) {
-        ValidationResult result = validate(project, testCode, className);
-        return result.compiles();
+    public static boolean codeCompiles(@NotNull Project project, @NotNull String code, @NotNull String className) {
+        int errorCount = countCompilationErrors(project, code, className);
+        return errorCount == 0;
     }
 
     /**
-     * Validation result with details
+     * Validate code and return detailed results with error messages.
+     * Shows progress in IntelliJ status bar: "Zest: check compile errors for [className]"
      */
-    public static class ValidationResult {
-        private final boolean compiles;
-        private final int errorCount;
-        private final List<String> errors;
-
-        public ValidationResult(boolean compiles, int errorCount, List<String> errors) {
-            this.compiles = compiles;
-            this.errorCount = errorCount;
-            this.errors = errors != null ? errors : Collections.emptyList();
-        }
-
-        public boolean compiles() {
-            return compiles;
-        }
-
-        public int getErrorCount() {
-            return errorCount;
-        }
-
-        public List<String> getErrors() {
-            return errors;
-        }
-    }
-
-    /**
-     * Get detailed validation result with error messages
-     */
-    public static ValidationResult validate(@NotNull Project project, @NotNull String testCode, @NotNull String className) {
+    public static ValidationResult validate(@NotNull Project project, @NotNull String code, @NotNull String className) {
         try {
+            String baseName = className.endsWith(".java")
+                    ? className.substring(0, className.length() - 5)
+                    : className;
+            String fileName = baseName + ".java";
             FileType javaFileType = FileTypeManager.getInstance().getFileTypeByExtension("java");
-            VirtualFile testSourceRoot = com.zps.zest.testgen.util.TestSourceRootUtil.findBestTestSourceRootVirtualFile(project);
-
-            LightVirtualFile virtualFile = new LightVirtualFile(
-                    className + "_" + System.nanoTime() + ".java",
-                    javaFileType,
-                    testCode
-            );
-
-            if (testSourceRoot != null) {
-                virtualFile.setOriginalFile(testSourceRoot);
-            }
+            LightVirtualFile virtualFile = new LightVirtualFile(fileName, javaFileType, code);
 
             CompletableFuture<List<CodeSmellInfo>> future = new CompletableFuture<>();
 
             ProgressManager.getInstance().run(
-                    new Task.Backgroundable(project, "Validating test code", false) {
+                    new Task.Backgroundable(project, "Zest: check compile errors for " + baseName, false) {
                         @Override
                         public void run(@NotNull ProgressIndicator indicator) {
                             try {
-                                indicator.setText("Analyzing test code for errors...");
                                 indicator.setIndeterminate(true);
 
                                 CodeSmellDetector detector = CodeSmellDetector.getInstance(project);
-                                List<CodeSmellInfo> detectedIssues = detector.findCodeSmells(
-                                        Arrays.asList(virtualFile)
-                                ).stream()
-                                 .filter(v -> v.getSeverity().equals(HighlightSeverity.ERROR))
-                                 .toList();
+                                List<CodeSmellInfo> allIssues = detector.findCodeSmells(List.of(virtualFile));
 
-                                future.complete(detectedIssues);
+                                // Filter to only ERROR severity
+                                List<CodeSmellInfo> errors = allIssues.stream()
+                                        .filter(info -> info.getSeverity().equals(HighlightSeverity.ERROR))
+                                        .toList();
+
+                                future.complete(errors);
                             } catch (Exception e) {
                                 LOG.warn("Error in code smell detection", e);
-                                future.complete(Collections.emptyList());
+                                future.completeExceptionally(e);
                             }
                         }
                     }
             );
 
-            List<CodeSmellInfo> errorInfos = future.get(300, TimeUnit.SECONDS);
+            List<CodeSmellInfo> errors = future.get(VALIDATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
-            // Format error messages with Rust-like code context
-            List<String> errorMessages = new java.util.ArrayList<>();
-            String[] codeLines = testCode.split("\n");
-
-            for (CodeSmellInfo issue : errorInfos) {
-                int lineNum = issue.getStartLine();
-                String errorMsg = issue.getDescription();
-
-                // Build Rust-like error with code context
-                StringBuilder errorBlock = new StringBuilder();
-                errorBlock.append("Error at Line ").append(lineNum).append(":\n");
-
-                // Show 2 lines before, error line, 2 lines after
-                int errorLineIndex = lineNum - 1;
-                int startLine = Math.max(0, errorLineIndex - 2);
-                int endLine = Math.min(codeLines.length, errorLineIndex + 3);
-
-                for (int i = startLine; i < endLine; i++) {
-                    String linePrefix = (i == errorLineIndex) ? " →  " : "    ";
-                    errorBlock.append(String.format("%s%4d | %s\n", linePrefix, i + 1, codeLines[i]));
-                }
-
-                errorBlock.append("         |\n");
-                errorBlock.append("         | ").append(errorMsg).append("\n");
-
-                errorMessages.add(errorBlock.toString());
+            // Convert to our result format
+            List<CompilationError> compilationErrors = new ArrayList<>();
+            for (CodeSmellInfo info : errors) {
+                compilationErrors.add(new CompilationError(
+                        info.getDescription(),
+                        info.getStartLine(),
+                        info.getStartLine()  // CodeSmellInfo doesn't expose end line
+                ));
             }
 
-            boolean compiles = errorInfos.isEmpty();
-            return new ValidationResult(compiles, errorInfos.size(), errorMessages);
+            return ValidationResult.success(compilationErrors);
 
+        } catch (TimeoutException e) {
+            LOG.warn("Validation timed out after " + VALIDATION_TIMEOUT_SECONDS + " seconds");
+            return ValidationResult.error("Validation timed out after " + VALIDATION_TIMEOUT_SECONDS +
+                    "s. Try with smaller code or ensure IntelliJ is not busy indexing.");
         } catch (Exception e) {
-            LOG.warn("Error validating test code", e);
-            return new ValidationResult(false, -1, Collections.singletonList("Validation failed: " + e.getMessage()));
+            LOG.warn("Error validating code: " + e.getMessage(), e);
+            return ValidationResult.error("Validation failed: " + e.getMessage());
         }
     }
 
+    /**
+     * Single compilation error with location and message.
+     */
+    public static class CompilationError {
+        private final String message;
+        private final int startLine;
+        private final int endLine;
+
+        public CompilationError(String message, int startLine, int endLine) {
+            this.message = message;
+            this.startLine = startLine;
+            this.endLine = endLine;
+        }
+
+        public String getMessage() { return message; }
+        public int getStartLine() { return startLine; }
+        public int getEndLine() { return endLine; }
+    }
+
+    /**
+     * Validation result with errors list.
+     */
+    public static class ValidationResult {
+        private final boolean success;
+        private final List<CompilationError> errors;
+        private final String errorMessage;
+
+        private ValidationResult(boolean success, List<CompilationError> errors, String errorMessage) {
+            this.success = success;
+            this.errors = errors != null ? errors : Collections.emptyList();
+            this.errorMessage = errorMessage;
+        }
+
+        public static ValidationResult success(List<CompilationError> errors) {
+            return new ValidationResult(true, errors, null);
+        }
+
+        public static ValidationResult error(String message) {
+            return new ValidationResult(false, null, message);
+        }
+
+        public boolean isSuccess() { return success; }
+        public boolean compiles() { return success && errors.isEmpty(); }
+        public int getErrorCount() { return errors.size(); }
+        public List<CompilationError> getErrors() { return errors; }
+        public String getErrorMessage() { return errorMessage; }
+
+        public String toMarkdown() {
+            if (!success) {
+                return "❌ Validation failed: " + errorMessage;
+            }
+
+            if (errors.isEmpty()) {
+                return "✅ **Code compiles successfully** - no errors found.";
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("# Compilation Errors\n\n");
+            sb.append("Found **").append(errors.size()).append("** error(s):\n\n");
+
+            for (int i = 0; i < errors.size(); i++) {
+                CompilationError error = errors.get(i);
+                sb.append(i + 1).append(". **Line ").append(error.getStartLine());
+                if (error.getEndLine() != error.getStartLine()) {
+                    sb.append("-").append(error.getEndLine());
+                }
+                sb.append("**: ").append(error.getMessage()).append("\n");
+            }
+
+            return sb.toString();
+        }
+    }
 }

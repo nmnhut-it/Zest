@@ -27,13 +27,13 @@ Zest is an IntelliJ IDEA plugin that provides AI-powered code assistance feature
 ### Gradle Tasks (if needed)
 **JetBrains Runtime (JBR) Location:**
 ```
-D:\Program Files\JetBrains\IntelliJ IDEA Community Edition 2025.2.4\jbr\bin
+C:\Program Files\JetBrains\IntelliJ IDEA Community Edition 2025.2.6\jbr\bin
 ```
 
 Use this for JAVA_HOME when building outside IntelliJ:
 ```bash
 # Set JAVA_HOME to use IntelliJ's bundled JBR
-export JAVA_HOME="D:\Program Files\JetBrains\IntelliJ IDEA Community Edition 2025.2.4\jbr"
+export JAVA_HOME="C:\Program Files\JetBrains\IntelliJ IDEA Community Edition 2025.2.6\jbr"
 
 # Build the plugin distributable
 ./gradlew buildPlugin

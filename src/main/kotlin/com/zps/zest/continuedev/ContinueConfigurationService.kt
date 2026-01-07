@@ -100,7 +100,7 @@ class ContinueConfigurationService(private val project: Project) {
      */
     private fun showSetupNotification(configPath: Path) {
         com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
-            com.zps.zest.ZestNotifications.showInfo(
+            com.zps.zest.core.ZestNotifications.showInfo(
                 project,
                 "Continue.dev MCP Integration",
                 "Zest MCP config created at:\n$configPath\n\nRestart Continue.dev to use IntelliJ tools."
@@ -113,17 +113,9 @@ class ContinueConfigurationService(private val project: Project) {
      * Uses SSE transport format compatible with Claude Desktop, Cursor, Cline
      */
     private fun createMcpConfigJson(configPath: Path) {
-        val config = """
-{
-  "mcpServers": {
-    "zest-intellij": {
-      "url": "http://localhost:45450/sse",
-      "transport": "sse"
-    }
-  }
-}
-        """.trimIndent()
-
+        val config = com.zps.zest.mcp.McpConfigGenerator.generateJsonConfig(
+            com.zps.zest.mcp.McpConfigGenerator.ClientType.CONTINUE_DEV
+        )
         Files.writeString(configPath, config, StandardOpenOption.CREATE)
         logger.info("Created Continue.dev MCP config: $configPath")
     }
@@ -140,7 +132,7 @@ class ContinueConfigurationService(private val project: Project) {
                     // Insert into existing mcpServers block
                     existingContent.replace(
                         "\"mcpServers\": {",
-                        "\"mcpServers\": {\n    \"zest-intellij\": {\n      \"url\": \"http://localhost:45450/sse\",\n      \"transport\": \"sse\"\n    },"
+                        "\"mcpServers\": {\n    \"zest-intellij\": {\n      \"url\": \"http://localhost:45450/mcp\"\n    },"
                     )
                 } else {
                     // Create new config (shouldn't happen but handle gracefully)
@@ -148,8 +140,7 @@ class ContinueConfigurationService(private val project: Project) {
 {
   "mcpServers": {
     "zest-intellij": {
-      "url": "http://localhost:45450/sse",
-      "transport": "sse"
+      "url": "http://localhost:45450/mcp"
     }
   }
 }
@@ -181,20 +172,24 @@ The `zest.json` file configures Continue.dev to connect to Zest's MCP server run
 
 - IntelliJ IDEA with Zest plugin installed and running
 - MCP server running on port 45450 (auto-starts with IntelliJ)
+- Uses Streamable HTTP transport (MCP 2025-03-26 spec)
 
-### Available Tools
+### Available Tools (10 PSI-based tools)
 
 | Tool | Description |
 |------|-------------|
 | `getCurrentFile` | Get currently open file in IntelliJ editor |
-| `lookupClass` | Look up class implementation (project, JARs, JDK) |
-| `lookupMethod` | Look up method signatures |
-| `analyzeMethodUsage` | Analyze how a method is used in codebase |
+| `lookupClass` | Look up class/method signatures (project, JARs, JDK) |
 | `getJavaCodeUnderTest` | Interactive GUI to select Java code for testing |
-| `validateCode` | Validate Java code for compilation errors |
 | `showFile` | Open a file in IntelliJ editor |
+| `findUsages` | Find all usages of a class/method/field |
+| `findImplementations` | Find implementations of interface/abstract method |
+| `getTypeHierarchy` | Get superclasses, interfaces, and subclasses |
+| `getCallHierarchy` | Get callers/callees of a method |
+| `rename` | Rename symbol across the project |
+| `getMethodBody` | Get method body for refactoring analysis |
 
-### Available Prompts
+### Available Prompts (9 prompts)
 
 | Prompt | Description |
 |--------|-------------|
@@ -205,6 +200,8 @@ The `zest.json` file configures Continue.dev to connect to Zest's MCP server run
 | `zest-test-plan` | Create test plan |
 | `zest-test-write` | Write tests |
 | `zest-test-fix` | Fix failing tests |
+| `zest-test-review` | Review test quality |
+| `zest-analyze-gaps` | Analyze test coverage gaps |
 
 ### Usage in Continue.dev
 
@@ -213,19 +210,24 @@ Once configured, you can use Zest tools in Continue.dev:
 ```
 @zest-intellij getCurrentFile
 @zest-intellij lookupClass com.example.MyClass
-@zest-intellij analyzeMethodUsage com.example.Service doSomething
+@zest-intellij findUsages com.example.Service doSomething
 ```
 
 ### Troubleshooting
 
 **MCP server not responding:**
 - Verify IntelliJ IDEA is running with Zest plugin
-- Check http://localhost:45450/sse is accessible
+- Check http://localhost:45450/mcp is accessible (POST for requests, GET for events)
 - Restart IntelliJ to restart MCP server
 
 **Tools not appearing in Continue.dev:**
 - Restart Continue.dev after adding config
 - Check Continue.dev logs for connection errors
+
+## Other AI Clients
+
+For configurations for other AI clients (Claude Desktop, Cursor, Cline, Windsurf):
+Right-click in IntelliJ → Zest → MCP Server Config
 
 ## Resources
 

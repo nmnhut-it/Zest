@@ -1,0 +1,287 @@
+Reusing configuration cache.
+> Task :checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :tool-server:processResources UP-TO-DATE
+> Task :tool-server:processTestResources NO-SOURCE
+> Task :initializeIntellijPlatformPlugin
+> Task :patchPluginXml UP-TO-DATE
+> Task :verifyPluginProjectConfiguration UP-TO-DATE
+> Task :generateManifest UP-TO-DATE
+> Task :processTestResources UP-TO-DATE
+> Task :processResources UP-TO-DATE
+> Task :tool-server:compileJava UP-TO-DATE
+> Task :tool-server:classes UP-TO-DATE
+> Task :tool-server:compileTestJava NO-SOURCE
+> Task :tool-server:testClasses UP-TO-DATE
+> Task :tool-server:test NO-SOURCE
+> Task :compileKotlin
+
+> Task :compileJava
+Note: D:\Zest\src\main\java\com\zps\zest\mcp\ZestMcpHttpServer.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :classes
+> Task :instrumentCode SKIPPED
+> Task :jar
+> Task :compileTestKotlin UP-TO-DATE
+> Task :composedJar
+> Task :prepareTestSandbox
+> Task :prepareTest
+> Task :compileTestJava
+> Task :testClasses
+> Task :instrumentTestCode SKIPPED
+
+> Task :test
+[0.084s][warning][cds] Archived non-system classes are disabled because the java.system.class.loader property is specified (value = "com.intellij.util.lang.PathClassLoader"). To use archived non-system classes, this property must not be set
+WARNING: A command line option has enabled the Security Manager
+WARNING: The Security Manager is deprecated and will be removed in a future release
+WARNING: A terminally deprecated method in java.lang.System has been called
+WARNING: System::setSecurityManager has been called by com.intellij.platform.core.nio.fs.CoreBootstrapSecurityManager (file:/C:/Users/LAP14364-local/.gradle/caches/8.11.1/transforms/c387b0eb1ea414739a8726b70784acab/transformed/ideaIC-2024.3.4.1-win/lib/nio-fs.jar)
+WARNING: Please consider reporting this to the maintainers of com.intellij.platform.core.nio.fs.CoreBootstrapSecurityManager
+WARNING: System::setSecurityManager will be removed in a future release
+
+McpServerTransportTest > testServerStarts STARTED
+
+McpServerTransportTest > testServerStarts PASSED
+
+McpServerTransportTest > testMcpEndpointResponds STARTED
+
+McpServerTransportTest > testMcpEndpointResponds PASSED
+
+McpServerTransportTest > testOptionsRequest STARTED
+
+McpServerTransportTest > testOptionsRequest PASSED
+
+PsiRefactoringToolsTest > testExtractConstant_TargetValueNotFound STARTED
+
+PsiRefactoringToolsTest > testExtractConstant_TargetValueNotFound PASSED
+
+PsiRefactoringToolsTest > testExtractMethod_NoStatementsInRange STARTED
+
+PsiRefactoringToolsTest > testExtractMethod_NoStatementsInRange PASSED
+
+PsiRefactoringToolsTest > testSafeDelete_UsedMethod STARTED
+
+PsiRefactoringToolsTest > testSafeDelete_UsedMethod PASSED
+
+PsiRefactoringToolsTest > testMoveClass_ClassNotFound STARTED
+
+PsiRefactoringToolsTest > testMoveClass_ClassNotFound PASSED
+
+PsiRefactoringToolsTest > testExtractConstant_ClassNotFound STARTED
+
+PsiRefactoringToolsTest > testExtractConstant_ClassNotFound PASSED
+
+PsiRefactoringToolsTest > testFindDeadCode_FindsUnusedMethods STARTED
+
+PsiRefactoringToolsTest > testFindDeadCode_FindsUnusedMethods PASSED
+
+PsiRefactoringToolsTest > testExtractConstant_FromWithinString STARTED
+
+PsiRefactoringToolsTest > testExtractConstant_FromWithinString PASSED
+
+PsiRefactoringToolsTest > testSafeDelete_UnusedField STARTED
+
+PsiRefactoringToolsTest > testSafeDelete_UnusedField PASSED
+
+PsiRefactoringToolsTest > testFindDeadCode_ClassNotFound STARTED
+
+PsiRefactoringToolsTest > testFindDeadCode_ClassNotFound PASSED
+
+PsiRefactoringToolsTest > testFindDeadCode_ThenSafeDelete STARTED
+
+PsiRefactoringToolsTest > testFindDeadCode_ThenSafeDelete PASSED
+
+PsiRefactoringToolsTest > testExtractMethod_SimpleStatements STARTED
+
+PsiRefactoringToolsTest > testExtractMethod_SimpleStatements PASSED
+
+PsiRefactoringToolsTest > testSafeDelete_UnusedMethod STARTED
+
+PsiRefactoringToolsTest > testSafeDelete_UnusedMethod PASSED
+
+PsiRefactoringToolsTest > testFindDeadCode_NoDeadCode STARTED
+
+PsiRefactoringToolsTest > testFindDeadCode_NoDeadCode PASSED
+
+PsiRefactoringToolsTest > testExtractConstant_StringLiteral STARTED
+
+PsiRefactoringToolsTest > testExtractConstant_StringLiteral PASSED
+
+PsiRefactoringToolsTest > testExtractConstant_NumberLiteral STARTED
+
+PsiRefactoringToolsTest > testExtractConstant_NumberLiteral PASSED
+
+PsiRefactoringToolsTest > testMoveClass_ToNewPackage STARTED
+
+PsiRefactoringToolsTest > testMoveClass_ToNewPackage PASSED
+
+McpClientTest > testMcpClient_multipleClientsConcurrent STARTED
+
+McpClientTest > testMcpClient_multipleClientsConcurrent PASSED
+
+McpClientTest > testMcpClient_multipleClientsSequential STARTED
+
+McpClientTest > testMcpClient_multipleClientsSequential PASSED
+
+McpClientTest > testMcpClient_concurrentToolCalls STARTED
+
+McpClientTest > testMcpClient_concurrentToolCalls PASSED
+
+McpClientTest > testMcpClient_rapidConnectDisconnect STARTED
+
+McpClientTest > testMcpClient_rapidConnectDisconnect PASSED
+
+McpClientTest > testMcpClient_canConnectAndInitialize STARTED
+
+McpClientTest > testMcpClient_canConnectAndInitialize PASSED
+
+McpClientTest > testMcpClient_canListTools STARTED
+
+McpClientTest > testMcpClient_canListTools PASSED
+
+McpClientTest > testMcpClient_canListPrompts STARTED
+
+McpClientTest > testMcpClient_canListPrompts PASSED
+
+McpHttpServerTest > testServerCreation_doesNotThrow STARTED
+
+McpHttpServerTest > testServerCreation_doesNotThrow PASSED
+
+McpHttpServerTest > testServerStartStop_lifecycle STARTED
+
+McpHttpServerTest > testServerStartStop_lifecycle PASSED
+
+McpHttpServerTest > testMcpInitialize_validRequest STARTED
+
+McpHttpServerTest > testMcpInitialize_validRequest PASSED
+
+McpHttpServerTest > testSseEndpoint_exists STARTED
+
+McpHttpServerTest > testSseEndpoint_exists PASSED
+
+McpHttpServerTest > testMcpToolCall_validRequest STARTED
+
+McpHttpServerTest > testMcpToolCall_validRequest PASSED
+
+McpHttpServerTest > testServerPort_isConfigurable STARTED
+
+McpHttpServerTest > testServerPort_isConfigurable PASSED
+
+McpHttpServerTest > testMcpToolsList_validRequest STARTED
+
+McpHttpServerTest > testMcpToolsList_validRequest PASSED
+
+McpHttpServerTest > testMcpEndpoint_respondsToOptions STARTED
+
+McpHttpServerTest > testMcpEndpoint_respondsToOptions PASSED
+
+McpHttpServerTest > testDefaultPort_isCorrect STARTED
+
+McpHttpServerTest > testDefaultPort_isCorrect PASSED
+
+McpHttpServerTest > testMcpPromptsList_validRequest STARTED
+
+McpHttpServerTest > testMcpPromptsList_validRequest PASSED
+
+McpPromptsTest > testTestWritePrompt_referencesCorrectTools STARTED
+
+McpPromptsTest > testTestWritePrompt_referencesCorrectTools PASSED
+
+McpPromptsTest > testTestPlanPrompt_hasClearInstructions STARTED
+
+McpPromptsTest > testTestPlanPrompt_hasClearInstructions PASSED
+
+McpPromptsTest > testCommitPrompt_hasRequiredSections STARTED
+
+McpPromptsTest > testCommitPrompt_hasRequiredSections PASSED
+
+McpPromptsTest > testZestTestFix_hasWorkflowPhases STARTED
+
+McpPromptsTest > testZestTestFix_hasWorkflowPhases PASSED
+
+McpPromptsTest > testReviewPrompt_hasRequiredSections STARTED
+
+McpPromptsTest > testReviewPrompt_hasRequiredSections PASSED
+
+McpPromptsTest > testTestContextPrompt_referencesCorrectTools STARTED
+
+McpPromptsTest > testTestContextPrompt_referencesCorrectTools PASSED
+
+McpPromptsTest > testZestTestWrite_hasWorkflowPhases STARTED
+
+McpPromptsTest > testZestTestWrite_hasWorkflowPhases PASSED
+
+McpPromptsTest > testZestTestPlan_hasWorkflowPhases STARTED
+
+McpPromptsTest > testZestTestPlan_hasWorkflowPhases PASSED
+
+McpPromptsTest > testAllTestPrompts_referenceShowFile STARTED
+
+McpPromptsTest > testAllTestPrompts_referenceShowFile PASSED
+
+McpPromptsTest > testTestContextPrompt_hasClearInstructions STARTED
+
+McpPromptsTest > testTestContextPrompt_hasClearInstructions PASSED
+
+McpPromptsTest > testZestTestContext_hasWorkflowPhases STARTED
+
+McpPromptsTest > testZestTestContext_hasWorkflowPhases PASSED
+
+McpPromptsTest > testExplainPrompt_hasRequiredSections STARTED
+
+McpPromptsTest > testExplainPrompt_hasRequiredSections PASSED
+
+McpPromptsTest > testTestWritePrompt_hasNextStepInstructions STARTED
+
+McpPromptsTest > testTestWritePrompt_hasNextStepInstructions PASSED
+
+McpSchemaValidationTest > testLookupMethodSchema_isValidJson STARTED
+
+McpSchemaValidationTest > testLookupMethodSchema_isValidJson PASSED
+
+McpSchemaValidationTest > testGetCurrentFileSchema_isValidJson STARTED
+
+McpSchemaValidationTest > testGetCurrentFileSchema_isValidJson PASSED
+
+McpSchemaValidationTest > testAllSchemas_useStringTypes STARTED
+
+McpSchemaValidationTest > testAllSchemas_useStringTypes PASSED
+
+McpSchemaValidationTest > testLookupMethodSchema_hasRequiredFields STARTED
+
+McpSchemaValidationTest > testLookupMethodSchema_hasRequiredFields PASSED
+
+McpSchemaValidationTest > testAllSchemas_haveDescriptions STARTED
+
+McpSchemaValidationTest > testAllSchemas_haveDescriptions PASSED
+
+McpSchemaValidationTest > testValidateCodeSchema_isValidJson STARTED
+
+McpSchemaValidationTest > testValidateCodeSchema_isValidJson PASSED
+
+McpSchemaValidationTest > testShowFileSchema_isValidJson STARTED
+
+McpSchemaValidationTest > testShowFileSchema_isValidJson PASSED
+
+McpSchemaValidationTest > testLookupClassSchema_hasRequiredFields STARTED
+
+McpSchemaValidationTest > testLookupClassSchema_hasRequiredFields PASSED
+
+McpSchemaValidationTest > testLookupClassSchema_isValidJson STARTED
+
+McpSchemaValidationTest > testLookupClassSchema_isValidJson PASSED
+
+McpSchemaValidationTest > testAnalyzeMethodUsageSchema_isValidJson STARTED
+
+McpSchemaValidationTest > testAnalyzeMethodUsageSchema_isValidJson PASSED
+
+===========================================================================
+IntelliJ Platform Tests: SUCCESS (59 tests, 59 passed, 0 failed, 0 skipped)
+===========================================================================
+
+✅ All IntelliJ platform tests passed!
+[Incubating] Problems report is available at: file:///D:/Zest/build/reports/problems/problems-report.html
+
+BUILD SUCCESSFUL in 1m 10s
+16 actionable tasks: 8 executed, 8 up-to-date
+Configuration cache entry reused.

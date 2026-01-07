@@ -11,7 +11,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import dev.langchain4j.agent.tool.Tool;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import com.zps.zest.explanation.tools.RipgrepCodeTool;
+import com.zps.zest.langchain4j.tools.RipgrepCodeTool;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;

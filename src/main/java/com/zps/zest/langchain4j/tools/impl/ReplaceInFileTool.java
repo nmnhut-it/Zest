@@ -2,7 +2,6 @@ package com.zps.zest.langchain4j.tools.impl;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.zps.zest.completion.diff.FileDiffDialog;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -439,101 +438,49 @@ public class ReplaceInFileTool extends ThreadSafeCodeExplorationTool {
     }
 
     /**
-     * Shows diff dialog and applies changes if confirmed by user.
+     * Applies changes directly to the file.
      */
     private ToolResult showDiffAndApplyChanges(Path filePath, String origContent, String modifiedContent,
                                                int replacementCount, boolean ignoreWhitespace) {
         try {
             VirtualFile vFile = LocalFileSystem.getInstance().findFileByPath(filePath.toString());
             if (vFile == null) {
-                String error = "Error: Could not find file in virtual file system: " + filePath;
-                LOG.error(error);
-                return ToolResult.error(error);
+                return ToolResult.error("Could not find file: " + filePath);
             }
 
-            // Create title
-            String title = "Replace in File: " + vFile.getName() +
-                    " (" + replacementCount + " replacements)" +
-                    (ignoreWhitespace ? " [Ignoring whitespace]" : "");
+            AtomicReference<ToolResult> resultRef = new AtomicReference<>();
 
-            // Use a CompletableFuture to handle the dialog result
-            CompletableFuture<ToolResult> resultFuture = new CompletableFuture<>();
-
-            // Show improved diff dialog with prominent Accept/Reject buttons
-            FileDiffDialog.Companion.show(
-                project,
-                vFile,
-                origContent,
-                modifiedContent,
-                title,
-                new kotlin.jvm.functions.Function0<kotlin.Unit>() {
-                    @Override
-                    public kotlin.Unit invoke() {
-                        // onAccept callback
-                        LOG.info("User accepted replacements");
-                        
-                        // Execute write action
-                        WriteCommandAction.runWriteCommandAction(project, () -> {
-                            try {
-                                // Check if file is writable
-                                if (!vFile.isWritable()) {
-                                    resultFuture.complete(ToolResult.error("File is not writable: " + filePath));
-                                    return;
-                                }
-
-                                // Update file content
-                                vFile.refresh(false, false);
-                                vFile.setBinaryContent(modifiedContent.getBytes(StandardCharsets.UTF_8));
-
-                                // Open file in editor
-                                ApplicationManager.getApplication().invokeLater(() -> {
-                                    FileEditorManager.getInstance(project).openFile(vFile, true);
-                                });
-
-                                JsonObject metadata = createMetadata();
-                                metadata.addProperty("filePath", filePath.toString());
-                                metadata.addProperty("replacementCount", replacementCount);
-                                metadata.addProperty("ignoreWhitespace", ignoreWhitespace);
-
-                                resultFuture.complete(ToolResult.success("Successfully applied " + replacementCount + 
-                                    " replacements to " + vFile.getName(), metadata));
-
-                            } catch (Exception e) {
-                                String error = "Error updating file: " + e.getMessage();
-                                LOG.error(error, e);
-                                resultFuture.complete(ToolResult.error(error));
-                            }
-                        });
-                        return kotlin.Unit.INSTANCE;
+            WriteCommandAction.runWriteCommandAction(project, () -> {
+                try {
+                    if (!vFile.isWritable()) {
+                        resultRef.set(ToolResult.error("File is not writable: " + filePath));
+                        return;
                     }
-                },
-                new kotlin.jvm.functions.Function0<kotlin.Unit>() {
-                    @Override
-                    public kotlin.Unit invoke() {
-                        // onReject callback
-                        LOG.info("User rejected replacements");
-                        resultFuture.complete(ToolResult.error("Changes were cancelled by user."));
-                        return kotlin.Unit.INSTANCE;
-                    }
-                },
-                true  // showButtons = true
-            );
 
-            // Wait for the user's decision - this keeps the tool synchronous
-            try {
-                return resultFuture.get(5, TimeUnit.MINUTES); // 5 minute timeout for user decision
-            } catch (InterruptedException | ExecutionException e) {
-                String error = "Error waiting for user decision: " + e.getMessage();
-                LOG.error(error, e);
-                return ToolResult.error(error);
-            } catch (TimeoutException e) {
-                return ToolResult.error("Dialog timed out after 5 minutes. Operation cancelled.");
-            }
+                    vFile.refresh(false, false);
+                    vFile.setBinaryContent(modifiedContent.getBytes(StandardCharsets.UTF_8));
+
+                    ApplicationManager.getApplication().invokeLater(() -> {
+                        FileEditorManager.getInstance(project).openFile(vFile, true);
+                    });
+
+                    JsonObject metadata = createMetadata();
+                    metadata.addProperty("filePath", filePath.toString());
+                    metadata.addProperty("replacementCount", replacementCount);
+                    metadata.addProperty("ignoreWhitespace", ignoreWhitespace);
+
+                    resultRef.set(ToolResult.success("Applied " + replacementCount +
+                        " replacements to " + vFile.getName(), metadata));
+
+                } catch (Exception e) {
+                    resultRef.set(ToolResult.error("Error: " + e.getMessage()));
+                }
+            });
+
+            return resultRef.get() != null ? resultRef.get() : ToolResult.error("Unknown error");
 
         } catch (Exception e) {
-            String error = "Error showing diff dialog: " + e.getMessage();
-            LOG.error(error, e);
-            return ToolResult.error(error);
+            return ToolResult.error("Error: " + e.getMessage());
         }
     }
 }

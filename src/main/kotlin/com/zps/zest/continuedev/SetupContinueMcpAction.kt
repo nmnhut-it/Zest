@@ -3,7 +3,7 @@ package com.zps.zest.continuedev
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.Project
-import com.zps.zest.ZestNotifications
+import com.zps.zest.core.ZestNotifications
 
 /**
  * Action to install Zest MCP configuration for Continue.dev.

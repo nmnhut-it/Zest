@@ -3,7 +3,7 @@ package com.zps.zest.langchain4j.tools;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.zps.zest.ConfigurationManager;
+import com.zps.zest.settings.ConfigurationManager;
 import com.zps.zest.langchain4j.tools.impl.*;
 import org.jetbrains.annotations.NotNull;
 

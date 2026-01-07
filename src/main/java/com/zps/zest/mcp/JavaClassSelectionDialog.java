@@ -31,12 +31,13 @@ import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.prefs.Preferences;
 
 /**
  * Enhanced dialog for selecting Java classes for test generation.
  * Features: current class detection, recent classes, real-time search,
- * custom rendering, keyboard navigation, and polished UI.
+ * test type selection, method filtering, and polished UI.
  */
 public class JavaClassSelectionDialog extends DialogWrapper {
     private static final int MAX_RESULTS = 100;
@@ -54,6 +55,14 @@ public class JavaClassSelectionDialog extends DialogWrapper {
     private Timer searchDebounceTimer;
     private String currentClassName;
 
+    // Test options
+    private JRadioButton unitTestRadio;
+    private JRadioButton integrationTestRadio;
+    private JRadioButton bothTestRadio;
+    private JPanel methodsPanel;
+    private List<JCheckBox> methodCheckboxes = new ArrayList<>();
+    private JCheckBox selectAllMethodsCheckbox;
+
     public JavaClassSelectionDialog(Project project) {
         super(project);
         this.project = project;
@@ -67,19 +76,97 @@ public class JavaClassSelectionDialog extends DialogWrapper {
     @Override
     protected JComponent createCenterPanel() {
         JPanel mainPanel = new JPanel(new BorderLayout(0, JBUI.scale(8)));
-        mainPanel.setPreferredSize(new Dimension(650, 550));
+        mainPanel.setPreferredSize(new Dimension(750, 650));
         mainPanel.setBorder(JBUI.Borders.empty(8));
 
         // Top section: Quick Select
         mainPanel.add(createQuickSelectPanel(), BorderLayout.NORTH);
 
-        // Center section: Search + Results
-        mainPanel.add(createSearchResultsPanel(), BorderLayout.CENTER);
+        // Center: Split pane with class search on left, options on right
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        splitPane.setLeftComponent(createSearchResultsPanel());
+        splitPane.setRightComponent(createTestOptionsPanel());
+        splitPane.setDividerLocation(400);
+        splitPane.setResizeWeight(0.6);
+        mainPanel.add(splitPane, BorderLayout.CENTER);
 
         // Focus search field on open
         SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
 
         return mainPanel;
+    }
+
+    private JPanel createTestOptionsPanel() {
+        JPanel panel = new JPanel(new BorderLayout(0, JBUI.scale(8)));
+        panel.setBorder(JBUI.Borders.empty(0, 8, 0, 0));
+
+        // Test Type section
+        JPanel testTypePanel = new JPanel();
+        testTypePanel.setLayout(new BoxLayout(testTypePanel, BoxLayout.Y_AXIS));
+        testTypePanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(JBColor.border()),
+                "Test Type",
+                TitledBorder.LEFT,
+                TitledBorder.TOP
+        ));
+
+        ButtonGroup testTypeGroup = new ButtonGroup();
+        bothTestRadio = new JRadioButton("Both (unit + integration)", true);
+        unitTestRadio = new JRadioButton("Unit tests only");
+        integrationTestRadio = new JRadioButton("Integration tests only");
+
+        testTypeGroup.add(bothTestRadio);
+        testTypeGroup.add(unitTestRadio);
+        testTypeGroup.add(integrationTestRadio);
+
+        testTypePanel.add(bothTestRadio);
+        testTypePanel.add(Box.createVerticalStrut(4));
+        testTypePanel.add(unitTestRadio);
+        testTypePanel.add(Box.createVerticalStrut(4));
+        testTypePanel.add(integrationTestRadio);
+        testTypePanel.add(Box.createVerticalStrut(8));
+
+        // Help text
+        JBLabel helpLabel = new JBLabel("<html><small>Unit: fast, isolated<br>Integration: with real DB/HTTP</small></html>");
+        helpLabel.setForeground(JBColor.GRAY);
+        testTypePanel.add(helpLabel);
+
+        panel.add(testTypePanel, BorderLayout.NORTH);
+
+        // Methods section
+        JPanel methodsOuterPanel = new JPanel(new BorderLayout());
+        methodsOuterPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(JBColor.border()),
+                "Methods to Test",
+                TitledBorder.LEFT,
+                TitledBorder.TOP
+        ));
+
+        // Select All checkbox
+        selectAllMethodsCheckbox = new JCheckBox("Select All", true);
+        selectAllMethodsCheckbox.addActionListener(e -> {
+            boolean selected = selectAllMethodsCheckbox.isSelected();
+            for (JCheckBox cb : methodCheckboxes) {
+                cb.setSelected(selected);
+            }
+        });
+        methodsOuterPanel.add(selectAllMethodsCheckbox, BorderLayout.NORTH);
+
+        // Methods list (populated when class is selected)
+        methodsPanel = new JPanel();
+        methodsPanel.setLayout(new BoxLayout(methodsPanel, BoxLayout.Y_AXIS));
+        JBScrollPane methodsScroll = new JBScrollPane(methodsPanel);
+        methodsScroll.setPreferredSize(new Dimension(280, 300));
+        methodsOuterPanel.add(methodsScroll, BorderLayout.CENTER);
+
+        // Placeholder text
+        JBLabel placeholderLabel = new JBLabel("Select a class to see methods");
+        placeholderLabel.setForeground(JBColor.GRAY);
+        methodsPanel.add(placeholderLabel);
+
+        panel.add(methodsOuterPanel, BorderLayout.CENTER);
+
+        return panel;
     }
 
     private JPanel createQuickSelectPanel() {
@@ -221,12 +308,13 @@ public class JavaClassSelectionDialog extends DialogWrapper {
     }
 
     private void setupListListeners() {
-        // Selection listener
+        // Selection listener - also loads methods
         classList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 ClassItem item = classList.getSelectedValue();
                 if (item != null && !item.isPlaceholder()) {
                     selectedClassName = item.qualifiedName;
+                    loadMethodsForClass(item.qualifiedName);
                 }
             }
         });
@@ -256,6 +344,49 @@ public class JavaClassSelectionDialog extends DialogWrapper {
                 }
             }
         });
+    }
+
+    private void loadMethodsForClass(String qualifiedName) {
+        methodsPanel.removeAll();
+        methodCheckboxes.clear();
+
+        List<String> methods = ApplicationManager.getApplication().runReadAction(
+                (Computable<List<String>>) () -> {
+                    List<String> result = new ArrayList<>();
+                    JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
+                    PsiClass psiClass = facade.findClass(qualifiedName, GlobalSearchScope.allScope(project));
+                    if (psiClass != null) {
+                        for (PsiMethod method : psiClass.getMethods()) {
+                            if (method.hasModifierProperty(PsiModifier.PUBLIC) && !method.isConstructor()) {
+                                result.add(method.getName());
+                            }
+                        }
+                    }
+                    return result;
+                }
+        );
+
+        if (methods.isEmpty()) {
+            JBLabel noMethodsLabel = new JBLabel("No public methods found");
+            noMethodsLabel.setForeground(JBColor.GRAY);
+            methodsPanel.add(noMethodsLabel);
+        } else {
+            for (String methodName : methods) {
+                JCheckBox cb = new JCheckBox(methodName, true);
+                cb.addActionListener(e -> updateSelectAllState());
+                methodCheckboxes.add(cb);
+                methodsPanel.add(cb);
+            }
+        }
+
+        selectAllMethodsCheckbox.setSelected(true);
+        methodsPanel.revalidate();
+        methodsPanel.repaint();
+    }
+
+    private void updateSelectAllState() {
+        boolean allSelected = methodCheckboxes.stream().allMatch(JCheckBox::isSelected);
+        selectAllMethodsCheckbox.setSelected(allSelected);
     }
 
     private void loadClasses(String filter) {
@@ -427,14 +558,67 @@ public class JavaClassSelectionDialog extends DialogWrapper {
         return selectedClassName;
     }
 
+    public String getSelectedTestType() {
+        if (unitTestRadio.isSelected()) return "unit";
+        if (integrationTestRadio.isSelected()) return "integration";
+        return "both";
+    }
+
+    public Set<String> getSelectedMethods() {
+        Set<String> selected = new LinkedHashSet<>();
+        for (JCheckBox cb : methodCheckboxes) {
+            if (cb.isSelected()) {
+                selected.add(cb.getText());
+            }
+        }
+        return selected;
+    }
+
+    /**
+     * Result of the class selection dialog.
+     */
+    public static class SelectionResult {
+        public final String className;
+        public final String testType;
+        public final Set<String> selectedMethods;
+
+        public SelectionResult(String className, String testType, Set<String> selectedMethods) {
+            this.className = className;
+            this.testType = testType;
+            this.selectedMethods = selectedMethods;
+        }
+
+        public String getMethodFilter() {
+            return selectedMethods.isEmpty() ? "" : String.join(",", selectedMethods);
+        }
+    }
+
     /**
      * Shows the dialog and returns the selected class name, or null if cancelled.
+     * @deprecated Use {@link #showAndGetSelection(Project)} instead.
      */
     @Nullable
+    @Deprecated
     public static String showAndGetClassName(Project project) {
+        SelectionResult result = showAndGetSelection(project);
+        return result != null ? result.className : null;
+    }
+
+    /**
+     * Shows the dialog and returns the full selection result, or null if cancelled.
+     */
+    @Nullable
+    public static SelectionResult showAndGetSelection(Project project) {
         JavaClassSelectionDialog dialog = new JavaClassSelectionDialog(project);
         if (dialog.showAndGet()) {
-            return dialog.getSelectedClassName();
+            String className = dialog.getSelectedClassName();
+            if (className != null) {
+                return new SelectionResult(
+                        className,
+                        dialog.getSelectedTestType(),
+                        dialog.getSelectedMethods()
+                );
+            }
         }
         return null;
     }

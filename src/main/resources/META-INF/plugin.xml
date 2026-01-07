@@ -1,7 +1,7 @@
 <idea-plugin>
     <name>Zest</name>
     <id>com.zps.Zest</id>
-    <version>2.0.0</version>
+    <version>1.9.914</version>
     <vendor email="nhutnm3@vng.com.vn" url="https://www.vng.com.vn">Zingplay Game Studio</vendor>
 
     <description><![CDATA[
@@ -31,6 +31,7 @@
         <projectService serviceImplementation="com.zps.zest.langchain4j.naive_service.NaiveStreamingLLMService"/>
         <projectService serviceImplementation="com.zps.zest.continuedev.ContinueConfigurationService"/>
         <projectService serviceImplementation="com.zps.zest.mcp.AiClientConfigService"/>
+        <projectService serviceImplementation="com.zps.zest.mcp.SkillInstallationService"/>
     </extensions>
 
     <actions>
@@ -97,6 +98,56 @@
         <action id="Zest.SetupGeminiCliMcp" class="com.zps.zest.mcp.SetupGeminiCliMcpAction"
                 text="Gemini CLI" description="Setup Zest MCP for Gemini CLI">
             <add-to-group group-id="ZestMcpSetupGroup"/>
+        </action>
+
+        <!-- Skills Installation Submenu -->
+        <group id="ZestSkillsGroup" text="Install Skills For..." description="Install Zest skills for AI clients" popup="true">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+        </group>
+
+        <action id="Zest.InstallSkills" class="com.zps.zest.mcp.InstallSkillsAction"
+                text="All Clients..." description="Install Zest skills for multiple AI clients at once">
+            <add-to-group group-id="ZestSkillsGroup" anchor="first"/>
+        </action>
+
+        <action id="Zest.InstallSkillsToQwenCoder" class="com.zps.zest.mcp.InstallSkillsToQwenCoderAction"
+                text="Qwen Coder" description="Install Zest skills for Qwen Coder">
+            <add-to-group group-id="ZestSkillsGroup"/>
+        </action>
+
+        <action id="Zest.InstallSkillsToClaudeCode" class="com.zps.zest.mcp.InstallSkillsToClaudeCodeAction"
+                text="Claude Code" description="Install Zest skills for Claude Code CLI">
+            <add-to-group group-id="ZestSkillsGroup"/>
+        </action>
+
+        <action id="Zest.EnableSkillsDevMode" class="com.zps.zest.mcp.EnableSkillsDevModeAction"
+                text="Enable Dev Mode..." description="Copy bundled skills to ~/.zest/dev-skills/ for editing without rebuild">
+            <add-to-group group-id="ZestSkillsGroup"/>
+        </action>
+
+        <action id="Zest.ShowSkillSources" class="com.zps.zest.mcp.ShowSkillSourcesAction"
+                text="Show Skill Sources" description="Show where each skill is loaded from (Project, Dev, or Bundled)">
+            <add-to-group group-id="ZestSkillsGroup"/>
+        </action>
+
+        <!-- MCP Prompts Dev Mode Group -->
+        <group id="ZestPromptsGroup" text="MCP Prompts" description="MCP prompt configuration" popup="true">
+            <add-to-group group-id="ZestGroup" anchor="last"/>
+        </group>
+
+        <action id="Zest.EnablePromptsDevMode" class="com.zps.zest.mcp.EnablePromptsDevModeAction"
+                text="Enable Dev Mode..." description="Copy bundled prompts to ~/.zest/dev-prompts/ for editing without rebuild">
+            <add-to-group group-id="ZestPromptsGroup"/>
+        </action>
+
+        <action id="Zest.ShowPromptSources" class="com.zps.zest.mcp.ShowPromptSourcesAction"
+                text="Show Prompt Sources" description="Show where each prompt is loaded from (Project, Dev, or Bundled)">
+            <add-to-group group-id="ZestPromptsGroup"/>
+        </action>
+
+        <action id="Zest.ReloadPrompts" class="com.zps.zest.mcp.ReloadPromptsAction"
+                text="Reload Prompts" description="Clear prompt cache and reload from disk">
+            <add-to-group group-id="ZestPromptsGroup"/>
         </action>
     </actions>
 

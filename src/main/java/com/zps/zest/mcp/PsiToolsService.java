@@ -2027,6 +2027,31 @@ public class PsiToolsService {
                     dependencies = parseMavenDependencies(pomFile);
                 }
 
+                // Fallback: parse .idea/libraries if no build file or to supplement
+                VirtualFile ideaDir = projectDir.findChild(".idea");
+                if (ideaDir != null) {
+                    VirtualFile librariesDir = ideaDir.findChild("libraries");
+                    if (librariesDir != null && librariesDir.isDirectory()) {
+                        List<DependencyInfo> ideaDeps = parseIdeaLibraries(librariesDir);
+                        if (buildSystem.equals("unknown") && !ideaDeps.isEmpty()) {
+                            buildSystem = "idea-libraries";
+                            buildFile = librariesDir.getPath();
+                            dependencies = ideaDeps;
+                        } else if (!ideaDeps.isEmpty()) {
+                            // Merge: add JARs not already in dependencies
+                            Set<String> existingArtifacts = dependencies.stream()
+                                    .map(d -> extractArtifactName(d.coordinate))
+                                    .collect(java.util.stream.Collectors.toSet());
+                            for (DependencyInfo ideaDep : ideaDeps) {
+                                String artifact = extractArtifactName(ideaDep.coordinate);
+                                if (!existingArtifacts.contains(artifact)) {
+                                    dependencies.add(ideaDep);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Categorize test libraries
                 TestLibraries testLibs = categorizeTestLibraries(dependencies);
 
@@ -2094,6 +2119,71 @@ public class PsiToolsService {
             LOG.warn("Error parsing pom file", e);
         }
         return deps;
+    }
+
+    /**
+     * Parse .idea/libraries/*.xml files for JAR dependencies.
+     * Useful for projects without build.gradle or pom.xml.
+     */
+    private List<DependencyInfo> parseIdeaLibraries(VirtualFile librariesDir) {
+        List<DependencyInfo> deps = new ArrayList<>();
+        try {
+            for (VirtualFile xmlFile : librariesDir.getChildren()) {
+                if (!xmlFile.getName().endsWith(".xml")) continue;
+
+                String content = new String(xmlFile.contentsToByteArray());
+                // Match: <root url="jar://$PROJECT_DIR$/path/to/name-version.jar!/" />
+                java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                    "<root url=\"jar://[^\"]*?/([^/\"]+\\.jar)!/\""
+                );
+                java.util.regex.Matcher matcher = pattern.matcher(content);
+
+                while (matcher.find()) {
+                    String jarName = matcher.group(1);
+                    // Extract artifact name and version from JAR name
+                    String coordinate = jarNameToCoordinate(jarName);
+                    boolean isTest = jarName.toLowerCase().contains("test") ||
+                                     jarName.toLowerCase().contains("junit");
+                    deps.add(new DependencyInfo(coordinate, "compile", isTest));
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Error parsing .idea/libraries", e);
+        }
+        return deps;
+    }
+
+    /**
+     * Convert JAR filename to Maven-style coordinate.
+     * Example: "junit-4.8.2.jar" -> "junit:4.8.2"
+     */
+    private String jarNameToCoordinate(String jarName) {
+        // Remove .jar extension
+        String name = jarName.endsWith(".jar") ? jarName.substring(0, jarName.length() - 4) : jarName;
+
+        // Try to split name-version pattern (e.g., "gson-2.8.6" -> "gson:2.8.6")
+        java.util.regex.Pattern versionPattern = java.util.regex.Pattern.compile(
+            "^(.+?)-(\\d+\\.\\d+[^-]*)$"
+        );
+        java.util.regex.Matcher matcher = versionPattern.matcher(name);
+
+        if (matcher.matches()) {
+            return matcher.group(1) + ":" + matcher.group(2);
+        }
+        return name;  // No version found, return as-is
+    }
+
+    /**
+     * Extract artifact name from coordinate for deduplication.
+     */
+    private String extractArtifactName(String coordinate) {
+        // Handle "group:artifact:version" or "artifact:version" or just "artifact"
+        String[] parts = coordinate.split(":");
+        if (parts.length >= 2) {
+            // Return artifact (second part for group:artifact:version, first for artifact:version)
+            return parts.length >= 3 ? parts[1] : parts[0];
+        }
+        return coordinate.toLowerCase();
     }
 
     private TestLibraries categorizeTestLibraries(List<DependencyInfo> dependencies) {

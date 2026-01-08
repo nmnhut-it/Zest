@@ -39,6 +39,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -456,10 +457,10 @@ public class ZestMcpHttpServer {
         // Validate Code tool - uses IntelliJ's CodeSmellDetector for real compilation checking
         McpSchema.Tool validateCodeTool = McpSchema.Tool.builder()
                 .name("validateCode")
-                .description("Validate Java code for compilation errors WITHOUT saving to disk. " +
+                .description("Validate Java file for compilation errors. " +
                         "Uses IntelliJ's CodeSmellDetector - finds real errors like missing imports, " +
                         "type mismatches, syntax errors. " +
-                        "WORKFLOW: 1) Generate code, 2) Call validateCode, 3) Fix errors, 4) Save file. " +
+                        "WORKFLOW: 1) Save code to file, 2) Call validateCode with filePath, 3) Fix errors if any. " +
                         "Returns: ✅ if compiles, or list of errors with line numbers.")
                 .inputSchema(jsonMapper, buildValidateCodeSchema())
                 .build();
@@ -468,16 +469,15 @@ public class ZestMcpHttpServer {
                 validateCodeTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
-                    String code = (String) arguments.get("code");
-                    String className = (String) arguments.get("className");
-                    return handleValidateCode(projectPath, code, className);
+                    String filePath = (String) arguments.get("filePath");
+                    return handleValidateCode(projectPath, filePath);
                 }
         ));
 
         // Get Project Dependencies tool - reads build.gradle/pom.xml to detect available libraries
         McpSchema.Tool getProjectDependenciesTool = McpSchema.Tool.builder()
                 .name("getProjectDependencies")
-                .description("Get project dependencies from build files (build.gradle, pom.xml). " +
+                .description("Get project dependencies from build.gradle, pom.xml, or .idea/libraries (local JARs). " +
                         "CRITICAL: Call this BEFORE writing tests to know what libraries are available. " +
                         "Returns: build system type, all dependencies, and test library availability " +
                         "(JUnit 5, Testcontainers, WireMock, AssertJ, etc.). " +
@@ -515,342 +515,22 @@ public class ZestMcpHttpServer {
     }
 
     private void registerPrompts() {
-        registerPrompt("review", "Smart code review with focus options",
-                List.of(),
-                """
-                You are a smart code reviewer. Auto-detect target, let user pick focus, always check testability.
+        // All prompts loaded dynamically from resources/prompts/*.md
+        // Override by placing files in ~/.zest/dev-prompts/ or ${PROJECT}/.zest/prompts/
 
-                ## PHASE 1: AUTO-DETECT TARGET
+        registerDynamicPrompt("review", "Smart code review with focus options",
+                List.of(), PromptLoader.PromptName.REVIEW);
 
-                Use `getCurrentFile()` to get the currently open file/selection.
+        registerDynamicPrompt("explain", "Smart code explainer with auto-detection",
+                List.of(), PromptLoader.PromptName.EXPLAIN);
 
-                **Quick confirm + focus selection:**
-                ```
-                Review `ClassName`?
+        registerDynamicPrompt("commit", "Smart hands-free git commit assistant",
+                List.of(), PromptLoader.PromptName.COMMIT);
 
-                Focus:
-                1. Bugs + Security (pre-merge)
-                2. Performance + Quality (optimization)
-                3. Full review (all categories)
+        registerDynamicPrompt("zest-test", "Smart test generation with sub-agents",
+                List.of(), PromptLoader.PromptName.TEST_GENERATION);
 
-                Pick [1/2/3]:
-                ```
-
-                ## PHASE 2: GATHER CONTEXT (use MCP tools in parallel)
-
-                **Analysis Tools:**
-                | Tool | Purpose |
-                |------|---------|
-                | `lookupClass(className)` | Structure, inheritance |
-                | `findUsages(className, memberName)` | Real usage patterns, edge cases |
-                | `getCallHierarchy(className, methodName)` | Callers reveal requirements |
-                | `findDeadCode(className)` | Find unused methods/fields |
-                | `getMethodBody(className, methodName)` | Get method details for refactoring |
-
-                ## PHASE 3: REVIEW (based on focus)
-
-                ### ALWAYS CHECK: TESTABILITY
-                - Tight coupling? Dependencies injectable?
-                - Static methods blocking mocks?
-                - Hidden dependencies (new inside methods)?
-                - Side effects making assertions hard?
-                - Missing interfaces for test doubles?
-
-                ### Focus 1: BUGS + SECURITY
-                **Bugs:**
-                - Null safety (check what callers expect)
-                - Logic errors, off-by-one
-                - Resource leaks (unclosed streams/connections)
-                - Thread safety, race conditions
-
-                **Security:**
-                - Injection: SQL, XSS, command
-                - Auth/authz flaws
-                - Hardcoded secrets
-                - Input validation gaps
-
-                ### Focus 2: PERFORMANCE + QUALITY
-                **Performance:**
-                - Algorithm: O(n²) → O(n)?
-                - DB: N+1 queries, missing indexes
-                - Memory leaks, unnecessary allocations
-                - Caching opportunities
-
-                **Quality:**
-                - Naming clarity
-                - Complexity: methods >30 lines, deep nesting
-                - Duplication
-                - SOLID violations
-
-                ### Focus 3: FULL REVIEW
-                All of the above, plus:
-                - API design / backward compatibility
-                - Error handling patterns
-                - Logging / observability
-                - Documentation gaps
-
-                ## OUTPUT FORMAT
-
-                ```
-                # Review: ClassName
-                Focus: [1/2/3] | Testability: [Good/Fair/Poor]
-
-                ## Issues Found
-
-                ### 🔴 Critical
-                - [Location] Issue description
-                  Fix: `code suggestion`
-
-                ### 🟡 Medium
-                - ...
-
-                ### 🟢 Low
-                - ...
-
-                ## Testability Assessment
-                - [✓/✗] Dependencies injectable
-                - [✓/✗] No hidden side effects
-                - [✓/✗] Clear inputs/outputs
-                Suggestion: ...
-
-                ## Summary
-                - **Rating**: Poor/Fair/Good/Excellent
-                - **Top 3 fixes**: ...
-                - **Callers affected**: N call sites
-                ```
-
-                ## PHASE 4: OFFER FIXES (after review)
-
-                If issues can be fixed, list them and ASK user before proceeding:
-
-                ```
-                ---
-                🔧 **Fixes Available**
-
-                I can help fix some issues:
-
-                1. Extract magic number `30000` on line 42 → `TIMEOUT_MS`
-                2. Extract long method lines 15-45 → `validateUserInput()`
-                3. Rename unclear variable `x` → `userCount`
-                4. Remove unused method `oldHelper()` (0 usages found)
-
-                Want me to apply any of these? Reply with numbers (e.g., "1,2") or "all" or "skip".
-                ```
-
-                **IMPORTANT:** Do NOT apply fixes until user confirms.
-
-                **TOOLS AVAILABLE:** You can use IntelliJ MCP tools OR your own tools - pick what's best:
-
-                *IntelliJ MCP tools (IDE-powered refactoring):*
-                - `extractConstant` - extract literal to constant, handles all occurrences
-                - `extractMethod` - extract code to method with auto params/return
-                - `rename` - rename with all reference updates
-                - `safeDelete` - delete only if no usages
-
-                *Your own tools (direct file editing):*
-                - Use file editing for simple changes or when MCP tools don't fit
-                - Better for multi-file changes or complex restructuring
-
-                Choose the right tool for each fix.
-                """);
-
-        registerPrompt("explain", "Smart code explainer with auto-detection",
-                List.of(),
-                """
-                You are a smart code explainer. Auto-detect target, confirm briefly, then explain thoroughly.
-
-                ## PHASE 1: AUTO-DETECT TARGET
-
-                Use `getCurrentFile()` to get the currently open file/selection.
-
-                **Quick confirm with user:**
-                ```
-                Explain `ClassName` or `methodName`?
-                Depth: [quick] / standard / deep
-                Audience: [dev] / junior / non-tech
-                ```
-                Default: quick + dev. Proceed after 3 seconds or on confirmation.
-
-                ## PHASE 2: GATHER CONTEXT (use MCP tools)
-
-                Run these in parallel:
-                | Tool | Purpose |
-                |------|---------|
-                | `lookupClass(className)` | Structure, methods, inheritance |
-                | `findUsages(className, memberName)` | Real-world usage patterns |
-                | `getCallHierarchy(className, methodName)` | Callers and callees |
-                | `getTypeHierarchy(className)` | Inheritance tree |
-
-                ## PHASE 3: EXPLAIN (adapt to depth + audience)
-
-                ### QUICK (1-2 paragraphs)
-                - What it does in plain English
-                - When/why you'd use it
-
-                ### STANDARD (structured)
-                **Purpose**: Problem it solves, inputs/outputs
-                **How it works**: Algorithm, key steps
-                **Usage**: Real examples from findUsages
-                **Watch out**: Edge cases, threading, perf
-
-                ### DEEP (comprehensive)
-                All of standard, plus:
-                - Full inheritance/dependency tree
-                - Design patterns used
-                - Code flow diagram (ASCII/Mermaid)
-                - Related classes explained
-                - Historical context if visible in code
-
-                ## AUDIENCE ADAPTATION
-
-                | Audience | Style |
-                |----------|-------|
-                | **dev** | Technical, use proper terms, show code |
-                | **junior** | Explain terms, more examples, step-by-step |
-                | **non-tech** | Analogies, no code, business value focus |
-
-                ## OUTPUT FORMAT
-
-                ```
-                # ClassName.methodName
-
-                **TL;DR**: One sentence summary.
-
-                [Explanation based on depth/audience]
-
-                **See also**: RelatedClass, AnotherClass
-                ```
-                """);
-
-        registerPrompt("commit", "Smart hands-free git commit assistant",
-                List.of(),
-                """
-                You are a smart, hands-free git commit assistant. Automatically analyze, split if needed, and commit.
-
-                **IMPORTANT**: Use your bash/terminal tool to execute git commands. Chain commands with `&&` for efficiency.
-
-                ## PHASE 1: GATHER CONTEXT (single chained command)
-                ```bash
-                git status && git log --oneline -10 && git diff --stat && git diff --cached --stat
-                ```
-                If you need full diff content:
-                ```bash
-                git diff && git diff --cached
-                ```
-
-                ## PHASE 2: SMART ANALYSIS
-
-                **Infer TYPE from diff content:**
-                | Signal | Type |
-                |--------|------|
-                | New files created | feat |
-                | "fix", "bug", "error", "crash", "null" in changes | fix |
-                | Only test files changed | test |
-                | Only README, *.md, comments | docs |
-                | Rename/move without logic change | refactor |
-                | Delete unused code/files | chore |
-                | Formatting, whitespace only | style |
-                | "optimize", "cache", "fast" | perf |
-
-                **Infer SCOPE from file paths:**
-                - `src/mcp/*` → scope: mcp
-                - `src/auth/*` → scope: auth
-                - `*Test.java` → scope: test
-                - Multiple directories → use parent or omit scope
-
-                **Match PROJECT STYLE from recent commits:**
-                - Do they use scopes? Match it.
-                - Emoji prefix? Match it.
-                - Capitalized? Match it.
-                - Body included? Match if >5 files.
-
-                ## PHASE 3: SPLIT DETECTION
-
-                Group changes by logical unit:
-                - Same feature/fix = one commit
-                - Unrelated changes = split into multiple commits
-
-                **Split signals:**
-                - Files in different modules with no dependency
-                - Mix of feat + fix + docs with no relation
-                - Test files for different classes
-
-                If splitting, execute multiple commits in sequence.
-
-                ## PHASE 4: EXECUTE (chain add + commit)
-
-                **Single commit (chain it):**
-                ```bash
-                git add -A && git commit -m "feat(mcp): add transport"
-                ```
-
-                **With body (double -m):**
-                ```bash
-                git add -A && git commit -m "feat(mcp): add transport" -m "Implements streamable HTTP per MCP 2025 spec."
-                ```
-
-                **Split commits (run sequentially):**
-                ```bash
-                git add src/mcp/* && git commit -m "feat(mcp): add transport"
-                git add src/auth/* && git commit -m "fix(auth): handle null token"
-                ```
-
-                **Include body when:** >5 files, breaking changes, non-obvious "why"
-
-                ## OUTPUT FORMAT
-                ```
-                ✅ feat(mcp): add streamable http transport
-                   5 files, +127 -43
-
-                ✅ fix(auth): handle null token gracefully
-                   2 files, +15 -3
-
-                Done: 2 commits created
-                ```
-
-                ## STOP CONDITIONS (only these)
-                - Empty diff: "Nothing to commit"
-                - Sensitive files (.env, credentials): "Exclude secrets? [Y/n]"
-                """);
-
-        // ========== Test Generation Prompts (Sub-Agent Pattern) ==========
-        // Orchestrated prompts that use sub-agent pattern for all-in-one test generation.
-        // Prompts are loaded dynamically from external dirs, allowing edits without rebuild.
-
-        registerDynamicPrompt("zest-test-auto", "All-in-one test generation with sub-agents",
-                List.of(),
-                PromptLoader.PromptName.ORCHESTRATED_TEST_GENERATION);
-
-        registerDynamicPrompt("zest-test-auto-compact", "Compact all-in-one test generation",
-                List.of(),
-                PromptLoader.PromptName.ORCHESTRATED_TEST_GENERATION_COMPACT);
-
-        LOG.info("Registered 5 MCP prompts: review, explain, commit, zest-test-auto, zest-test-auto-compact");
-    }
-
-
-    private void registerPrompt(String name, String description, List<McpSchema.PromptArgument> arguments, String promptTemplate) {
-        McpSchema.Prompt prompt = new McpSchema.Prompt(name, description, arguments);
-
-        addPromptToBoth(new McpServerFeatures.SyncPromptSpecification(
-                prompt,
-                (exchange, request) -> {
-                    String filledPrompt = promptTemplate;
-
-                    if (request.arguments() != null) {
-                        for (var entry : request.arguments().entrySet()) {
-                            String placeholder = "{{" + entry.getKey() + "}}";
-                            String value = String.valueOf(entry.getValue());
-                            filledPrompt = filledPrompt.replace(placeholder, value);
-                        }
-                    }
-
-                    McpSchema.TextContent textContent = new McpSchema.TextContent(filledPrompt);
-                    McpSchema.PromptMessage message = new McpSchema.PromptMessage(McpSchema.Role.USER, textContent);
-
-                    return new McpSchema.GetPromptResult(description, List.of(message));
-                }
-        ));
+        LOG.info("Registered 4 MCP prompts (all dynamic): review, explain, commit, zest-test");
     }
 
     /**
@@ -1040,7 +720,7 @@ public class ZestMcpHttpServer {
         LOG.info("📋 Streamable HTTP (new): http://localhost:" + port + STREAMABLE_ENDPOINT);
         LOG.info("📋 SSE (legacy): http://localhost:" + port + SSE_ENDPOINT + " + " + SSE_MESSAGE_ENDPOINT);
         LOG.info("🔧 Available tools (18): getCurrentFile, lookupClass, getJavaCodeUnderTest, showFile, findUsages, findImplementations, getTypeHierarchy, getCallHierarchy, rename, getMethodBody, extractConstant, extractMethod, safeDelete, findDeadCode, moveClass, validateCode, getProjectDependencies, getProjectJdk");
-        LOG.info("💬 Available prompts (5): review, explain, commit, zest-test-auto, zest-test-auto-compact");
+        LOG.info("💬 Available prompts (4): review, explain, commit, zest-test");
     }
 
     public void stop() throws Exception {
@@ -1107,6 +787,10 @@ public class ZestMcpHttpServer {
 
             String effectiveTestType;
             Set<String> methodsToInclude;
+            List<String> includedDependencies = new ArrayList<>();
+            List<String> additionalFiles = new ArrayList<>();
+            String rulesFile = null;
+            List<String> exampleFiles = new ArrayList<>();
 
             // AUTOMATION MODE: className provided, skip GUI
             if (className != null && !className.isBlank()) {
@@ -1117,9 +801,17 @@ public class ZestMcpHttpServer {
                         methodsToInclude.add(m.trim());
                     }
                 }
+                // In automation mode, auto-detect rules and examples
+                String basePath = project.getBasePath();
+                if (basePath != null) {
+                    java.nio.file.Path rulesPath = java.nio.file.Paths.get(basePath, ".zest", "test-examples", "rules.md");
+                    if (java.nio.file.Files.exists(rulesPath)) {
+                        rulesFile = rulesPath.toString();
+                    }
+                }
             } else {
-                // INTERACTIVE MODE: Show GUI to select Java class with test options
-                JavaClassSelectionDialog.SelectionResult selection = showJavaCodeSelectionDialog(project);
+                // INTERACTIVE MODE: Show wizard to select Java class with test options
+                TestGenerationWizard.SelectionResult selection = showTestGenerationWizard(project);
                 if (selection == null) {
                     return new McpSchema.CallToolResult(
                             List.of(new McpSchema.TextContent("No selection made (user cancelled)")),
@@ -1143,6 +835,12 @@ public class ZestMcpHttpServer {
                         methodsToInclude.add(m.trim());
                     }
                 }
+
+                // Use new context configuration from GUI
+                includedDependencies = selection.includedDependencies;
+                additionalFiles = selection.additionalFiles;
+                rulesFile = selection.rulesFile;
+                exampleFiles = selection.exampleFiles;
             }
 
             // Find class and generate context
@@ -1150,6 +848,11 @@ public class ZestMcpHttpServer {
             Set<String> finalMethodsToInclude = methodsToInclude;
             String finalTestType = effectiveTestType;
             String finalClassName = className; // Capture for lambda
+            List<String> finalIncludedDependencies = includedDependencies;
+            List<String> finalAdditionalFiles = additionalFiles;
+            String finalRulesFile = rulesFile;
+            List<String> finalExampleFiles = exampleFiles;
+
             ApplicationManager.getApplication().runReadAction(() -> {
                 JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
                 PsiClass psiClass = facade.findClass(finalClassName, GlobalSearchScope.allScope(project));
@@ -1159,8 +862,9 @@ public class ZestMcpHttpServer {
                     return;
                 }
 
-                // Generate comprehensive context with filters
-                result[0] = formatCodeUnderTest(psiClass, project, finalTestType, finalMethodsToInclude);
+                // Generate comprehensive context with filters and user-selected files
+                result[0] = formatCodeUnderTest(psiClass, project, finalTestType, finalMethodsToInclude,
+                        finalIncludedDependencies, finalAdditionalFiles, finalRulesFile, finalExampleFiles);
             });
 
             if (result[0] == null || result[0].startsWith("Class not found")) {
@@ -1178,18 +882,28 @@ public class ZestMcpHttpServer {
                     ? className.substring(className.lastIndexOf('.') + 1)
                     : className;
 
-            // Return content with file path info and user preferences
+            // Return only file path + summary (content is in file - saves tokens!)
+            String testRoot = detectTestRoot(project);
+            String packageName = "";
+            int lastDot = className.lastIndexOf('.');
+            if (lastDot > 0) {
+                packageName = className.substring(0, lastDot);
+            }
+            String testFilePath = testRoot + "/" + packageName.replace('.', '/') + "/" + simpleClassName + "Test.java";
+
             StringBuilder response = new StringBuilder();
-            response.append(result[0]);
-            response.append("\n---\n\n");
-            response.append("## Test Configuration\n\n");
-            response.append("- **Test type**: ").append(effectiveTestType).append("\n");
-            response.append("- **Methods to test**: ").append(methodsToInclude.isEmpty() ? "all public methods" : String.join(", ", methodsToInclude)).append("\n\n");
-            response.append("## File Locations\n\n");
-            response.append("- **Context file**: `").append(filePath).append("`\n");
-            response.append("- **Plan file** (create next): `.zest/").append(simpleClassName).append("-plan.md`\n");
-            response.append("- **Test file**: `src/test/java/.../").append(simpleClassName).append("Test.java`\n\n");
-            response.append("Proceed with test planning based on configuration above.\n");
+            response.append("## ⚠️ TEST FILE LOCATION\n\n");
+            response.append("```\n").append(testFilePath).append("\n```\n\n");
+            response.append("## Context\n\n");
+            response.append("| Key | Value |\n");
+            response.append("|-----|-------|\n");
+            response.append("| Context file | `").append(filePath).append("` |\n");
+            response.append("| Test type | ").append(effectiveTestType).append(" |\n");
+            response.append("| Methods | ").append(methodsToInclude.isEmpty() ? "all public" : String.join(", ", methodsToInclude)).append(" |\n\n");
+            response.append("## Workflow\n\n");
+            response.append("1. Read context file (DATA: imports, source, dependencies)\n");
+            response.append("2. Read Reference Files if listed in context\n");
+            response.append("3. Follow methodology from `zest-test` prompt\n");
 
             return new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(response.toString())), false);
 
@@ -1202,11 +916,11 @@ public class ZestMcpHttpServer {
         }
     }
 
-    private JavaClassSelectionDialog.SelectionResult showJavaCodeSelectionDialog(Project project) {
-        // Show GUI dialog on EDT thread
-        JavaClassSelectionDialog.SelectionResult[] result = new JavaClassSelectionDialog.SelectionResult[1];
+    private TestGenerationWizard.SelectionResult showTestGenerationWizard(Project project) {
+        // Show wizard on EDT thread
+        TestGenerationWizard.SelectionResult[] result = new TestGenerationWizard.SelectionResult[1];
         ApplicationManager.getApplication().invokeAndWait(() -> {
-            result[0] = JavaClassSelectionDialog.showAndGetSelection(project);
+            result[0] = TestGenerationWizard.showAndGetSelection(project);
         });
         return result[0];
     }
@@ -1273,138 +987,216 @@ public class ZestMcpHttpServer {
 
     /**
      * Formats comprehensive test context for a class.
-     * Includes: source code, usage analysis, related classes, dependencies.
+     * Includes: source code, user-selected dependencies, additional files, rules, examples.
      */
-    private String formatCodeUnderTest(PsiClass psiClass, Project project, String testType, Set<String> methodsToInclude) {
+    private String formatCodeUnderTest(PsiClass psiClass, Project project, String testType, Set<String> methodsToInclude,
+                                        List<String> includedDependencies, List<String> additionalFiles,
+                                        String rulesFile, List<String> exampleFiles) {
         StringBuilder result = new StringBuilder();
         String className = psiClass.getQualifiedName() != null ? psiClass.getQualifiedName() : psiClass.getName();
-
-        // Header
-        result.append("# Test Context: ").append(className).append("\n\n");
-
-        // File path
         PsiFile containingFile = psiClass.getContainingFile();
-        if (containingFile != null && containingFile.getVirtualFile() != null) {
-            result.append("**File:** `").append(containingFile.getVirtualFile().getPath()).append("`\n\n");
-        }
+        String simpleClassName = psiClass.getName() != null ? psiClass.getName() : "Unknown";
+        String packageName = psiClass.getQualifiedName() != null && psiClass.getQualifiedName().contains(".")
+                ? psiClass.getQualifiedName().substring(0, psiClass.getQualifiedName().lastIndexOf('.')) : "";
+        String testRoot = detectTestRoot(project);
 
-        // Section 1: Source Code
-        result.append("## 1. Source Code\n\n");
-        result.append("```java\n");
-        if (containingFile != null) {
-            String[] lines = containingFile.getText().split("\n");
-            for (int i = 0; i < lines.length; i++) {
-                result.append(String.format("%4d  %s\n", i + 1, lines[i]));
+        // Header: DATA ONLY file - methodology is in prompt
+        result.append("# ").append(simpleClassName).append(" (Context Data)\n\n");
+        result.append("> **This file contains DATA only.** Methodology/patterns are in the `zest-test` prompt.\n\n");
+        String testFilePath = testRoot + "/" + packageName.replace('.', '/') + "/" + simpleClassName + "Test.java";
+        result.append("## Test Location\n\n");
+        result.append("```\n");
+        result.append(testFilePath).append("\n");
+        result.append("```\n\n");
+
+        // Imports (essential for compilation)
+        result.append("## Imports\n\n```java\n");
+        if (psiClass.getQualifiedName() != null) {
+            result.append("import ").append(psiClass.getQualifiedName()).append(";\n");
+        }
+        if (containingFile instanceof PsiJavaFile) {
+            PsiImportList importList = ((PsiJavaFile) containingFile).getImportList();
+            if (importList != null) {
+                for (PsiImportStatement imp : importList.getImportStatements()) {
+                    if (imp.getQualifiedName() != null) {
+                        result.append("import ").append(imp.getQualifiedName()).append(";\n");
+                    }
+                }
             }
         }
         result.append("```\n\n");
 
-        // Section 2: Public Methods Summary (filtered if methodsToInclude is provided)
-        result.append("## 2. Public Methods");
-        if (!methodsToInclude.isEmpty()) {
-            result.append(" (Filtered: ").append(String.join(", ", methodsToInclude)).append(")");
-        }
-        result.append("\n\n");
-
-        int methodCount = 0;
-        for (PsiMethod method : psiClass.getMethods()) {
-            if (method.hasModifierProperty(PsiModifier.PUBLIC) && !method.isConstructor()) {
-                boolean include = methodsToInclude.isEmpty() || methodsToInclude.contains(method.getName());
-                String marker = include ? "✅" : "⏭️";
-                result.append("- ").append(marker).append(" `").append(getMethodSignature(method)).append("`\n");
-                if (include) methodCount++;
+        // Source Code (no line numbers - cleaner for LLM parsing)
+        result.append("## Source\n\n```java\n");
+        if (containingFile != null) {
+            result.append(containingFile.getText());
+            if (!containingFile.getText().endsWith("\n")) {
+                result.append("\n");
             }
         }
-        result.append("\n");
-        if (!methodsToInclude.isEmpty()) {
-            result.append("_Testing ").append(methodCount).append(" method(s) as requested._\n\n");
-        }
+        result.append("```\n\n");
 
-        // Section 3: Usage Analysis (call sites) - only for included methods
-        result.append("## 3. Usage Analysis\n\n");
-        UsageAnalyzer usageAnalyzer = new UsageAnalyzer(project);
-        boolean hasUsage = false;
+        // Public Methods to test
+        result.append("## Methods");
+        if (!methodsToInclude.isEmpty()) {
+            result.append(" (").append(String.join(", ", methodsToInclude)).append(")");
+        }
+        result.append("\n\n");
         for (PsiMethod method : psiClass.getMethods()) {
             if (method.hasModifierProperty(PsiModifier.PUBLIC) && !method.isConstructor()) {
                 boolean include = methodsToInclude.isEmpty() || methodsToInclude.contains(method.getName());
-                if (!include) continue; // Skip methods not in filter
-
-                UsageContext usage = usageAnalyzer.analyzeMethod(method);
-                if (!usage.isEmpty()) {
-                    hasUsage = true;
-                    result.append(usage.formatForLLM()).append("\n");
+                if (include) {
+                    result.append("- `").append(getMethodSignature(method)).append("`\n");
                 }
             }
         }
-        if (!hasUsage) {
-            result.append("_No call sites found in project. This may be a new class or entry point._\n\n");
-        }
+        result.append("\n");
 
-        // Section 4: Related Classes (dependencies)
-        result.append("## 4. Related Classes\n\n");
-        Set<PsiClass> relatedClasses = new HashSet<>();
-        com.zps.zest.core.ClassAnalyzer.collectRelatedClasses(psiClass, relatedClasses);
-
-        if (relatedClasses.isEmpty()) {
-            result.append("_No project dependencies found._\n\n");
+        // User-selected dependencies (or auto-detected if empty)
+        result.append("## Dependencies\n\n");
+        if (includedDependencies != null && !includedDependencies.isEmpty()) {
+            // Use user-selected dependencies
+            JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
+            for (String depName : includedDependencies) {
+                PsiClass depClass = facade.findClass(depName, GlobalSearchScope.allScope(project));
+                if (depClass != null) {
+                    result.append("**").append(depClass.getName()).append("**: ");
+                    appendCompactMethods(result, depClass, 5);
+                    result.append("\n");
+                }
+            }
         } else {
+            // Auto-detect dependencies
+            Set<PsiClass> relatedClasses = new HashSet<>();
+            com.zps.zest.core.ClassAnalyzer.collectRelatedClasses(psiClass, relatedClasses);
+            int depCount = 0;
             for (PsiClass related : relatedClasses) {
                 if (related.equals(psiClass)) continue;
                 String qualifiedName = related.getQualifiedName();
-                if (qualifiedName == null || qualifiedName.startsWith("java.") || qualifiedName.startsWith("javax.")) {
-                    continue;
-                }
-                result.append("### ").append(related.getName()).append("\n\n");
-                result.append("```java\n");
-                appendClassSignature(result, related);
-                result.append("```\n\n");
+                if (qualifiedName == null || isLibraryClass(qualifiedName)) continue;
+                result.append("**").append(related.getName()).append("**: ");
+                appendCompactMethods(result, related, 5);
+                result.append("\n");
+                if (++depCount >= 10) break;
             }
-        }
-
-        // Section 5: External Dependencies (for test type recommendation)
-        result.append("## 5. External Dependencies\n\n");
-        Set<String> dependencies = com.zps.zest.core.ClassAnalyzer.detectExternalDependencies(psiClass);
-        if (dependencies.isEmpty()) {
-            result.append("_No external dependencies detected. Unit tests recommended._\n\n");
-        } else {
-            result.append(com.zps.zest.core.ClassAnalyzer.formatDependenciesForTests(dependencies)).append("\n\n");
-        }
-
-        // Section 6: Test Type Guidance
-        result.append("## 6. Test Type Guidance\n\n");
-        String effectiveTestType = testType != null ? testType : "both";
-        if ("unit".equals(effectiveTestType)) {
-            result.append("**Requested: Unit Tests Only**\n\n");
-            result.append("- Focus on isolated logic testing\n");
-            result.append("- Use reflection for private field access if needed\n");
-            result.append("- Skip methods that require external dependencies\n");
-        } else if ("integration".equals(effectiveTestType)) {
-            result.append("**Requested: Integration Tests Only**\n\n");
-            result.append("- Use Testcontainers for database/message queue dependencies\n");
-            result.append("- Use WireMock for HTTP client dependencies\n");
-            result.append("- Test full workflows with real dependencies\n");
-        } else {
-            result.append("**Requested: Both Unit and Integration Tests**\n\n");
-            result.append("- Write unit tests for pure logic methods\n");
-            result.append("- Write integration tests for methods with external dependencies\n");
+            if (depCount == 0) {
+                result.append("_No project dependencies._\n");
+            }
         }
         result.append("\n");
 
-        // Section 7: Project Test Examples (from .zest/test-examples/)
-        String projectExamples = loadProjectTestExamples(project);
-        if (projectExamples != null && !projectExamples.isEmpty()) {
-            result.append("## 7. Project Test Examples\n\n");
-            result.append("⚠️ **FOLLOW THESE PATTERNS FROM YOUR PROJECT** ⚠️\n\n");
-            result.append(projectExamples);
+        // Additional context files (user-selected)
+        if (additionalFiles != null && !additionalFiles.isEmpty()) {
+            result.append("## Additional Context\n\n");
+            for (String filePath : additionalFiles) {
+                try {
+                    String content = java.nio.file.Files.readString(java.nio.file.Paths.get(filePath));
+                    String fileName = java.nio.file.Paths.get(filePath).getFileName().toString();
+                    result.append("### ").append(fileName).append("\n\n```java\n");
+                    result.append(content).append("\n```\n\n");
+                } catch (Exception e) {
+                    result.append("_Could not read: ").append(filePath).append("_\n\n");
+                }
+            }
         }
 
+        // External deps (brief)
+        Set<String> extDeps = com.zps.zest.core.ClassAnalyzer.detectExternalDependencies(psiClass);
+        if (!extDeps.isEmpty()) {
+            result.append("## External: ").append(String.join(", ", extDeps)).append("\n\n");
+        }
+
+        // Reference files (not embedded - sub-agents read on-demand to save tokens)
+        boolean hasReferences = (rulesFile != null && !rulesFile.isEmpty()) ||
+                                (exampleFiles != null && !exampleFiles.isEmpty());
+        if (hasReferences) {
+            result.append("## Reference Files (Read on-demand)\n\n");
+            if (rulesFile != null && !rulesFile.isEmpty()) {
+                result.append("- **Rules**: `").append(rulesFile).append("`\n");
+            }
+            if (exampleFiles != null && !exampleFiles.isEmpty()) {
+                result.append("- **Examples**:\n");
+                for (String exPath : exampleFiles) {
+                    String fileName = java.nio.file.Paths.get(exPath).getFileName().toString();
+                    result.append("  - `").append(exPath).append("` (").append(fileName).append(")\n");
+                }
+            }
+            result.append("\n");
+        }
+
+        // REMINDER at end - repeat test location
+        result.append("---\n\n");
+        result.append("**SAVE TEST TO:** `").append(testFilePath).append("`\n");
+
         return result.toString();
+    }
+
+    private boolean isLibraryClass(String qualifiedName) {
+        return qualifiedName.startsWith("java.") || qualifiedName.startsWith("javax.") ||
+               qualifiedName.startsWith("org.slf4j.") || qualifiedName.startsWith("org.apache.") ||
+               qualifiedName.startsWith("com.google.") || qualifiedName.startsWith("org.jetbrains.");
+    }
+
+    private void appendCompactMethods(StringBuilder sb, PsiClass psiClass, int maxMethods) {
+        int count = 0;
+        for (PsiMethod method : psiClass.getMethods()) {
+            if (method.hasModifierProperty(PsiModifier.PUBLIC) && !method.isConstructor()) {
+                if (count > 0) sb.append(", ");
+                sb.append(method.getName()).append("()");
+                if (++count >= maxMethods) {
+                    sb.append(", ...");
+                    break;
+                }
+            }
+        }
     }
 
     /**
      * Loads test examples from project's .zest/test-examples/ directory.
      * This is framework-agnostic - each project provides its own examples.
      */
+    /**
+     * Detects the test source root for the project.
+     * Checks common locations: src/test/java, test, tests
+     */
+    private String detectTestRoot(Project project) {
+        if (project == null || project.getBasePath() == null) {
+            return "src/test/java"; // default
+        }
+        String basePath = project.getBasePath();
+        // Priority: project-specific dirs first, then Maven/Gradle default
+        String[] testDirs = {"test", "tests", "src/test", "src/test/java"};
+
+        // First pass: find first non-empty test directory
+        java.nio.file.Path firstExisting = null;
+        for (String dir : testDirs) {
+            java.nio.file.Path testPath = java.nio.file.Paths.get(basePath, dir);
+            if (java.nio.file.Files.exists(testPath) && java.nio.file.Files.isDirectory(testPath)) {
+                if (firstExisting == null) {
+                    firstExisting = testPath;
+                }
+                // Check if directory has any .java files (non-empty)
+                try (var files = java.nio.file.Files.walk(testPath, 3)) {
+                    boolean hasJavaFiles = files.anyMatch(p -> p.toString().endsWith(".java"));
+                    if (hasJavaFiles) {
+                        // Return absolute path to avoid ambiguity
+                        return testPath.toAbsolutePath().toString().replace('\\', '/');
+                    }
+                } catch (Exception e) {
+                    // Ignore errors, continue checking
+                }
+            }
+        }
+
+        // If all empty but one exists, use that
+        if (firstExisting != null) {
+            return firstExisting.toAbsolutePath().toString().replace('\\', '/');
+        }
+
+        // Default: return absolute path
+        return java.nio.file.Paths.get(basePath, "src/test/java").toAbsolutePath().toString().replace('\\', '/');
+    }
+
     private String loadProjectTestExamples(Project project) {
         if (project == null || project.getBasePath() == null) return null;
 
@@ -1845,16 +1637,12 @@ public class ZestMcpHttpServer {
                       "type": "string",
                       "description": "Absolute path to the IntelliJ project"
                     },
-                    "code": {
+                    "filePath": {
                       "type": "string",
-                      "description": "The Java code to validate (full file content including package and imports)"
-                    },
-                    "className": {
-                      "type": "string",
-                      "description": "Class name for the code (used for error reporting, e.g., 'MyServiceTest')"
+                      "description": "Absolute path to the Java file to validate (e.g., 'src/test/java/com/example/MyServiceTest.java')"
                     }
                   },
-                  "required": ["projectPath", "code", "className"]
+                  "required": ["projectPath", "filePath"]
                 }
                 """;
     }
@@ -2259,7 +2047,7 @@ public class ZestMcpHttpServer {
         }
     }
 
-    private McpSchema.CallToolResult handleValidateCode(String projectPath, String code, String className) {
+    private McpSchema.CallToolResult handleValidateCode(String projectPath, String filePath) {
         try {
             Project project = findProject(projectPath);
             if (project == null) {
@@ -2268,6 +2056,28 @@ public class ZestMcpHttpServer {
                         true
                 );
             }
+
+            // Resolve file path (can be relative to project or absolute)
+            java.io.File file = new java.io.File(filePath);
+            if (!file.isAbsolute()) {
+                file = new java.io.File(projectPath, filePath);
+            }
+
+            if (!file.exists()) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("File not found: " + file.getAbsolutePath())),
+                        true
+                );
+            }
+
+            // Read file content
+            String code = java.nio.file.Files.readString(file.toPath());
+
+            // Extract class name from file name
+            String fileName = file.getName();
+            String className = fileName.endsWith(".java")
+                    ? fileName.substring(0, fileName.length() - 5)
+                    : fileName;
 
             TestCodeValidator.ValidationResult result = TestCodeValidator.validate(project, code, className);
 

@@ -12,12 +12,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Loads MCP prompts from external directories or bundled defaults.
+ * Loads MCP prompts from external directories or bundled resources.
  *
  * Priority order:
  * 1. Project: ${PROJECT}/.zest/prompts/
  * 2. User Dev: ~/.zest/dev-prompts/
- * 3. Bundled: TestGenPrompts constants
+ * 3. Bundled: src/main/resources/prompts/
  *
  * Usage: PromptLoader.getInstance(project).getPrompt("PLAN_TESTS")
  */
@@ -30,16 +30,10 @@ public final class PromptLoader {
 
     /** Available prompt names that can be loaded externally. */
     public enum PromptName {
-        ANALYZE_TESTABILITY("analyze-testability.md"),
-        PLAN_TESTS("plan-tests.md"),
-        GENERATE_TEST_CODE("generate-test-code.md"),
-        ANALYZE_TEST_GAPS("analyze-test-gaps.md"),
-        DEFAULT_TESTING_RULES("default-testing-rules.md"),
-        FRAMEWORK_SPECIFIC_RULES("framework-specific-rules.md"),
-        ORCHESTRATED_TEST_GENERATION("orchestrated-test-generation.md"),
-        ORCHESTRATED_TEST_GENERATION_COMPACT("orchestrated-test-generation-compact.md"),
-        BITZERO_TEST_GENERATION_V6("bitzero-test-v6.md"),
-        BITZERO_TESTING_RULES("bitzero-testing-rules.md");
+        TEST_GENERATION("test-generation.md"),
+        REVIEW("review.md"),
+        EXPLAIN("explain.md"),
+        COMMIT("commit.md");
 
         private final String fileName;
 
@@ -111,18 +105,7 @@ public final class PromptLoader {
     }
 
     private static String getBundledPromptStatic(PromptName name) {
-        return switch (name) {
-            case ANALYZE_TESTABILITY -> TestGenPrompts.ANALYZE_TESTABILITY;
-            case PLAN_TESTS -> TestGenPrompts.PLAN_TESTS;
-            case GENERATE_TEST_CODE -> TestGenPrompts.GENERATE_TEST_CODE;
-            case ANALYZE_TEST_GAPS -> TestGenPrompts.ANALYZE_TEST_GAPS;
-            case DEFAULT_TESTING_RULES -> TestGenPrompts.DEFAULT_TESTING_RULES;
-            case FRAMEWORK_SPECIFIC_RULES -> TestGenPrompts.FRAMEWORK_SPECIFIC_RULES;
-            case ORCHESTRATED_TEST_GENERATION -> TestGenPrompts.ORCHESTRATED_TEST_GENERATION;
-            case ORCHESTRATED_TEST_GENERATION_COMPACT -> TestGenPrompts.ORCHESTRATED_TEST_GENERATION_COMPACT;
-            case BITZERO_TEST_GENERATION_V6 -> loadBundledResource("prompts/bitzero-test-v6.md");
-            case BITZERO_TESTING_RULES -> loadBundledResource("prompts/bitzero-testing-rules.md");
-        };
+        return loadBundledResource("prompts/" + name.getFileName());
     }
 
     /**
@@ -234,18 +217,7 @@ public final class PromptLoader {
     }
 
     private String getBundledPrompt(PromptName name) {
-        return switch (name) {
-            case ANALYZE_TESTABILITY -> TestGenPrompts.ANALYZE_TESTABILITY;
-            case PLAN_TESTS -> TestGenPrompts.PLAN_TESTS;
-            case GENERATE_TEST_CODE -> TestGenPrompts.GENERATE_TEST_CODE;
-            case ANALYZE_TEST_GAPS -> TestGenPrompts.ANALYZE_TEST_GAPS;
-            case DEFAULT_TESTING_RULES -> TestGenPrompts.DEFAULT_TESTING_RULES;
-            case FRAMEWORK_SPECIFIC_RULES -> TestGenPrompts.FRAMEWORK_SPECIFIC_RULES;
-            case ORCHESTRATED_TEST_GENERATION -> TestGenPrompts.ORCHESTRATED_TEST_GENERATION;
-            case ORCHESTRATED_TEST_GENERATION_COMPACT -> TestGenPrompts.ORCHESTRATED_TEST_GENERATION_COMPACT;
-            case BITZERO_TEST_GENERATION_V6 -> loadBundledResource("prompts/bitzero-test-v6.md");
-            case BITZERO_TESTING_RULES -> loadBundledResource("prompts/bitzero-testing-rules.md");
-        };
+        return loadBundledResource("prompts/" + name.getFileName());
     }
 
     /**

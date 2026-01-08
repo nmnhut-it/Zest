@@ -19,7 +19,8 @@
       "Bash(qwen --yolo -p \"Output the COMPLETE Java code for a JUnit 5 test class for GameRequestHandler. I need the FULL code printed to console, not a summary.\n\nGameRequestHandler has 4 methods: processPlayerPlayCard, processPressStartGame, processEatBeginingEscoba, processForceEndGame.\n\nJust print the complete test class code. Start with package declaration.\")",
       "Bash(xargs:*)",
       "Bash(qwen --mcp-server zest-intellij:*)",
-      "Bash(qwen:*)"
+      "Bash(qwen:*)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits"

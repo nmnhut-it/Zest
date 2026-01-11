@@ -101,7 +101,7 @@ public class TestCodeValidator {
                 ));
             }
 
-            return ValidationResult.success(compilationErrors);
+            return ValidationResult.success(compilationErrors).withProject(project);
 
         } catch (TimeoutException e) {
             LOG.warn("Validation timed out after " + VALIDATION_TIMEOUT_SECONDS + " seconds");
@@ -139,6 +139,7 @@ public class TestCodeValidator {
         private final boolean success;
         private final List<CompilationError> errors;
         private final String errorMessage;
+        private Project project; // For enhanced error analysis
 
         private ValidationResult(boolean success, List<CompilationError> errors, String errorMessage) {
             this.success = success;
@@ -152,6 +153,11 @@ public class TestCodeValidator {
 
         public static ValidationResult error(String message) {
             return new ValidationResult(false, null, message);
+        }
+
+        public ValidationResult withProject(Project project) {
+            this.project = project;
+            return this;
         }
 
         public boolean isSuccess() { return success; }
@@ -169,6 +175,18 @@ public class TestCodeValidator {
                 return "✅ **Code compiles successfully** - no errors found.";
             }
 
+            // Use ErrorAnalyzer for smart suggestions if project is available
+            if (project != null) {
+                try {
+                    ErrorAnalyzer analyzer = new ErrorAnalyzer(project);
+                    ErrorAnalyzer.AnalysisResult analysis = analyzer.analyzeAll(errors);
+                    return analysis.toMarkdown();
+                } catch (Exception e) {
+                    LOG.warn("ErrorAnalyzer failed, falling back to basic output", e);
+                }
+            }
+
+            // Fallback to basic output
             StringBuilder sb = new StringBuilder();
             sb.append("# Compilation Errors\n\n");
             sb.append("Found **").append(errors.size()).append("** error(s):\n\n");

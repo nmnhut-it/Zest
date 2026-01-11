@@ -394,8 +394,11 @@ public class ClassAnalyzer {
 
         // Add superclass
         PsiClass superClass = targetClass.getSuperClass();
-        if (superClass != null && !superClass.getQualifiedName().startsWith("java.")) {
-            relatedClasses.add(superClass);
+        if (superClass != null) {
+            String superQName = superClass.getQualifiedName();
+            if (superQName != null && !superQName.startsWith("java.")) {
+                relatedClasses.add(superClass);
+            }
         }
 
         // Add field types
@@ -404,8 +407,11 @@ public class ClassAnalyzer {
             PsiType fieldType = field.getType();
             if (fieldType instanceof PsiClassType) {
                 PsiClass fieldClass = ((PsiClassType) fieldType).resolve();
-                if (fieldClass != null && !fieldClass.getQualifiedName().startsWith("java.")) {
-                    relatedClasses.add(fieldClass);
+                if (fieldClass != null) {
+                    String fieldQName = fieldClass.getQualifiedName();
+                    if (fieldQName != null && !fieldQName.startsWith("java.")) {
+                        relatedClasses.add(fieldClass);
+                    }
                 }
             }
         }
@@ -418,8 +424,8 @@ public class ClassAnalyzer {
                 PsiElement resolved = expression.resolve();
                 if (resolved instanceof PsiClass) {
                     PsiClass resolvedClass = (PsiClass) resolved;
-                    if (!resolvedClass.getQualifiedName().startsWith("java.") &&
-                            !resolvedClass.getQualifiedName().startsWith("javax.")) {
+                    String qName = resolvedClass.getQualifiedName();
+                    if (qName != null && !qName.startsWith("java.") && !qName.startsWith("javax.")) {
                         relatedClasses.add(resolvedClass);
                     }
                 }
@@ -433,8 +439,8 @@ public class ClassAnalyzer {
                     PsiElement resolved = classRef.resolve();
                     if (resolved instanceof PsiClass) {
                         PsiClass resolvedClass = (PsiClass) resolved;
-                        if (!resolvedClass.getQualifiedName().startsWith("java.") &&
-                                !resolvedClass.getQualifiedName().startsWith("javax.")) {
+                        String qName = resolvedClass.getQualifiedName();
+                        if (qName != null && !qName.startsWith("java.") && !qName.startsWith("javax.")) {
                             relatedClasses.add(resolvedClass);
                         }
                     }
@@ -450,10 +456,11 @@ public class ClassAnalyzer {
                     PsiType paramType = parameter.getType();
                     if (paramType instanceof PsiClassType) {
                         PsiClass paramClass = ((PsiClassType) paramType).resolve();
-                        if (paramClass != null &&
-                                !paramClass.getQualifiedName().startsWith("java.") &&
-                                !paramClass.getQualifiedName().startsWith("javax.")) {
-                            relatedClasses.add(paramClass);
+                        if (paramClass != null) {
+                            String qName = paramClass.getQualifiedName();
+                            if (qName != null && !qName.startsWith("java.") && !qName.startsWith("javax.")) {
+                                relatedClasses.add(paramClass);
+                            }
                         }
                     }
                 }
@@ -472,8 +479,8 @@ public class ClassAnalyzer {
                 PsiElement resolved = expression.resolve();
                 if (resolved instanceof PsiClass) {
                     PsiClass resolvedClass = (PsiClass) resolved;
-                    if (!resolvedClass.getQualifiedName().startsWith("java.") &&
-                            !resolvedClass.getQualifiedName().startsWith("javax.")) {
+                    String qName = resolvedClass.getQualifiedName();
+                    if (qName != null && !qName.startsWith("java.") && !qName.startsWith("javax.")) {
                         relatedClasses.add(resolvedClass);
                     }
                 }
@@ -487,8 +494,8 @@ public class ClassAnalyzer {
                     PsiElement resolved = classRef.resolve();
                     if (resolved instanceof PsiClass) {
                         PsiClass resolvedClass = (PsiClass) resolved;
-                        if (!resolvedClass.getQualifiedName().startsWith("java.") &&
-                                !resolvedClass.getQualifiedName().startsWith("javax.")) {
+                        String qName = resolvedClass.getQualifiedName();
+                        if (qName != null && !qName.startsWith("java.") && !qName.startsWith("javax.")) {
                             relatedClasses.add(resolvedClass);
                         }
                     }
@@ -501,10 +508,11 @@ public class ClassAnalyzer {
                 PsiType paramType = parameter.getType();
                 if (paramType instanceof PsiClassType) {
                     PsiClass paramClass = ((PsiClassType) paramType).resolve();
-                    if (paramClass != null &&
-                            !paramClass.getQualifiedName().startsWith("java.") &&
-                            !paramClass.getQualifiedName().startsWith("javax.")) {
-                        relatedClasses.add(paramClass);
+                    if (paramClass != null) {
+                        String qName = paramClass.getQualifiedName();
+                        if (qName != null && !qName.startsWith("java.") && !qName.startsWith("javax.")) {
+                            relatedClasses.add(paramClass);
+                        }
                     }
                 }
             }

@@ -581,13 +581,16 @@ public class TestGenerationWizard extends DialogWrapper {
         JPanel panel = new JPanel(new BorderLayout(0, JBUI.scale(8)));
         panel.setBorder(JBUI.Borders.empty(8));
 
-        JLabel infoLabel = new JLabel("<html>Select which dependencies to include in the context.<br>Project classes are selected by default.</html>");
+        JLabel infoLabel = new JLabel("<html>Related project classes found in this class's fields, methods, and inheritance.<br>Select which ones to include as context for test generation.</html>");
         infoLabel.setForeground(JBColor.GRAY);
         panel.add(infoLabel, BorderLayout.NORTH);
 
         dependenciesPanel = new JPanel();
-        dependenciesPanel.setLayout(new BoxLayout(dependenciesPanel, BoxLayout.Y_AXIS));
-        JBScrollPane scrollPane = new JBScrollPane(dependenciesPanel);
+        dependenciesPanel.setLayout(new GridBagLayout());
+        dependenciesPanel.setBorder(JBUI.Borders.empty(4));
+        JBScrollPane scrollPane = new JBScrollPane(dependenciesPanel,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         panel.add(scrollPane, BorderLayout.CENTER);
 
         // Additional files section
@@ -691,8 +694,19 @@ public class TestGenerationWizard extends DialogWrapper {
                 dependenciesPanel.removeAll();
                 dependencyCheckboxes.clear();
 
+                GridBagConstraints gbc = new GridBagConstraints();
+                gbc.gridx = 0;
+                gbc.gridy = 0;
+                gbc.anchor = GridBagConstraints.NORTHWEST;
+                gbc.fill = GridBagConstraints.HORIZONTAL;
+                gbc.weightx = 1.0;
+                gbc.insets = JBUI.insets(2, 0);
+
                 if (deps.isEmpty()) {
-                    dependenciesPanel.add(new JLabel("No dependencies detected"));
+                    JLabel emptyLabel = new JLabel("<html><i>This class only uses standard Java libraries.<br>No project dependencies to include.</i></html>");
+                    emptyLabel.setForeground(JBColor.GRAY);
+                    emptyLabel.setBorder(JBUI.Borders.empty(8));
+                    dependenciesPanel.add(emptyLabel, gbc);
                 } else {
                     deps.sort((a, b) -> {
                         if (a.isLibrary != b.isLibrary) return a.isLibrary ? 1 : -1;
@@ -704,9 +718,15 @@ public class TestGenerationWizard extends DialogWrapper {
                         if (dep.isLibrary) cb.setForeground(JBColor.GRAY);
                         cb.addActionListener(e -> updateContextSummary());
                         dependencyCheckboxes.add(cb);
-                        dependenciesPanel.add(cb);
+                        dependenciesPanel.add(cb, gbc);
+                        gbc.gridy++;
                     }
                 }
+                // Add filler to push items to top
+                gbc.weighty = 1.0;
+                gbc.fill = GridBagConstraints.BOTH;
+                dependenciesPanel.add(Box.createVerticalGlue(), gbc);
+
                 dependenciesPanel.revalidate();
                 dependenciesPanel.repaint();
                 updateContextSummary();

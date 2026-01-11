@@ -21,7 +21,7 @@
             <h4>🛠️ New MCP Tools</h4>
             <ul>
                 <li><b>getJavaCodeUnderTest</b> - GUI class picker + static analysis (source code, usage patterns, dependencies)</li>
-                <li><b>validateCode</b> - Check Java code for compilation errors with detailed error context</li>
+                <li><b>checkCompileJava</b> - Check Java code for compilation errors with detailed error context</li>
             </ul>
 
             <h4>📁 File-Based Data Flow</h4>

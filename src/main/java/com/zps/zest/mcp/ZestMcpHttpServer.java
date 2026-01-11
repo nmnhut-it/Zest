@@ -2,6 +2,7 @@ package com.zps.zest.mcp;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
@@ -454,23 +455,43 @@ public class ZestMcpHttpServer {
                 }
         ));
 
-        // Validate Code tool - uses IntelliJ's CodeSmellDetector for real compilation checking
-        McpSchema.Tool validateCodeTool = McpSchema.Tool.builder()
-                .name("validateCode")
-                .description("Validate Java file for compilation errors. " +
+        // Check Compile Java tool - uses IntelliJ's CodeSmellDetector for real compilation checking
+        McpSchema.Tool checkCompileJavaTool = McpSchema.Tool.builder()
+                .name("checkCompileJava")
+                .description("Check Java file for compilation errors. " +
                         "Uses IntelliJ's CodeSmellDetector - finds real errors like missing imports, " +
                         "type mismatches, syntax errors. " +
-                        "WORKFLOW: 1) Save code to file, 2) Call validateCode with filePath, 3) Fix errors if any. " +
+                        "WORKFLOW: 1) Save code to file, 2) Call checkCompileJava, 3) Fix errors if any. " +
                         "Returns: ✅ if compiles, or list of errors with line numbers.")
-                .inputSchema(jsonMapper, buildValidateCodeSchema())
+                .inputSchema(jsonMapper, buildCheckCompileJavaSchema())
                 .build();
 
         addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                validateCodeTool,
+                checkCompileJavaTool,
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String filePath = (String) arguments.get("filePath");
-                    return handleValidateCode(projectPath, filePath);
+                    return handleCheckCompileJava(projectPath, filePath);
+                }
+        ));
+
+        // Optimize Imports tool - uses IntelliJ's static analysis to auto-fix imports
+        McpSchema.Tool optimizeImportsTool = McpSchema.Tool.builder()
+                .name("optimizeImports")
+                .description("Auto-fix imports in a Java file using IntelliJ's static analysis. " +
+                        "Adds missing imports, removes unused imports, and organizes import order. " +
+                        "MUCH more reliable than LLM guessing imports. " +
+                        "WORKFLOW: 1) Write test file, 2) Call optimizeImports, 3) Call checkCompileJava. " +
+                        "Returns: Summary of imports added/removed, or error if class not found in project.")
+                .inputSchema(jsonMapper, buildCheckCompileJavaSchema())
+                .build();
+
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
+                optimizeImportsTool,
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String filePath = (String) arguments.get("filePath");
+                    return handleOptimizeImports(projectPath, filePath);
                 }
         ));
 
@@ -511,7 +532,7 @@ public class ZestMcpHttpServer {
                 }
         ));
 
-        LOG.info("Registered 18 MCP tools: getCurrentFile, lookupClass, getJavaCodeUnderTest, showFile, findUsages, findImplementations, getTypeHierarchy, getCallHierarchy, rename, getMethodBody, extractConstant, extractMethod, safeDelete, findDeadCode, moveClass, validateCode, getProjectDependencies, getProjectJdk");
+        LOG.info("Registered 19 MCP tools: getCurrentFile, lookupClass, getJavaCodeUnderTest, showFile, findUsages, findImplementations, getTypeHierarchy, getCallHierarchy, rename, getMethodBody, extractConstant, extractMethod, safeDelete, findDeadCode, moveClass, checkCompileJava, optimizeImports, getProjectDependencies, getProjectJdk");
     }
 
     private void registerPrompts() {
@@ -719,7 +740,7 @@ public class ZestMcpHttpServer {
         LOG.info("✅ Zest MCP HTTP Server started with dual transport support");
         LOG.info("📋 Streamable HTTP (new): http://localhost:" + port + STREAMABLE_ENDPOINT);
         LOG.info("📋 SSE (legacy): http://localhost:" + port + SSE_ENDPOINT + " + " + SSE_MESSAGE_ENDPOINT);
-        LOG.info("🔧 Available tools (18): getCurrentFile, lookupClass, getJavaCodeUnderTest, showFile, findUsages, findImplementations, getTypeHierarchy, getCallHierarchy, rename, getMethodBody, extractConstant, extractMethod, safeDelete, findDeadCode, moveClass, validateCode, getProjectDependencies, getProjectJdk");
+        LOG.info("🔧 Available tools (19): getCurrentFile, lookupClass, getJavaCodeUnderTest, showFile, findUsages, findImplementations, getTypeHierarchy, getCallHierarchy, rename, getMethodBody, extractConstant, extractMethod, safeDelete, findDeadCode, moveClass, checkCompileJava, optimizeImports, getProjectDependencies, getProjectJdk");
         LOG.info("💬 Available prompts (4): review, explain, commit, zest-test");
     }
 
@@ -784,6 +805,9 @@ public class ZestMcpHttpServer {
                         false
                 );
             }
+
+            // Initialize agent prompts in project (copies from bundled resources if not present)
+            PromptLoader.getInstance(project).initializeProjectAgentPrompts();
 
             String effectiveTestType;
             Set<String> methodsToInclude;
@@ -900,10 +924,7 @@ public class ZestMcpHttpServer {
             response.append("| Context file | `").append(filePath).append("` |\n");
             response.append("| Test type | ").append(effectiveTestType).append(" |\n");
             response.append("| Methods | ").append(methodsToInclude.isEmpty() ? "all public" : String.join(", ", methodsToInclude)).append(" |\n\n");
-            response.append("## Workflow\n\n");
-            response.append("1. Read context file (DATA: imports, source, dependencies)\n");
-            response.append("2. Read Reference Files if listed in context\n");
-            response.append("3. Follow methodology from `zest-test` prompt\n");
+            response.append("Follow `zest-test` instructions.\n");
 
             return new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(response.toString())), false);
 
@@ -993,27 +1014,24 @@ public class ZestMcpHttpServer {
                                         List<String> includedDependencies, List<String> additionalFiles,
                                         String rulesFile, List<String> exampleFiles) {
         StringBuilder result = new StringBuilder();
-        String className = psiClass.getQualifiedName() != null ? psiClass.getQualifiedName() : psiClass.getName();
+        String fqn = psiClass.getQualifiedName() != null ? psiClass.getQualifiedName() : psiClass.getName();
         PsiFile containingFile = psiClass.getContainingFile();
         String simpleClassName = psiClass.getName() != null ? psiClass.getName() : "Unknown";
-        String packageName = psiClass.getQualifiedName() != null && psiClass.getQualifiedName().contains(".")
-                ? psiClass.getQualifiedName().substring(0, psiClass.getQualifiedName().lastIndexOf('.')) : "";
+        String packageName = fqn != null && fqn.contains(".") ? fqn.substring(0, fqn.lastIndexOf('.')) : "";
         String testRoot = detectTestRoot(project);
-
-        // Header: DATA ONLY file - methodology is in prompt
-        result.append("# ").append(simpleClassName).append(" (Context Data)\n\n");
-        result.append("> **This file contains DATA only.** Methodology/patterns are in the `zest-test` prompt.\n\n");
         String testFilePath = testRoot + "/" + packageName.replace('.', '/') + "/" + simpleClassName + "Test.java";
-        result.append("## Test Location\n\n");
-        result.append("```\n");
-        result.append(testFilePath).append("\n");
-        result.append("```\n\n");
 
-        // Imports (essential for compilation)
+        // === HEADER: Target class FQN ===
+        result.append("# Test Context: `").append(fqn).append("`\n\n");
+        result.append("> Pre-computed via static analysis. Context Agent: find what's MISSING (config, SQL, scripts).\n\n");
+
+        // === SECTION 1: Test Location (prompt references this name) ===
+        result.append("## Test Location\n\n");
+        result.append("```\n").append(testFilePath).append("\n```\n\n");
+
+        // === SECTION 2: Imports (prompt references this name) ===
         result.append("## Imports\n\n```java\n");
-        if (psiClass.getQualifiedName() != null) {
-            result.append("import ").append(psiClass.getQualifiedName()).append(";\n");
-        }
+        result.append("import ").append(fqn).append(";\n");
         if (containingFile instanceof PsiJavaFile) {
             PsiImportList importList = ((PsiJavaFile) containingFile).getImportList();
             if (importList != null) {
@@ -1026,22 +1044,8 @@ public class ZestMcpHttpServer {
         }
         result.append("```\n\n");
 
-        // Source Code (no line numbers - cleaner for LLM parsing)
-        result.append("## Source\n\n```java\n");
-        if (containingFile != null) {
-            result.append(containingFile.getText());
-            if (!containingFile.getText().endsWith("\n")) {
-                result.append("\n");
-            }
-        }
-        result.append("```\n\n");
-
-        // Public Methods to test
-        result.append("## Methods");
-        if (!methodsToInclude.isEmpty()) {
-            result.append(" (").append(String.join(", ", methodsToInclude)).append(")");
-        }
-        result.append("\n\n");
+        // === SECTION 3: Methods to Test ===
+        result.append("## Methods\n\n");
         for (PsiMethod method : psiClass.getMethods()) {
             if (method.hasModifierProperty(PsiModifier.PUBLIC) && !method.isConstructor()) {
                 boolean include = methodsToInclude.isEmpty() || methodsToInclude.contains(method.getName());
@@ -1052,40 +1056,64 @@ public class ZestMcpHttpServer {
         }
         result.append("\n");
 
-        // User-selected dependencies (or auto-detected if empty)
+        // === SECTION 4: Dependencies (FQN + signatures) ===
         result.append("## Dependencies\n\n");
+        List<PsiClass> depsToShow = new ArrayList<>();
         if (includedDependencies != null && !includedDependencies.isEmpty()) {
-            // Use user-selected dependencies
             JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
             for (String depName : includedDependencies) {
                 PsiClass depClass = facade.findClass(depName, GlobalSearchScope.allScope(project));
-                if (depClass != null) {
-                    result.append("**").append(depClass.getName()).append("**: ");
-                    appendCompactMethods(result, depClass, 5);
-                    result.append("\n");
-                }
+                if (depClass != null) depsToShow.add(depClass);
             }
         } else {
-            // Auto-detect dependencies
             Set<PsiClass> relatedClasses = new HashSet<>();
             com.zps.zest.core.ClassAnalyzer.collectRelatedClasses(psiClass, relatedClasses);
-            int depCount = 0;
+            int count = 0;
             for (PsiClass related : relatedClasses) {
                 if (related.equals(psiClass)) continue;
                 String qualifiedName = related.getQualifiedName();
                 if (qualifiedName == null || isLibraryClass(qualifiedName)) continue;
-                result.append("**").append(related.getName()).append("**: ");
-                appendCompactMethods(result, related, 5);
-                result.append("\n");
-                if (++depCount >= 10) break;
+                depsToShow.add(related);
+                if (++count >= 10) break;
             }
-            if (depCount == 0) {
-                result.append("_No project dependencies._\n");
+        }
+
+        if (depsToShow.isEmpty()) {
+            result.append("_No project dependencies detected._\n");
+        } else {
+            for (PsiClass dep : depsToShow) {
+                String depFqn = dep.getQualifiedName();
+                result.append("### `").append(depFqn).append("`\n");
+                appendDependencyDetails(result, dep);
+                result.append("\n");
             }
         }
         result.append("\n");
 
-        // Additional context files (user-selected)
+        // === SECTION 5: External Dependencies ===
+        Set<String> extDeps = com.zps.zest.core.ClassAnalyzer.detectExternalDependencies(psiClass);
+        if (!extDeps.isEmpty()) {
+            result.append("## External\n\n");
+            result.append(String.join(", ", extDeps)).append("\n\n");
+        }
+
+        // === SECTION 6: Reference Files ===
+        boolean hasReferences = (rulesFile != null && !rulesFile.isEmpty()) ||
+                                (exampleFiles != null && !exampleFiles.isEmpty());
+        if (hasReferences) {
+            result.append("## References\n\n");
+            if (rulesFile != null && !rulesFile.isEmpty()) {
+                result.append("- Rules: `").append(rulesFile).append("`\n");
+            }
+            if (exampleFiles != null && !exampleFiles.isEmpty()) {
+                for (String exPath : exampleFiles) {
+                    result.append("- Example: `").append(exPath).append("`\n");
+                }
+            }
+            result.append("\n");
+        }
+
+        // === SECTION 7: Additional Context Files ===
         if (additionalFiles != null && !additionalFiles.isEmpty()) {
             result.append("## Additional Context\n\n");
             for (String filePath : additionalFiles) {
@@ -1100,35 +1128,51 @@ public class ZestMcpHttpServer {
             }
         }
 
-        // External deps (brief)
-        Set<String> extDeps = com.zps.zest.core.ClassAnalyzer.detectExternalDependencies(psiClass);
-        if (!extDeps.isEmpty()) {
-            result.append("## External: ").append(String.join(", ", extDeps)).append("\n\n");
-        }
-
-        // Reference files (not embedded - sub-agents read on-demand to save tokens)
-        boolean hasReferences = (rulesFile != null && !rulesFile.isEmpty()) ||
-                                (exampleFiles != null && !exampleFiles.isEmpty());
-        if (hasReferences) {
-            result.append("## Reference Files (Read on-demand)\n\n");
-            if (rulesFile != null && !rulesFile.isEmpty()) {
-                result.append("- **Rules**: `").append(rulesFile).append("`\n");
+        // === SECTION 8: Source Code (at end - reference material) ===
+        result.append("## Source\n\n```java\n");
+        if (containingFile != null) {
+            result.append(containingFile.getText());
+            if (!containingFile.getText().endsWith("\n")) {
+                result.append("\n");
             }
-            if (exampleFiles != null && !exampleFiles.isEmpty()) {
-                result.append("- **Examples**:\n");
-                for (String exPath : exampleFiles) {
-                    String fileName = java.nio.file.Paths.get(exPath).getFileName().toString();
-                    result.append("  - `").append(exPath).append("` (").append(fileName).append(")\n");
-                }
-            }
-            result.append("\n");
         }
+        result.append("```\n\n");
 
-        // REMINDER at end - repeat test location
-        result.append("---\n\n");
-        result.append("**SAVE TEST TO:** `").append(testFilePath).append("`\n");
+        // === END ANCHOR ===
+        result.append("---\n");
+        result.append("**TEST FILE:** `").append(testFilePath).append("`\n");
 
         return result.toString();
+    }
+
+    /**
+     * Appends detailed dependency info: constructors and key public methods.
+     */
+    private void appendDependencyDetails(StringBuilder sb, PsiClass depClass) {
+        // Constructors
+        PsiMethod[] constructors = depClass.getConstructors();
+        if (constructors.length > 0) {
+            sb.append("- Constructors: ");
+            int count = 0;
+            for (PsiMethod ctor : constructors) {
+                if (ctor.hasModifierProperty(PsiModifier.PUBLIC)) {
+                    if (count > 0) sb.append(", ");
+                    sb.append("`new ").append(depClass.getName()).append("(");
+                    PsiParameter[] params = ctor.getParameterList().getParameters();
+                    for (int i = 0; i < params.length; i++) {
+                        if (i > 0) sb.append(", ");
+                        sb.append(params[i].getType().getPresentableText());
+                    }
+                    sb.append(")`");
+                    if (++count >= 2) break;
+                }
+            }
+            sb.append("\n");
+        }
+        // Key methods
+        sb.append("- Methods: ");
+        appendCompactMethods(sb, depClass, 5);
+        sb.append("\n");
     }
 
     private boolean isLibraryClass(String qualifiedName) {
@@ -1628,7 +1672,7 @@ public class ZestMcpHttpServer {
                 """;
     }
 
-    private String buildValidateCodeSchema() {
+    private String buildCheckCompileJavaSchema() {
         return """
                 {
                   "type": "object",
@@ -2047,7 +2091,7 @@ public class ZestMcpHttpServer {
         }
     }
 
-    private McpSchema.CallToolResult handleValidateCode(String projectPath, String filePath) {
+    private McpSchema.CallToolResult handleCheckCompileJava(String projectPath, String filePath) {
         try {
             Project project = findProject(projectPath);
             if (project == null) {
@@ -2095,6 +2139,142 @@ public class ZestMcpHttpServer {
 
         } catch (Exception e) {
             LOG.error("Error validating code", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    private McpSchema.CallToolResult handleOptimizeImports(String projectPath, String filePath) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        true
+                );
+            }
+
+            // Resolve file path
+            java.io.File file = new java.io.File(filePath);
+            if (!file.isAbsolute()) {
+                file = new java.io.File(projectPath, filePath);
+            }
+
+            if (!file.exists()) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("File not found: " + file.getAbsolutePath())),
+                        true
+                );
+            }
+
+            // Find the PsiFile
+            com.intellij.openapi.vfs.VirtualFile virtualFile =
+                    com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByIoFile(file);
+            if (virtualFile == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Cannot find virtual file: " + file.getAbsolutePath())),
+                        true
+                );
+            }
+
+            final java.io.File finalFile = file;
+            String result = com.intellij.openapi.application.ApplicationManager.getApplication()
+                    .runReadAction((com.intellij.openapi.util.Computable<String>) () -> {
+                        com.intellij.psi.PsiFile psiFile =
+                                com.intellij.psi.PsiManager.getInstance(project).findFile(virtualFile);
+                        if (psiFile == null || !(psiFile instanceof com.intellij.psi.PsiJavaFile)) {
+                            return "ERROR: Not a Java file: " + finalFile.getAbsolutePath();
+                        }
+
+                        com.intellij.psi.PsiJavaFile javaFile = (com.intellij.psi.PsiJavaFile) psiFile;
+
+                        // Count imports before
+                        int importsBefore = javaFile.getImportList() != null
+                                ? javaFile.getImportList().getAllImportStatements().length : 0;
+
+                        return "BEFORE:" + importsBefore;
+                    });
+
+            if (result.startsWith("ERROR:")) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent(result)),
+                        true
+                );
+            }
+
+            int importsBefore = Integer.parseInt(result.replace("BEFORE:", ""));
+
+            // Run optimize imports in write action
+            final com.intellij.openapi.vfs.VirtualFile vf = virtualFile;
+            java.util.concurrent.atomic.AtomicReference<String> optimizeResult = new java.util.concurrent.atomic.AtomicReference<>();
+
+            com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait(() -> {
+                WriteCommandAction.runWriteCommandAction(project, () -> {
+                    try {
+                        com.intellij.psi.PsiFile psiFile =
+                                com.intellij.psi.PsiManager.getInstance(project).findFile(vf);
+                        if (psiFile instanceof com.intellij.psi.PsiJavaFile) {
+                            com.intellij.psi.PsiJavaFile javaFile = (com.intellij.psi.PsiJavaFile) psiFile;
+
+                            // Use JavaCodeStyleManager to optimize imports
+                            com.intellij.psi.codeStyle.JavaCodeStyleManager styleManager =
+                                    com.intellij.psi.codeStyle.JavaCodeStyleManager.getInstance(project);
+
+                            // This adds missing imports and removes unused ones
+                            styleManager.optimizeImports(javaFile);
+                            styleManager.shortenClassReferences(javaFile);
+
+                            // Save the file
+                            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveAllDocuments();
+
+                            // Count imports after
+                            int importsAfter = javaFile.getImportList() != null
+                                    ? javaFile.getImportList().getAllImportStatements().length : 0;
+
+                            optimizeResult.set("SUCCESS:" + importsAfter);
+                        }
+                    } catch (Exception e) {
+                        optimizeResult.set("ERROR:" + e.getMessage());
+                    }
+                });
+            });
+
+            String optimizeResultStr = optimizeResult.get();
+            if (optimizeResultStr == null || optimizeResultStr.startsWith("ERROR:")) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Failed to optimize imports: " +
+                                (optimizeResultStr != null ? optimizeResultStr : "unknown error"))),
+                        true
+                );
+            }
+
+            int importsAfter = Integer.parseInt(optimizeResultStr.replace("SUCCESS:", ""));
+            int diff = importsAfter - importsBefore;
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("# Import Optimization Complete\n\n");
+            sb.append("- **File**: ").append(file.getName()).append("\n");
+            sb.append("- **Imports before**: ").append(importsBefore).append("\n");
+            sb.append("- **Imports after**: ").append(importsAfter).append("\n");
+            sb.append("- **Change**: ").append(diff >= 0 ? "+" : "").append(diff).append("\n\n");
+
+            if (diff > 0) {
+                sb.append("✅ Added missing imports. Run `checkCompileJava` to check for remaining errors.\n");
+            } else if (diff < 0) {
+                sb.append("✅ Removed unused imports.\n");
+            } else {
+                sb.append("ℹ️ No import changes needed.\n");
+            }
+
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(sb.toString())),
+                    false
+            );
+
+        } catch (Exception e) {
+            LOG.error("Error optimizing imports", e);
             return new McpSchema.CallToolResult(
                     List.of(new McpSchema.TextContent("ERROR: " + e.getMessage())),
                     true

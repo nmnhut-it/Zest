@@ -46,6 +46,24 @@ public final class PromptLoader {
         }
     }
 
+    /** Agent prompt files for sub-agent spawning. */
+    public enum AgentPrompt {
+        CONTEXT("context-agent.md"),
+        COORDINATOR("coordinator-agent.md"),
+        WRITER("writer-agent.md"),
+        FIXER("fixer-agent.md");
+
+        private final String fileName;
+
+        AgentPrompt(String fileName) {
+            this.fileName = fileName;
+        }
+
+        public String getFileName() {
+            return fileName;
+        }
+    }
+
     /** Source of a loaded prompt. */
     public enum PromptSource {
         PROJECT("Project (.zest/prompts)"),
@@ -170,6 +188,58 @@ public final class PromptLoader {
         }
 
         return created;
+    }
+
+    /**
+     * Initialize project agent prompts in .zest/prompts/agents/.
+     * These are used by sub-agents during test generation.
+     * Returns list of created files.
+     */
+    public java.util.List<String> initializeProjectAgentPrompts() {
+        java.util.List<String> created = new java.util.ArrayList<>();
+
+        try {
+            Path agentsDir = getProjectPromptsDir().resolve("agents");
+            Files.createDirectories(agentsDir);
+
+            for (AgentPrompt agent : AgentPrompt.values()) {
+                Path targetPath = agentsDir.resolve(agent.getFileName());
+                if (!Files.exists(targetPath)) {
+                    String content = loadBundledResource("prompts/agents/" + agent.getFileName());
+                    Files.writeString(targetPath, content);
+                    created.add(agent.getFileName());
+                }
+            }
+
+            // Also create agents working directory
+            Path agentsWorkDir = Paths.get(project.getBasePath(), ".zest", "agents");
+            Files.createDirectories(agentsWorkDir);
+
+            if (!created.isEmpty()) {
+                LOG.info("Initialized project agent prompts: " + created);
+            }
+        } catch (IOException e) {
+            LOG.error("Failed to initialize project agent prompts", e);
+        }
+
+        return created;
+    }
+
+    /**
+     * Get path to a specific agent prompt file in the project.
+     */
+    public Path getAgentPromptPath(AgentPrompt agent) {
+        return getProjectPromptsDir().resolve("agents").resolve(agent.getFileName());
+    }
+
+    /**
+     * Get path to agents working directory (.zest/agents/).
+     */
+    public Path getAgentsWorkDir() {
+        String basePath = project.getBasePath();
+        return basePath != null
+            ? Paths.get(basePath, ".zest", "agents")
+            : Paths.get(System.getProperty("user.home"), ".zest", "agents");
     }
 
     /**

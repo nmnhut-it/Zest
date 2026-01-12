@@ -63,13 +63,39 @@ public class TestCoverageToolHandler {
         result.addProperty("hasCoverage", false);
         result.addProperty("message", "No coverage data available.");
 
+        // Provide suggestions based on detected build system
         JsonArray suggestions = new JsonArray();
-        suggestions.add("Run tests with JaCoCo: ./gradlew test jacocoTestReport");
-        suggestions.add("Or run with IntelliJ coverage (Run → Run with Coverage)");
-        suggestions.add("JaCoCo report will be generated at: build/reports/jacoco/test/jacocoTestReport.xml");
+        String buildSystem = detectBuildSystem(projectPath);
+        result.addProperty("buildSystem", buildSystem);
+
+        if ("gradle".equals(buildSystem)) {
+            suggestions.add("If JaCoCo is configured: ./gradlew test jacocoTestReport");
+            suggestions.add("Report will be at: build/reports/jacoco/test/jacocoTestReport.xml");
+        } else if ("maven".equals(buildSystem)) {
+            suggestions.add("If JaCoCo is configured: mvn test jacoco:report");
+            suggestions.add("Report will be at: target/site/jacoco/jacoco.xml");
+        } else {
+            suggestions.add("Coverage requires JaCoCo or similar tool configured in your build");
+        }
+
+        suggestions.add("Alternative: Run tests with coverage in IntelliJ (Run → Run with Coverage)");
         result.add("suggestions", suggestions);
 
         return result;
+    }
+
+    /**
+     * Detect build system by looking for build files.
+     */
+    private static String detectBuildSystem(String projectPath) {
+        if (Files.exists(Paths.get(projectPath, "build.gradle")) ||
+            Files.exists(Paths.get(projectPath, "build.gradle.kts"))) {
+            return "gradle";
+        }
+        if (Files.exists(Paths.get(projectPath, "pom.xml"))) {
+            return "maven";
+        }
+        return "unknown";
     }
 
     /**
@@ -253,8 +279,21 @@ public class TestCoverageToolHandler {
                 result.addProperty("testMethodCount", testMethodCount);
 
                 suggestions.add("Test class found with " + testMethodCount + " test methods.");
-                suggestions.add("Run: ./gradlew test jacocoTestReport");
-                suggestions.add("Then call getCoverageData again to see metrics.");
+
+                // Detect build system for appropriate suggestion
+                String projectPath = project.getBasePath();
+                if (projectPath != null) {
+                    String buildSystem = detectBuildSystem(projectPath);
+                    if ("gradle".equals(buildSystem)) {
+                        suggestions.add("To see coverage: ./gradlew test jacocoTestReport (if JaCoCo configured)");
+                    } else if ("maven".equals(buildSystem)) {
+                        suggestions.add("To see coverage: mvn test jacoco:report (if JaCoCo configured)");
+                    } else {
+                        suggestions.add("Configure JaCoCo in your build tool to generate coverage reports");
+                    }
+                }
+
+                suggestions.add("Or use: Run → Run with Coverage in IntelliJ");
 
             } else {
                 // No tests at all

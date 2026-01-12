@@ -1848,6 +1848,21 @@ public class ZestMcpHttpServer {
                 """;
     }
 
+    private String buildProjectPathSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to IntelliJ project"
+                    }
+                  },
+                  "required": ["projectPath"]
+                }
+                """;
+    }
+
     private McpSchema.CallToolResult handleGetCoverageData(String projectPath, String className) {
         try {
             Project project = findProject(projectPath);

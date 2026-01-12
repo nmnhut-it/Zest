@@ -2,10 +2,6 @@ package com.zps.zest.mcp.refactor;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.intellij.coverage.CoverageDataManager;
-import com.intellij.coverage.CoverageSuitesBundle;
-import com.intellij.coverage.JavaCoverageAnnotator;
-import com.intellij.coverage.PackageAnnotator;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -13,87 +9,173 @@ import com.intellij.openapi.util.Computable;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Stream;
 
 /**
- * Handler for test execution and coverage measurement via IntelliJ APIs.
+ * Handler for test discovery and coverage analysis.
  *
- * Requires IntelliJ's coverage plugin to be enabled. Coverage data is available
- * after running tests with coverage (Run → Run with Coverage).
+ * Supports:
+ * - Test class and method discovery
+ * - Test framework detection (JUnit 4, JUnit 5, TestNG)
+ * - JaCoCo coverage report reading (if available)
  */
 public class TestCoverageToolHandler {
     private static final Logger LOG = Logger.getInstance(TestCoverageToolHandler.class);
 
     /**
-     * Get current test coverage data for a class.
+     * Get test coverage data for a class.
      *
-     * Note: This requires coverage to be run first in IntelliJ.
-     * Returns coverage metrics if available, or a message to run coverage.
+     * Looks for JaCoCo XML reports in build/reports/jacoco/ or build/jacoco/
+     * If not found, returns test info with instructions to run coverage.
      */
     public static JsonObject getCoverageData(Project project, String className) {
-        return ApplicationManager.getApplication().runReadAction((Computable<JsonObject>) () -> {
-            JsonObject result = new JsonObject();
-            result.addProperty("className", className);
+        JsonObject result = new JsonObject();
+        result.addProperty("className", className);
 
-            try {
-                // Get coverage data manager
-                CoverageDataManager coverageManager = CoverageDataManager.getInstance(project);
-                CoverageSuitesBundle currentSuite = coverageManager.getCurrentSuitesBundle();
+        // Try to find JaCoCo XML report
+        String projectPath = project.getBasePath();
+        if (projectPath != null) {
+            Path jacocoReport = findJaCoCoReport(projectPath);
 
-                if (currentSuite == null) {
-                    result.addProperty("hasCoverage", false);
-                    result.addProperty("message", "No coverage data available. Run tests with coverage first (Run → Run with Coverage).");
-                    return result;
-                }
-
-                // Find the class
-                PsiClass psiClass = findClass(project, className);
-                if (psiClass == null) {
-                    result.addProperty("hasCoverage", false);
-                    result.addProperty("error", "Class not found: " + className);
-                    return result;
-                }
-
-                // Get coverage annotator
-                PackageAnnotator.ClassCoverageInfo classCoverage =
-                    currentSuite.getCoverageEngine() != null ?
-                    getCoverageInfo(currentSuite, psiClass) : null;
-
-                if (classCoverage != null) {
-                    result.addProperty("hasCoverage", true);
-                    result.addProperty("totalLineCount", classCoverage.totalLineCount);
-                    result.addProperty("coveredLineCount", classCoverage.coveredLineCount);
-
-                    if (classCoverage.totalLineCount > 0) {
-                        double percentage = (double) classCoverage.coveredLineCount / classCoverage.totalLineCount * 100;
-                        result.addProperty("coveragePercentage", String.format("%.2f%%", percentage));
+            if (jacocoReport != null) {
+                try {
+                    JsonObject coverageInfo = parseJaCoCoReport(jacocoReport, className);
+                    if (coverageInfo != null) {
+                        result.addProperty("hasCoverage", true);
+                        result.addProperty("source", "JaCoCo XML report");
+                        result.addProperty("reportPath", jacocoReport.toString());
+                        result.add("coverage", coverageInfo);
+                        return result;
                     }
-                } else {
-                    result.addProperty("hasCoverage", false);
-                    result.addProperty("message", "Coverage data not available for this class. Try running tests with coverage for this class.");
+                } catch (Exception e) {
+                    LOG.warn("Error parsing JaCoCo report", e);
                 }
-
-            } catch (Exception e) {
-                LOG.warn("Error getting coverage data", e);
-                result.addProperty("hasCoverage", false);
-                result.addProperty("message", "Coverage plugin available but error occurred: " + e.getMessage());
             }
+        }
 
-            return result;
-        });
+        // No coverage data found
+        result.addProperty("hasCoverage", false);
+        result.addProperty("message", "No coverage data available.");
+
+        JsonArray suggestions = new JsonArray();
+        suggestions.add("Run tests with JaCoCo: ./gradlew test jacocoTestReport");
+        suggestions.add("Or run with IntelliJ coverage (Run → Run with Coverage)");
+        suggestions.add("JaCoCo report will be generated at: build/reports/jacoco/test/jacocoTestReport.xml");
+        result.add("suggestions", suggestions);
+
+        return result;
     }
 
-    private static PackageAnnotator.ClassCoverageInfo getCoverageInfo(CoverageSuitesBundle suite, PsiClass psiClass) {
-        try {
-            JavaCoverageAnnotator annotator = (JavaCoverageAnnotator) suite.getAnnotator(psiClass.getProject());
-            if (annotator != null) {
-                String qualifiedName = psiClass.getQualifiedName();
-                return annotator.getClassCoverageInfo(qualifiedName);
+    /**
+     * Find JaCoCo XML report in common locations.
+     */
+    private static Path findJaCoCoReport(String projectPath) {
+        String[] possiblePaths = {
+            "build/reports/jacoco/test/jacocoTestReport.xml",
+            "build/jacoco/jacocoTestReport.xml",
+            "target/site/jacoco/jacoco.xml"  // Maven
+        };
+
+        for (String relativePath : possiblePaths) {
+            Path reportPath = Paths.get(projectPath, relativePath);
+            if (Files.exists(reportPath)) {
+                return reportPath;
             }
-        } catch (Exception e) {
-            LOG.warn("Error getting class coverage info", e);
         }
+
         return null;
+    }
+
+    /**
+     * Parse JaCoCo XML report for a specific class.
+     * Returns null if class not found in report.
+     */
+    private static JsonObject parseJaCoCoReport(Path reportPath, String className) {
+        try {
+            String content = Files.readString(reportPath);
+
+            // Simple XML parsing for class coverage
+            // Format: <class name="com/example/MyClass" ... >
+            String searchName = className.replace(".", "/");
+            int classIdx = content.indexOf("name=\"" + searchName + "\"");
+
+            if (classIdx == -1) {
+                return null;  // Class not found in report
+            }
+
+            // Find the counter elements for this class
+            // Look for LINE counter: <counter type="LINE" missed="X" covered="Y"/>
+            int classStart = content.lastIndexOf("<class", classIdx);
+            int classEnd = content.indexOf("</class>", classStart);
+
+            if (classStart == -1 || classEnd == -1) {
+                return null;
+            }
+
+            String classSection = content.substring(classStart, classEnd);
+
+            JsonObject coverage = new JsonObject();
+
+            // Parse LINE counter
+            int lineCounterIdx = classSection.indexOf("<counter type=\"LINE\"");
+            if (lineCounterIdx != -1) {
+                int missed = extractCounterValue(classSection, lineCounterIdx, "missed");
+                int covered = extractCounterValue(classSection, lineCounterIdx, "covered");
+                int total = missed + covered;
+
+                coverage.addProperty("totalLines", total);
+                coverage.addProperty("coveredLines", covered);
+                coverage.addProperty("missedLines", missed);
+
+                if (total > 0) {
+                    double percentage = (double) covered / total * 100;
+                    coverage.addProperty("linePercentage", String.format("%.2f%%", percentage));
+                }
+            }
+
+            // Parse BRANCH counter
+            int branchCounterIdx = classSection.indexOf("<counter type=\"BRANCH\"");
+            if (branchCounterIdx != -1) {
+                int missed = extractCounterValue(classSection, branchCounterIdx, "missed");
+                int covered = extractCounterValue(classSection, branchCounterIdx, "covered");
+                int total = missed + covered;
+
+                coverage.addProperty("totalBranches", total);
+                coverage.addProperty("coveredBranches", covered);
+
+                if (total > 0) {
+                    double percentage = (double) covered / total * 100;
+                    coverage.addProperty("branchPercentage", String.format("%.2f%%", percentage));
+                }
+            }
+
+            return coverage.size() > 0 ? coverage : null;
+
+        } catch (IOException e) {
+            LOG.warn("Error reading JaCoCo report", e);
+            return null;
+        }
+    }
+
+    private static int extractCounterValue(String xml, int counterPos, String attribute) {
+        int attrIdx = xml.indexOf(attribute + "=\"", counterPos);
+        if (attrIdx == -1) return 0;
+
+        int valueStart = attrIdx + attribute.length() + 2;
+        int valueEnd = xml.indexOf("\"", valueStart);
+        if (valueEnd == -1) return 0;
+
+        try {
+            return Integer.parseInt(xml.substring(valueStart, valueEnd));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /**
@@ -104,7 +186,7 @@ public class TestCoverageToolHandler {
             JsonObject result = new JsonObject();
             result.addProperty("className", className);
 
-            // First check if we have coverage data
+            // Check if we have coverage data
             JsonObject coverageData = getCoverageData(project, className);
             boolean hasCoverage = coverageData.has("hasCoverage") && coverageData.get("hasCoverage").getAsBoolean();
 
@@ -115,29 +197,51 @@ public class TestCoverageToolHandler {
             JsonArray suggestions = new JsonArray();
 
             if (hasCoverage) {
-                // We have coverage data - provide detailed analysis
-                int totalLines = coverageData.get("totalLineCount").getAsInt();
-                int coveredLines = coverageData.get("coveredLineCount").getAsInt();
-                String percentage = coverageData.get("coveragePercentage").getAsString();
+                // We have coverage data from JaCoCo - provide detailed analysis
+                JsonObject coverage = coverageData.getAsJsonObject("coverage");
 
                 result.addProperty("hasCoverage", true);
-                result.addProperty("totalLineCount", totalLines);
-                result.addProperty("coveredLineCount", coveredLines);
-                result.addProperty("coveragePercentage", percentage);
+                result.addProperty("source", coverageData.get("source").getAsString());
 
-                // Provide suggestions based on coverage percentage
-                double coveragePercent = (double) coveredLines / totalLines * 100;
+                if (coverage.has("totalLines")) {
+                    int totalLines = coverage.get("totalLines").getAsInt();
+                    int coveredLines = coverage.get("coveredLines").getAsInt();
+                    String percentage = coverage.get("linePercentage").getAsString();
 
-                if (coveragePercent < 50) {
-                    suggestions.add("Coverage is low (" + percentage + "). Consider adding more test cases.");
-                    suggestions.add("Focus on testing critical business logic first.");
-                } else if (coveragePercent < 80) {
-                    suggestions.add("Coverage is moderate (" + percentage + "). Good progress!");
-                    suggestions.add("Consider testing edge cases and error conditions.");
-                } else {
-                    suggestions.add("Coverage is good (" + percentage + "). Well done!");
-                    suggestions.add("Ensure tests are meaningful, not just hitting lines.");
+                    result.addProperty("totalLines", totalLines);
+                    result.addProperty("coveredLines", coveredLines);
+                    result.addProperty("linePercentage", percentage);
+
+                    // Provide suggestions based on coverage percentage
+                    double coveragePercent = (double) coveredLines / totalLines * 100;
+
+                    if (coveragePercent < 50) {
+                        suggestions.add("Line coverage is low (" + percentage + "). Consider adding more test cases.");
+                        suggestions.add("Focus on testing critical business logic first.");
+                    } else if (coveragePercent < 80) {
+                        suggestions.add("Line coverage is moderate (" + percentage + "). Good progress!");
+                        suggestions.add("Consider testing edge cases and error conditions.");
+                    } else {
+                        suggestions.add("Line coverage is good (" + percentage + "). Well done!");
+                    }
                 }
+
+                if (coverage.has("totalBranches")) {
+                    int totalBranches = coverage.get("totalBranches").getAsInt();
+                    int coveredBranches = coverage.get("coveredBranches").getAsInt();
+                    String branchPercentage = coverage.get("branchPercentage").getAsString();
+
+                    result.addProperty("totalBranches", totalBranches);
+                    result.addProperty("coveredBranches", coveredBranches);
+                    result.addProperty("branchPercentage", branchPercentage);
+
+                    double branchPercent = (double) coveredBranches / totalBranches * 100;
+                    if (branchPercent < 70) {
+                        suggestions.add("Branch coverage is " + branchPercentage + ". Test more conditional paths.");
+                    }
+                }
+
+                suggestions.add("Ensure tests are meaningful, not just hitting lines.");
 
             } else if (hasTestClass) {
                 // We have tests but no coverage data
@@ -149,7 +253,8 @@ public class TestCoverageToolHandler {
                 result.addProperty("testMethodCount", testMethodCount);
 
                 suggestions.add("Test class found with " + testMethodCount + " test methods.");
-                suggestions.add("Run tests with coverage to get detailed metrics (Run → Run with Coverage).");
+                suggestions.add("Run: ./gradlew test jacocoTestReport");
+                suggestions.add("Then call getCoverageData again to see metrics.");
 
             } else {
                 // No tests at all

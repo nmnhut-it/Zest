@@ -226,7 +226,42 @@ public class ZestMcpHttpServer {
                 }
         ));
 
-        LOG.info("Registered 7 MCP tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode, showFile");
+        // Refactor tools
+        McpSchema.Tool askUserTool = McpSchema.Tool.builder()
+                .name("askUser")
+                .description("Ask user a question via IntelliJ dialog. Supports single choice, multiple choice, and free text. Returns user's answer.")
+                .inputSchema(jsonMapper, buildAskUserSchema())
+                .build();
+
+        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+                askUserTool,
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String questionText = (String) arguments.get("questionText");
+                    String questionType = (String) arguments.get("questionType");
+                    List<Map<String, String>> options = (List<Map<String, String>>) arguments.get("options");
+                    String header = (String) arguments.get("header");
+                    return handleAskUser(projectPath, questionText, questionType, options, header);
+                }
+        ));
+
+        McpSchema.Tool analyzeRefactorabilityTool = McpSchema.Tool.builder()
+                .name("analyzeRefactorability")
+                .description("Analyze code for refactoring opportunities using IntelliJ inspections and PSI analysis. Returns findings categorized by impact (TESTABILITY, COMPLEXITY, CODE_SMELLS) with specific line references and team rules from .zest/rules.md")
+                .inputSchema(jsonMapper, buildAnalyzeRefactorabilitySchema())
+                .build();
+
+        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+                analyzeRefactorabilityTool,
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String className = (String) arguments.get("className");
+                    String focusArea = (String) arguments.get("focusArea");
+                    return handleAnalyzeRefactorability(projectPath, className, focusArea);
+                }
+        ));
+
+        LOG.info("Registered 9 MCP tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode, showFile, askUser, analyzeRefactorability");
     }
 
     private void registerPrompts() {
@@ -861,7 +896,17 @@ public class ZestMcpHttpServer {
                 {{errorOutput}}
                 """);
 
-        LOG.info("Registered 7 MCP prompts: review, explain, commit, zest-test-context, zest-test-plan, zest-test-write, zest-test-fix");
+        // Refactor prompt - load from file
+        try {
+            String refactorPrompt = new String(getClass().getResourceAsStream("/prompts/refactor.md").readAllBytes());
+            registerPrompt("refactor", "Interactive code refactoring assistant with dynamic goal discovery",
+                    List.of(),
+                    refactorPrompt);
+        } catch (Exception e) {
+            LOG.warn("Failed to load refactor prompt", e);
+        }
+
+        LOG.info("Registered 8 MCP prompts: review, explain, commit, zest-test-context, zest-test-plan, zest-test-write, zest-test-fix, refactor");
     }
 
     private void registerPrompt(String name, String description, List<McpSchema.PromptArgument> arguments, String promptTemplate) {
@@ -1584,6 +1629,122 @@ public class ZestMcpHttpServer {
         } catch (IOException e) {
             LOG.error("Failed to write context file", e);
             return null;
+        }
+    }
+
+    // ========== REFACTOR TOOL SCHEMAS ==========
+
+    private String buildAskUserSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to IntelliJ project"
+                    },
+                    "questionText": {
+                      "type": "string",
+                      "description": "The question to ask the user"
+                    },
+                    "questionType": {
+                      "type": "string",
+                      "enum": ["SINGLE_CHOICE", "MULTI_CHOICE", "FREE_TEXT"],
+                      "description": "Type of question: SINGLE_CHOICE (radio buttons), MULTI_CHOICE (checkboxes), FREE_TEXT (text area)"
+                    },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {"type": "string"},
+                          "description": {"type": "string"}
+                        },
+                        "required": ["label"]
+                      },
+                      "description": "Options for SINGLE_CHOICE or MULTI_CHOICE questions"
+                    },
+                    "header": {
+                      "type": "string",
+                      "description": "Dialog header text (optional, defaults to 'Question')"
+                    }
+                  },
+                  "required": ["projectPath", "questionText", "questionType"]
+                }
+                """;
+    }
+
+    private String buildAnalyzeRefactorabilitySchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to IntelliJ project"
+                    },
+                    "className": {
+                      "type": "string",
+                      "description": "Fully qualified class name to analyze (optional - if not provided, uses current file in editor)"
+                    },
+                    "focusArea": {
+                      "type": "string",
+                      "enum": ["TESTABILITY", "COMPLEXITY", "CODE_SMELLS", "ALL"],
+                      "description": "Focus area for analysis: TESTABILITY (DI, mocking), COMPLEXITY (cyclomatic complexity, long methods), CODE_SMELLS (god classes, too many params), ALL (everything)"
+                    }
+                  },
+                  "required": ["projectPath"]
+                }
+                """;
+    }
+
+    // ========== REFACTOR TOOL HANDLERS ==========
+
+    private McpSchema.CallToolResult handleAskUser(
+            String projectPath,
+            String questionText,
+            String questionType,
+            List<Map<String, String>> options,
+            String header
+    ) {
+        try {
+            Project project = findProjectByPath(projectPath);
+            if (project == null) {
+                return McpSchema.CallToolResult.ofError("Project not found: " + projectPath);
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.AskUserToolHandler.askUser(
+                    project, questionText, questionType, options, header
+            );
+
+            return McpSchema.CallToolResult.ofText(result.toString());
+
+        } catch (Exception e) {
+            LOG.error("Error in askUser", e);
+            return McpSchema.CallToolResult.ofError("Failed to ask user: " + e.getMessage());
+        }
+    }
+
+    private McpSchema.CallToolResult handleAnalyzeRefactorability(
+            String projectPath,
+            String className,
+            String focusArea
+    ) {
+        try {
+            Project project = findProjectByPath(projectPath);
+            if (project == null) {
+                return McpSchema.CallToolResult.ofError("Project not found: " + projectPath);
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.RefactorabilityAnalyzer.analyze(
+                    project, className, focusArea
+            );
+
+            return McpSchema.CallToolResult.ofText(result.toString());
+
+        } catch (Exception e) {
+            LOG.error("Error in analyzeRefactorability", e);
+            return McpSchema.CallToolResult.ofError("Failed to analyze refactorability: " + e.getMessage());
         }
     }
 }

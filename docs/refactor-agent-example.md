@@ -6,8 +6,14 @@ The Refactor Agent is exposed via Zest's MCP server (port 45450) for use with ex
 
 ## MCP Tools Added
 
+### Refactoring Analysis
 1. **askUser** - Ask user questions via IntelliJ dialogs
 2. **analyzeRefactorability** - Scan code for refactoring opportunities using IntelliJ inspections
+
+### Test & Coverage (NEW!)
+3. **getCoverageData** - Get current test coverage from IntelliJ's coverage runner
+4. **analyzeCoverage** - Get coverage analysis with improvement suggestions
+5. **getTestInfo** - Get test class information (test methods, framework detection)
 
 ## MCP Prompt Added
 
@@ -115,6 +121,77 @@ analyzeRefactorability({
 }
 ```
 
+```typescript
+// Get test coverage data
+getCoverageData({
+  projectPath: "/path/to/project",
+  className: "com.example.OrderService"
+})
+
+// Returns:
+{
+  "hasCoverage": true,
+  "className": "OrderService",
+  "classCoverage": "45%",
+  "methodsCoverage": [
+    {"methodName": "processOrder", "coverage": "30%"},
+    {"methodName": "calculateTotal", "coverage": "0%"},
+    {"methodName": "validateOrder", "coverage": "80%"}
+  ],
+  "suiteInfo": {
+    "suiteName": "OrderServiceTest",
+    "timestamp": 1704097200000
+  }
+}
+```
+
+```typescript
+// Analyze coverage with suggestions
+analyzeCoverage({
+  projectPath: "/path/to/project",
+  className: "com.example.OrderService"
+})
+
+// Returns:
+{
+  "className": "OrderService",
+  "methodCoveragePercent": 60,
+  "coveredMethods": 6,
+  "totalMethods": 10,
+  "uncoveredMethods": [
+    {"methodName": "calculateTotal", "suggestion": "Add unit test for calculateTotal()"},
+    {"methodName": "sendEmail", "suggestion": "Add unit test for sendEmail()"}
+  ],
+  "suggestions": [
+    "Add tests for 4 uncovered methods",
+    "Coverage is moderate (60%). Add tests for uncovered methods to reach 80%."
+  ]
+}
+```
+
+```typescript
+// Get test class information
+getTestInfo({
+  projectPath: "/path/to/project",
+  className: "com.example.OrderService"
+})
+
+// Returns:
+{
+  "className": "OrderService",
+  "hasTestClass": true,
+  "testClassName": "com.example.OrderServiceTest",
+  "testFilePath": "/src/test/java/com/example/OrderServiceTest.java",
+  "testMethodCount": 8,
+  "testMethods": [
+    {"name": "testProcessOrder"},
+    {"name": "testCalculateTotal"},
+    {"name": "testValidateOrder_withValidInput"}
+  ],
+  "testFramework": "JUnit 5"
+}
+```
+
 ## Example Conversation
 
 ```
@@ -125,9 +202,18 @@ Claude: [Calls askUser tool]
 
 User: [Selects "Current file"]
 
-Claude: [Calls getCurrentFile, then analyzeRefactorability]
+Claude: [Calls getCurrentFile, getCoverageData, getTestInfo, then analyzeRefactorability]
 
         I analyzed OrderService.java and found:
+
+        📊 CURRENT COVERAGE:
+        • Overall: 45%
+        • processOrder(): 30% covered
+        • calculateTotal(): 0% covered (NOT TESTED!)
+
+        📋 TEST INFO:
+        • Test class: OrderServiceTest.java (8 test methods, JUnit 5)
+        • Missing tests for: calculateTotal(), sendEmail()
 
         🔴 HIGH IMPACT (Testability Blockers):
         • Line 45: Static PaymentGateway.charge()

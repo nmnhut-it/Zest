@@ -261,7 +261,53 @@ public class ZestMcpHttpServer {
                 }
         ));
 
-        LOG.info("Registered 9 MCP tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode, showFile, askUser, analyzeRefactorability");
+        // Test coverage tools
+        McpSchema.Tool getCoverageTool = McpSchema.Tool.builder()
+                .name("getCoverageData")
+                .description("Get current test coverage data for a class from IntelliJ's coverage runner. Returns coverage percentages per method and overall class coverage.")
+                .inputSchema(jsonMapper, buildGetCoverageSchema())
+                .build();
+
+        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+                getCoverageTool,
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String className = (String) arguments.get("className");
+                    return handleGetCoverageData(projectPath, className);
+                }
+        ));
+
+        McpSchema.Tool analyzeCoverageTool = McpSchema.Tool.builder()
+                .name("analyzeCoverage")
+                .description("Analyze test coverage and get improvement suggestions. Returns uncovered methods, coverage percentage, and actionable suggestions.")
+                .inputSchema(jsonMapper, buildGetCoverageSchema())
+                .build();
+
+        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+                analyzeCoverageTool,
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String className = (String) arguments.get("className");
+                    return handleAnalyzeCoverage(projectPath, className);
+                }
+        ));
+
+        McpSchema.Tool getTestInfoTool = McpSchema.Tool.builder()
+                .name("getTestInfo")
+                .description("Get information about test class and test methods for a given class. Detects test framework (JUnit 4/5, TestNG) and counts test methods.")
+                .inputSchema(jsonMapper, buildGetCoverageSchema())
+                .build();
+
+        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+                getTestInfoTool,
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String className = (String) arguments.get("className");
+                    return handleGetTestInfo(projectPath, className);
+                }
+        ));
+
+        LOG.info("Registered 12 MCP tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode, showFile, askUser, analyzeRefactorability, getCoverageData, analyzeCoverage, getTestInfo");
     }
 
     private void registerPrompts() {
@@ -1745,6 +1791,84 @@ public class ZestMcpHttpServer {
         } catch (Exception e) {
             LOG.error("Error in analyzeRefactorability", e);
             return McpSchema.CallToolResult.ofError("Failed to analyze refactorability: " + e.getMessage());
+        }
+    }
+
+    // ========== TEST COVERAGE TOOLS ==========
+
+    private String buildGetCoverageSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to IntelliJ project"
+                    },
+                    "className": {
+                      "type": "string",
+                      "description": "Fully qualified class name to analyze coverage for"
+                    }
+                  },
+                  "required": ["projectPath", "className"]
+                }
+                """;
+    }
+
+    private McpSchema.CallToolResult handleGetCoverageData(String projectPath, String className) {
+        try {
+            Project project = findProjectByPath(projectPath);
+            if (project == null) {
+                return McpSchema.CallToolResult.ofError("Project not found: " + projectPath);
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.TestCoverageToolHandler.getCoverageData(
+                    project, className
+            );
+
+            return McpSchema.CallToolResult.ofText(result.toString());
+
+        } catch (Exception e) {
+            LOG.error("Error in getCoverageData", e);
+            return McpSchema.CallToolResult.ofError("Failed to get coverage data: " + e.getMessage());
+        }
+    }
+
+    private McpSchema.CallToolResult handleAnalyzeCoverage(String projectPath, String className) {
+        try {
+            Project project = findProjectByPath(projectPath);
+            if (project == null) {
+                return McpSchema.CallToolResult.ofError("Project not found: " + projectPath);
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.TestCoverageToolHandler.analyzeCoverage(
+                    project, className
+            );
+
+            return McpSchema.CallToolResult.ofText(result.toString());
+
+        } catch (Exception e) {
+            LOG.error("Error in analyzeCoverage", e);
+            return McpSchema.CallToolResult.ofError("Failed to analyze coverage: " + e.getMessage());
+        }
+    }
+
+    private McpSchema.CallToolResult handleGetTestInfo(String projectPath, String className) {
+        try {
+            Project project = findProjectByPath(projectPath);
+            if (project == null) {
+                return McpSchema.CallToolResult.ofError("Project not found: " + projectPath);
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.TestCoverageToolHandler.getTestInfo(
+                    project, className
+            );
+
+            return McpSchema.CallToolResult.ofText(result.toString());
+
+        } catch (Exception e) {
+            LOG.error("Error in getTestInfo", e);
+            return McpSchema.CallToolResult.ofError("Failed to get test info: " + e.getMessage());
         }
     }
 }

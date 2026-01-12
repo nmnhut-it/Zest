@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.UUID;
 
 /**
  * Handler for AskUser MCP tool.
@@ -36,28 +37,40 @@ public class AskUserToolHandler {
             List<Map<String, String>> options,
             String header
     ) {
-        // Build UserQuestion model
-        UserQuestion question = new UserQuestion(
-                header != null ? header : "Question",
-                questionText,
-                parseQuestionType(questionType)
-        );
+        // Build UserQuestion model with correct constructor signature
+        List<UserQuestion.QuestionOption> questionOptions = new ArrayList<>();
 
         // Add options
         if (options != null && !options.isEmpty()) {
             for (Map<String, String> opt : options) {
                 String label = opt.get("label");
                 String description = opt.getOrDefault("description", "");
-                question.addOption(new UserQuestion.QuestionOption(label, description));
+                questionOptions.add(new UserQuestion.QuestionOption(label, description));
             }
         }
+
+        String questionId = UUID.randomUUID().toString();
+        String headerText = (header != null && !header.isEmpty()) ? header : "Question";
+
+        UserQuestion question = new UserQuestion(
+                questionId,
+                questionText,
+                headerText,
+                parseQuestionType(questionType),
+                questionOptions
+        );
 
         // Show dialog on EDT and wait for result
         CompletableFuture<UserQuestion> future = new CompletableFuture<>();
 
         ApplicationManager.getApplication().invokeLater(() -> {
-            UserQuestion answered = UserQuestionDialog.showAndGetAnswer(project, question);
-            future.complete(answered);
+            UserQuestionDialog dialog = new UserQuestionDialog(project, question);
+            boolean ok = dialog.showAndGet();
+            if (ok) {
+                future.complete(question);
+            } else {
+                future.complete(null);
+            }
         });
 
         try {

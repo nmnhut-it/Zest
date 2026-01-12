@@ -2,15 +2,10 @@ package com.zps.zest.mcp.refactor;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.intellij.coverage.*;
-import com.intellij.execution.ExecutionException;
-import com.intellij.execution.RunManager;
-import com.intellij.execution.configurations.RunConfiguration;
-import com.intellij.execution.configurations.RunProfile;
-import com.intellij.execution.executors.DefaultRunExecutor;
-import com.intellij.execution.junit.JUnitConfiguration;
-import com.intellij.execution.runners.ExecutionEnvironment;
-import com.intellij.execution.testframework.sm.runner.ui.SMTRunnerConsoleView;
+import com.intellij.coverage.CoverageDataManager;
+import com.intellij.coverage.CoverageSuitesBundle;
+import com.intellij.coverage.JavaCoverageAnnotator;
+import com.intellij.coverage.PackageAnnotator;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -18,11 +13,13 @@ import com.intellij.openapi.util.Computable;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Handler for test execution and coverage measurement via IntelliJ APIs.
+ *
+ * Requires IntelliJ's coverage plugin to be enabled. Coverage data is available
+ * after running tests with coverage (Run → Run with Coverage).
  */
 public class TestCoverageToolHandler {
     private static final Logger LOG = Logger.getInstance(TestCoverageToolHandler.class);
@@ -30,182 +27,147 @@ public class TestCoverageToolHandler {
     /**
      * Get current test coverage data for a class.
      *
-     * @param project The IntelliJ project
-     * @param className Fully qualified class name
-     * @return Coverage data as JSON
+     * Note: This requires coverage to be run first in IntelliJ.
+     * Returns coverage metrics if available, or a message to run coverage.
      */
     public static JsonObject getCoverageData(Project project, String className) {
         return ApplicationManager.getApplication().runReadAction((Computable<JsonObject>) () -> {
+            JsonObject result = new JsonObject();
+            result.addProperty("className", className);
+
             try {
-                // Get coverage data suite
+                // Get coverage data manager
                 CoverageDataManager coverageManager = CoverageDataManager.getInstance(project);
                 CoverageSuitesBundle currentSuite = coverageManager.getCurrentSuitesBundle();
 
                 if (currentSuite == null) {
-                    JsonObject result = new JsonObject();
                     result.addProperty("hasCoverage", false);
-                    result.addProperty("message", "No coverage data available. Run tests with coverage first.");
+                    result.addProperty("message", "No coverage data available. Run tests with coverage first (Run → Run with Coverage).");
                     return result;
                 }
 
                 // Find the class
                 PsiClass psiClass = findClass(project, className);
                 if (psiClass == null) {
-                    JsonObject error = new JsonObject();
-                    error.addProperty("error", "Class not found: " + className);
-                    return error;
+                    result.addProperty("hasCoverage", false);
+                    result.addProperty("error", "Class not found: " + className);
+                    return result;
                 }
 
-                PsiFile psiFile = psiClass.getContainingFile();
-                if (psiFile == null) {
-                    JsonObject error = new JsonObject();
-                    error.addProperty("error", "File not found for class: " + className);
-                    return error;
-                }
+                // Get coverage annotator
+                PackageAnnotator.ClassCoverageInfo classCoverage =
+                    currentSuite.getCoverageEngine() != null ?
+                    getCoverageInfo(currentSuite, psiClass) : null;
 
-                // Get coverage data
-                CoverageEngine coverageEngine = CoverageEngine.EP_NAME.findExtension(JavaCoverageEngine.class);
-                if (coverageEngine == null) {
-                    JsonObject error = new JsonObject();
-                    error.addProperty("error", "Java coverage engine not available");
-                    return error;
-                }
+                if (classCoverage != null) {
+                    result.addProperty("hasCoverage", true);
+                    result.addProperty("totalLineCount", classCoverage.totalLineCount);
+                    result.addProperty("coveredLineCount", classCoverage.coveredLineCount);
 
-                // Compute coverage statistics
-                JsonObject result = new JsonObject();
-                result.addProperty("hasCoverage", true);
-                result.addProperty("className", className);
-
-                // Get class coverage
-                String qualifiedName = psiClass.getQualifiedName();
-                if (qualifiedName != null) {
-                    JavaCoverageAnnotator annotator = JavaCoverageAnnotator.getInstance(project);
-
-                    // Class-level coverage
-                    CoverageLineMarkerRenderer classRenderer = annotator.getRenderer(psiClass, null, currentSuite);
-                    if (classRenderer != null) {
-                        String coverageInfo = classRenderer.getLinesCoverageInformationString(psiClass);
-                        result.addProperty("classCoverage", coverageInfo != null ? coverageInfo : "N/A");
+                    if (classCoverage.totalLineCount > 0) {
+                        double percentage = (double) classCoverage.coveredLineCount / classCoverage.totalLineCount * 100;
+                        result.addProperty("coveragePercentage", String.format("%.2f%%", percentage));
                     }
-
-                    // Method-level coverage
-                    JsonArray methodsCoverage = new JsonArray();
-                    for (PsiMethod method : psiClass.getMethods()) {
-                        if (method.getBody() != null) {
-                            JsonObject methodCov = new JsonObject();
-                            methodCov.addProperty("methodName", method.getName());
-
-                            CoverageLineMarkerRenderer methodRenderer = annotator.getRenderer(method, null, currentSuite);
-                            if (methodRenderer != null) {
-                                String methodCoverageInfo = methodRenderer.getLinesCoverageInformationString(method);
-                                methodCov.addProperty("coverage", methodCoverageInfo != null ? methodCoverageInfo : "0%");
-                            } else {
-                                methodCov.addProperty("coverage", "0%");
-                            }
-
-                            methodsCoverage.add(methodCov);
-                        }
-                    }
-                    result.add("methodsCoverage", methodsCoverage);
+                } else {
+                    result.addProperty("hasCoverage", false);
+                    result.addProperty("message", "Coverage data not available for this class. Try running tests with coverage for this class.");
                 }
-
-                // Add suite info
-                JsonObject suiteInfo = new JsonObject();
-                CoverageSuite[] suites = currentSuite.getSuites();
-                if (suites.length > 0) {
-                    suiteInfo.addProperty("suiteName", suites[0].getPresentableName());
-                    suiteInfo.addProperty("timestamp", suites[0].getLastCoverageTimeStamp());
-                }
-                result.add("suiteInfo", suiteInfo);
-
-                return result;
 
             } catch (Exception e) {
-                LOG.error("Error getting coverage data", e);
-                JsonObject error = new JsonObject();
-                error.addProperty("error", "Failed to get coverage data: " + e.getMessage());
-                return error;
+                LOG.warn("Error getting coverage data", e);
+                result.addProperty("hasCoverage", false);
+                result.addProperty("message", "Coverage plugin available but error occurred: " + e.getMessage());
             }
+
+            return result;
         });
+    }
+
+    private static PackageAnnotator.ClassCoverageInfo getCoverageInfo(CoverageSuitesBundle suite, PsiClass psiClass) {
+        try {
+            JavaCoverageAnnotator annotator = (JavaCoverageAnnotator) suite.getAnnotator(psiClass.getProject());
+            if (annotator != null) {
+                String qualifiedName = psiClass.getQualifiedName();
+                return annotator.getClassCoverageInfo(qualifiedName);
+            }
+        } catch (Exception e) {
+            LOG.warn("Error getting class coverage info", e);
+        }
+        return null;
     }
 
     /**
      * Analyze test coverage and provide suggestions for improvement.
-     *
-     * @param project The IntelliJ project
-     * @param className Fully qualified class name
-     * @return Analysis with suggestions
      */
     public static JsonObject analyzeCoverage(Project project, String className) {
-        JsonObject coverageData = getCoverageData(project, className);
+        return ApplicationManager.getApplication().runReadAction((Computable<JsonObject>) () -> {
+            JsonObject result = new JsonObject();
+            result.addProperty("className", className);
 
-        if (!coverageData.has("hasCoverage") || !coverageData.get("hasCoverage").getAsBoolean()) {
-            return coverageData; // Return error/no coverage message
-        }
+            // First check if we have coverage data
+            JsonObject coverageData = getCoverageData(project, className);
+            boolean hasCoverage = coverageData.has("hasCoverage") && coverageData.get("hasCoverage").getAsBoolean();
 
-        JsonObject analysis = new JsonObject();
-        analysis.addProperty("className", className);
+            // Check if test class exists
+            JsonObject testInfo = getTestInfo(project, className);
+            boolean hasTestClass = testInfo.has("hasTestClass") && testInfo.get("hasTestClass").getAsBoolean();
 
-        // Analyze method coverage
-        JsonArray suggestions = new JsonArray();
-        JsonArray uncoveredMethods = new JsonArray();
+            JsonArray suggestions = new JsonArray();
 
-        if (coverageData.has("methodsCoverage")) {
-            JsonArray methods = coverageData.getAsJsonArray("methodsCoverage");
-            int totalMethods = methods.size();
-            int coveredMethods = 0;
+            if (hasCoverage) {
+                // We have coverage data - provide detailed analysis
+                int totalLines = coverageData.get("totalLineCount").getAsInt();
+                int coveredLines = coverageData.get("coveredLineCount").getAsInt();
+                String percentage = coverageData.get("coveragePercentage").getAsString();
 
-            for (int i = 0; i < methods.size(); i++) {
-                JsonObject method = methods.get(i).getAsJsonObject();
-                String coverage = method.get("coverage").getAsString();
-                String methodName = method.get("methodName").getAsString();
+                result.addProperty("hasCoverage", true);
+                result.addProperty("totalLineCount", totalLines);
+                result.addProperty("coveredLineCount", coveredLines);
+                result.addProperty("coveragePercentage", percentage);
 
-                if (coverage.equals("0%") || coverage.equals("N/A")) {
-                    JsonObject uncovered = new JsonObject();
-                    uncovered.addProperty("methodName", methodName);
-                    uncovered.addProperty("suggestion", "Add unit test for " + methodName + "()");
-                    uncoveredMethods.add(uncovered);
+                // Provide suggestions based on coverage percentage
+                double coveragePercent = (double) coveredLines / totalLines * 100;
+
+                if (coveragePercent < 50) {
+                    suggestions.add("Coverage is low (" + percentage + "). Consider adding more test cases.");
+                    suggestions.add("Focus on testing critical business logic first.");
+                } else if (coveragePercent < 80) {
+                    suggestions.add("Coverage is moderate (" + percentage + "). Good progress!");
+                    suggestions.add("Consider testing edge cases and error conditions.");
                 } else {
-                    coveredMethods++;
+                    suggestions.add("Coverage is good (" + percentage + "). Well done!");
+                    suggestions.add("Ensure tests are meaningful, not just hitting lines.");
                 }
-            }
 
-            // Calculate coverage percentage
-            double coveragePercent = totalMethods > 0 ? (coveredMethods * 100.0 / totalMethods) : 0;
-            analysis.addProperty("methodCoveragePercent", Math.round(coveragePercent));
-            analysis.addProperty("coveredMethods", coveredMethods);
-            analysis.addProperty("totalMethods", totalMethods);
-        }
+            } else if (hasTestClass) {
+                // We have tests but no coverage data
+                int testMethodCount = testInfo.has("testMethodCount") ?
+                    testInfo.get("testMethodCount").getAsInt() : 0;
 
-        analysis.add("uncoveredMethods", uncoveredMethods);
+                result.addProperty("hasCoverage", false);
+                result.addProperty("hasTestClass", true);
+                result.addProperty("testMethodCount", testMethodCount);
 
-        // Generate suggestions based on coverage
-        if (uncoveredMethods.size() > 0) {
-            suggestions.add("Add tests for " + uncoveredMethods.size() + " uncovered methods");
-        }
+                suggestions.add("Test class found with " + testMethodCount + " test methods.");
+                suggestions.add("Run tests with coverage to get detailed metrics (Run → Run with Coverage).");
 
-        if (analysis.has("methodCoveragePercent")) {
-            int coverage = analysis.get("methodCoveragePercent").getAsInt();
-            if (coverage < 50) {
-                suggestions.add("Coverage is low (" + coverage + "%). Consider adding more comprehensive tests.");
-            } else if (coverage < 80) {
-                suggestions.add("Coverage is moderate (" + coverage + "%). Add tests for uncovered methods to reach 80%.");
             } else {
-                suggestions.add("Good coverage (" + coverage + "%). Focus on edge cases and integration tests.");
+                // No tests at all
+                result.addProperty("hasCoverage", false);
+                result.addProperty("hasTestClass", false);
+
+                suggestions.add("No test class found.");
+                suggestions.add("Create " + getSimpleClassName(className) + "Test.java to start testing.");
+                suggestions.add("Consider testing public methods and edge cases first.");
             }
-        }
 
-        analysis.add("suggestions", suggestions);
-
-        return analysis;
+            result.add("suggestions", suggestions);
+            return result;
+        });
     }
 
     /**
      * Get information about available test configurations.
-     *
-     * @param project The IntelliJ project
-     * @param className Class name to find tests for
-     * @return Test configuration info
      */
     public static JsonObject getTestInfo(Project project, String className) {
         return ApplicationManager.getApplication().runReadAction((Computable<JsonObject>) () -> {
@@ -226,7 +188,11 @@ public class TestCoverageToolHandler {
                 if (testClass != null) {
                     result.addProperty("hasTestClass", true);
                     result.addProperty("testClassName", testClass.getQualifiedName());
-                    result.addProperty("testFilePath", testClass.getContainingFile().getVirtualFile().getPath());
+
+                    PsiFile containingFile = testClass.getContainingFile();
+                    if (containingFile != null && containingFile.getVirtualFile() != null) {
+                        result.addProperty("testFilePath", containingFile.getVirtualFile().getPath());
+                    }
 
                     // Count test methods
                     int testMethodCount = 0;
@@ -251,7 +217,7 @@ public class TestCoverageToolHandler {
 
                 } else {
                     result.addProperty("hasTestClass", false);
-                    result.addProperty("suggestion", "No test class found. Create " + className + "Test.java");
+                    result.addProperty("suggestion", "No test class found. Create " + getSimpleClassName(className) + "Test.java");
                 }
 
                 return result;
@@ -307,5 +273,11 @@ public class TestCoverageToolHandler {
         }
 
         return "Unknown";
+    }
+
+    private static String getSimpleClassName(String qualifiedName) {
+        if (qualifiedName == null) return "";
+        int lastDot = qualifiedName.lastIndexOf('.');
+        return lastDot >= 0 ? qualifiedName.substring(lastDot + 1) : qualifiedName;
     }
 }

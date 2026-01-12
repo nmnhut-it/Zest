@@ -39,6 +39,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -1754,20 +1755,29 @@ public class ZestMcpHttpServer {
             String header
     ) {
         try {
-            Project project = findProjectByPath(projectPath);
+            Project project = findProject(projectPath);
             if (project == null) {
-                return McpSchema.CallToolResult.ofError("Project not found: " + projectPath);
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
             }
 
             com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.AskUserToolHandler.askUser(
                     project, questionText, questionType, options, header
             );
 
-            return McpSchema.CallToolResult.ofText(result.toString());
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
 
         } catch (Exception e) {
             LOG.error("Error in askUser", e);
-            return McpSchema.CallToolResult.ofError("Failed to ask user: " + e.getMessage());
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to ask user: " + e.getMessage())),
+                    true
+            );
         }
     }
 
@@ -1777,20 +1787,29 @@ public class ZestMcpHttpServer {
             String focusArea
     ) {
         try {
-            Project project = findProjectByPath(projectPath);
+            Project project = findProject(projectPath);
             if (project == null) {
-                return McpSchema.CallToolResult.ofError("Project not found: " + projectPath);
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
             }
 
             com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.RefactorabilityAnalyzer.analyze(
                     project, className, focusArea
             );
 
-            return McpSchema.CallToolResult.ofText(result.toString());
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
 
         } catch (Exception e) {
             LOG.error("Error in analyzeRefactorability", e);
-            return McpSchema.CallToolResult.ofError("Failed to analyze refactorability: " + e.getMessage());
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to analyze refactorability: " + e.getMessage())),
+                    true
+            );
         }
     }
 
@@ -1817,58 +1836,85 @@ public class ZestMcpHttpServer {
 
     private McpSchema.CallToolResult handleGetCoverageData(String projectPath, String className) {
         try {
-            Project project = findProjectByPath(projectPath);
+            Project project = findProject(projectPath);
             if (project == null) {
-                return McpSchema.CallToolResult.ofError("Project not found: " + projectPath);
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
             }
 
             com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.TestCoverageToolHandler.getCoverageData(
                     project, className
             );
 
-            return McpSchema.CallToolResult.ofText(result.toString());
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
 
         } catch (Exception e) {
             LOG.error("Error in getCoverageData", e);
-            return McpSchema.CallToolResult.ofError("Failed to get coverage data: " + e.getMessage());
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to get coverage data: " + e.getMessage())),
+                    true
+            );
         }
     }
 
     private McpSchema.CallToolResult handleAnalyzeCoverage(String projectPath, String className) {
         try {
-            Project project = findProjectByPath(projectPath);
+            Project project = findProject(projectPath);
             if (project == null) {
-                return McpSchema.CallToolResult.ofError("Project not found: " + projectPath);
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
             }
 
             com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.TestCoverageToolHandler.analyzeCoverage(
                     project, className
             );
 
-            return McpSchema.CallToolResult.ofText(result.toString());
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
 
         } catch (Exception e) {
             LOG.error("Error in analyzeCoverage", e);
-            return McpSchema.CallToolResult.ofError("Failed to analyze coverage: " + e.getMessage());
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to analyze coverage: " + e.getMessage())),
+                    true
+            );
         }
     }
 
     private McpSchema.CallToolResult handleGetTestInfo(String projectPath, String className) {
         try {
-            Project project = findProjectByPath(projectPath);
+            Project project = findProject(projectPath);
             if (project == null) {
-                return McpSchema.CallToolResult.ofError("Project not found: " + projectPath);
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
             }
 
             com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.TestCoverageToolHandler.getTestInfo(
                     project, className
             );
 
-            return McpSchema.CallToolResult.ofText(result.toString());
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
 
         } catch (Exception e) {
             LOG.error("Error in getTestInfo", e);
-            return McpSchema.CallToolResult.ofError("Failed to get test info: " + e.getMessage());
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to get test info: " + e.getMessage())),
+                    true
+            );
         }
     }
 }

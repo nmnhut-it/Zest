@@ -26,6 +26,7 @@ dependencies {
         // Plugin Dependencies
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.kotlin")
+        bundledPlugin("com.intellij.coverage")
 
         // Required for testing
         pluginVerifier()

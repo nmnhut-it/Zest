@@ -107,6 +107,11 @@ dependencies {
     implementation("org.commonmark:commonmark:0.23.0")
     implementation("org.commonmark:commonmark-ext-gfm-tables:0.23.0")
     implementation("org.commonmark:commonmark-ext-heading-anchor:0.23.0")
+
+    // JaCoCo for programmatic code coverage
+    implementation("org.jacoco:org.jacoco.core:0.8.12")
+    implementation("org.jacoco:org.jacoco.report:0.8.12")
+    implementation("org.jacoco:org.jacoco.agent:0.8.12:runtime")
 }
 
 intellijPlatform {

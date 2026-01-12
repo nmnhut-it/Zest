@@ -38,11 +38,23 @@ public class TestCoverageToolHandler {
         JsonObject result = new JsonObject();
         result.addProperty("className", className);
 
-        // Try to find JaCoCo XML report
+        // Try to find JaCoCo coverage data
         String projectPath = project.getBasePath();
         if (projectPath != null) {
-            Path jacocoReport = findJaCoCoReport(projectPath);
+            // First try JaCoCo's native .exec format (most accurate)
+            try {
+                JsonObject execCoverage = JaCoCoReportParser.parseCoverageWithJaCoCoAPI(projectPath, className);
+                if (execCoverage != null) {
+                    result.addProperty("hasCoverage", true);
+                    result.add("coverage", execCoverage);
+                    return result;
+                }
+            } catch (Exception e) {
+                LOG.debug("Could not parse .exec file, trying XML", e);
+            }
 
+            // Fall back to XML report parsing
+            Path jacocoReport = findJaCoCoReport(projectPath);
             if (jacocoReport != null) {
                 try {
                     JsonObject coverageInfo = parseJaCoCoReport(jacocoReport, className);
@@ -54,7 +66,7 @@ public class TestCoverageToolHandler {
                         return result;
                     }
                 } catch (Exception e) {
-                    LOG.warn("Error parsing JaCoCo report", e);
+                    LOG.warn("Error parsing JaCoCo XML report", e);
                 }
             }
         }

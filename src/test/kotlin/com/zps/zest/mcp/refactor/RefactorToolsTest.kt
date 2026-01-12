@@ -4,6 +4,7 @@ import com.google.gson.JsonParser
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase4
 import com.intellij.testFramework.runInEdtAndGet
+import org.junit.Assert.*
 import org.junit.Test
 
 /**

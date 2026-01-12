@@ -7,6 +7,7 @@ import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase4
 import com.intellij.testFramework.runInEdtAndGet
 import com.zps.zest.mcp.ZestMcpHttpServer
 import io.modelcontextprotocol.spec.McpSchema
+import org.junit.Assert.*
 import org.junit.Test
 
 /**

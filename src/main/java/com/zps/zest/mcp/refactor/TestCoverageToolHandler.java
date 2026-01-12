@@ -63,39 +63,40 @@ public class TestCoverageToolHandler {
         result.addProperty("hasCoverage", false);
         result.addProperty("message", "No coverage data available.");
 
-        // Provide suggestions based on detected build system
-        JsonArray suggestions = new JsonArray();
-        String buildSystem = detectBuildSystem(projectPath);
-        result.addProperty("buildSystem", buildSystem);
+        // Get detailed build information
+        JsonObject buildInfo = BuildToolDetector.detectBuildInfo(project);
+        result.add("buildInfo", buildInfo);
 
-        if ("gradle".equals(buildSystem)) {
-            suggestions.add("If JaCoCo is configured: ./gradlew test jacocoTestReport");
-            suggestions.add("Report will be at: build/reports/jacoco/test/jacocoTestReport.xml");
-        } else if ("maven".equals(buildSystem)) {
-            suggestions.add("If JaCoCo is configured: mvn test jacoco:report");
-            suggestions.add("Report will be at: target/site/jacoco/jacoco.xml");
+        // Provide specific suggestions based on detected configuration
+        JsonArray suggestions = new JsonArray();
+
+        String buildSystem = buildInfo.has("buildSystem") ? buildInfo.get("buildSystem").getAsString() : "unknown";
+
+        if (buildInfo.has("coverageCommand")) {
+            // Check if JaCoCo is actually configured
+            boolean jacocoConfigured = BuildToolDetector.isJaCoCoConfigured(projectPath, buildSystem);
+
+            if (jacocoConfigured) {
+                suggestions.add("Run: " + buildInfo.get("coverageCommand").getAsString());
+                suggestions.add("Report will be at: " + buildInfo.get("coverageReportPath").getAsString());
+            } else {
+                suggestions.add("JaCoCo not found in build configuration");
+                if ("gradle".equals(buildSystem)) {
+                    suggestions.add("Add to build.gradle: plugins { id 'jacoco' }");
+                    suggestions.add("Then run: " + buildInfo.get("coverageCommand").getAsString());
+                } else if ("maven".equals(buildSystem)) {
+                    suggestions.add("Add jacoco-maven-plugin to pom.xml");
+                    suggestions.add("Then run: " + buildInfo.get("coverageCommand").getAsString());
+                }
+            }
         } else {
-            suggestions.add("Coverage requires JaCoCo or similar tool configured in your build");
+            suggestions.add("Unknown build system - configure JaCoCo manually");
         }
 
-        suggestions.add("Alternative: Run tests with coverage in IntelliJ (Run → Run with Coverage)");
+        suggestions.add("Alternative: Run → Run with Coverage in IntelliJ");
         result.add("suggestions", suggestions);
 
         return result;
-    }
-
-    /**
-     * Detect build system by looking for build files.
-     */
-    private static String detectBuildSystem(String projectPath) {
-        if (Files.exists(Paths.get(projectPath, "build.gradle")) ||
-            Files.exists(Paths.get(projectPath, "build.gradle.kts"))) {
-            return "gradle";
-        }
-        if (Files.exists(Paths.get(projectPath, "pom.xml"))) {
-            return "maven";
-        }
-        return "unknown";
     }
 
     /**
@@ -280,17 +281,28 @@ public class TestCoverageToolHandler {
 
                 suggestions.add("Test class found with " + testMethodCount + " test methods.");
 
-                // Detect build system for appropriate suggestion
-                String projectPath = project.getBasePath();
-                if (projectPath != null) {
-                    String buildSystem = detectBuildSystem(projectPath);
-                    if ("gradle".equals(buildSystem)) {
-                        suggestions.add("To see coverage: ./gradlew test jacocoTestReport (if JaCoCo configured)");
-                    } else if ("maven".equals(buildSystem)) {
-                        suggestions.add("To see coverage: mvn test jacoco:report (if JaCoCo configured)");
+                // Get detailed build info
+                JsonObject buildInfo = BuildToolDetector.detectBuildInfo(project);
+                String buildSystem = buildInfo.has("buildSystem") ? buildInfo.get("buildSystem").getAsString() : "unknown";
+
+                if (buildInfo.has("coverageCommand")) {
+                    String projectPath = project.getBasePath();
+                    boolean jacocoConfigured = projectPath != null &&
+                        BuildToolDetector.isJaCoCoConfigured(projectPath, buildSystem);
+
+                    if (jacocoConfigured) {
+                        suggestions.add("Run: " + buildInfo.get("coverageCommand").getAsString());
                     } else {
-                        suggestions.add("Configure JaCoCo in your build tool to generate coverage reports");
+                        suggestions.add("Configure JaCoCo first:");
+                        if ("gradle".equals(buildSystem)) {
+                            suggestions.add("Add to build.gradle: plugins { id 'jacoco' }");
+                        } else if ("maven".equals(buildSystem)) {
+                            suggestions.add("Add jacoco-maven-plugin to pom.xml");
+                        }
+                        suggestions.add("Then: " + buildInfo.get("coverageCommand").getAsString());
                     }
+                } else {
+                    suggestions.add("Configure JaCoCo in your build tool");
                 }
 
                 suggestions.add("Or use: Run → Run with Coverage in IntelliJ");

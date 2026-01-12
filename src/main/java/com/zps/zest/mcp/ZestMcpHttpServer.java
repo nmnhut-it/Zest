@@ -308,7 +308,21 @@ public class ZestMcpHttpServer {
                 }
         ));
 
-        LOG.info("Registered 12 MCP tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode, showFile, askUser, analyzeRefactorability, getCoverageData, analyzeCoverage, getTestInfo");
+        McpSchema.Tool getBuildInfoTool = McpSchema.Tool.builder()
+                .name("getBuildInfo")
+                .description("Get comprehensive build system information: build tool (Gradle/Maven), Java SDK paths, wrapper scripts, test commands. Essential for running builds correctly.")
+                .inputSchema(jsonMapper, buildProjectPathSchema())
+                .build();
+
+        mcpServer.addTool(new McpServerFeatures.SyncToolSpecification(
+                getBuildInfoTool,
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    return handleGetBuildInfo(projectPath);
+                }
+        ));
+
+        LOG.info("Registered 13 MCP tools: getCurrentFile, lookupMethod, lookupClass, analyzeMethodUsage, getJavaCodeUnderTest, validateCode, showFile, askUser, analyzeRefactorability, getCoverageData, analyzeCoverage, getTestInfo, getBuildInfo");
     }
 
     private void registerPrompts() {
@@ -1913,6 +1927,32 @@ public class ZestMcpHttpServer {
             LOG.error("Error in getTestInfo", e);
             return new McpSchema.CallToolResult(
                     List.of(new McpSchema.TextContent("ERROR: Failed to get test info: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    private McpSchema.CallToolResult handleGetBuildInfo(String projectPath) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.BuildToolDetector.detectBuildInfo(project);
+
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
+
+        } catch (Exception e) {
+            LOG.error("Error in getBuildInfo", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to get build info: " + e.getMessage())),
                     true
             );
         }

@@ -6,7 +6,7 @@ import com.intellij.openapi.util.Computable;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiJavaFile;
-import com.zps.zest.ClassAnalyzer;
+import com.zps.zest.core.ClassAnalyzer;
 import com.zps.zest.testgen.util.ClassResolutionUtil;
 import dev.langchain4j.agent.tool.Tool;
 import org.jetbrains.annotations.NotNull;

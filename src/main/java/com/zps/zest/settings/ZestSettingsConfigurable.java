@@ -8,7 +8,7 @@ import com.intellij.ui.components.*;
 import com.intellij.util.ui.FormBuilder;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
-import com.zps.zest.ConfigurationManager;
+import com.zps.zest.settings.ConfigurationManager;
 import com.zps.zest.validation.CommitTemplateValidator;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.Nullable;

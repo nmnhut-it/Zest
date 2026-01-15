@@ -9,7 +9,7 @@ import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
-import com.zps.zest.ClassAnalyzer;
+import com.zps.zest.core.ClassAnalyzer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 

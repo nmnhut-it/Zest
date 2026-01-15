@@ -75,3 +75,5 @@ config/secrets.properties
 .idea/zest-health-reports.xml
 .idea/zest-project-changes.xml
 /sample-game-server
+/base-server-framework
+/escoba-server

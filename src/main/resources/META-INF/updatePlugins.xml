@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
 
-    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.911">
+    <plugin id="com.zps.Zest" url="https://zest-internal.zingplay.com/static/release/latest/Zest-latest.zip" version="1.9.914">
         <idea-version since-build="223.0" until-build="259.*"/>
         <name>Zest</name>
         <description><![CDATA[
@@ -21,7 +21,7 @@
             <h4>🛠️ New MCP Tools</h4>
             <ul>
                 <li><b>getJavaCodeUnderTest</b> - GUI class picker + static analysis (source code, usage patterns, dependencies)</li>
-                <li><b>validateCode</b> - Check Java code for compilation errors with detailed error context</li>
+                <li><b>checkCompileJava</b> - Check Java code for compilation errors with detailed error context</li>
             </ul>
 
             <h4>📁 File-Based Data Flow</h4>

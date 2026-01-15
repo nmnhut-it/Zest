@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.zps"
-version = "1.9.912"
+version = "1.9.914"
 
 repositories {
     mavenCentral()
@@ -39,7 +39,8 @@ dependencies {
     }
 
     // Model Context Protocol (MCP) SDK (convenience bundle with core + Jackson)
-    implementation("io.modelcontextprotocol.sdk:mcp:0.15.0")
+    // Updated to 0.17.0 for Streamable HTTP transport support
+    implementation("io.modelcontextprotocol.sdk:mcp:0.17.0")
 
     // Jetty for embedded HTTP server (Jakarta EE 10 compatible)
     implementation("org.eclipse.jetty:jetty-server:12.0.15")

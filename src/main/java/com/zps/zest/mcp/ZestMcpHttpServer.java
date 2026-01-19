@@ -35,15 +35,17 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.function.BiFunction;
 
 /**
  * MCP HTTP Server for Zest with dual transport support.
@@ -74,9 +76,13 @@ public class ZestMcpHttpServer {
     private final HttpServletStreamableServerTransportProvider streamableTransport;
     private final HttpServletSseServerTransportProvider sseTransport;
     private final int port;
+    private final ToolRegistry toolRegistry;
+    private final Gson gson;
 
     public ZestMcpHttpServer(int port) {
         this.port = port;
+        this.toolRegistry = new ToolRegistry();
+        this.gson = new GsonBuilder().setPrettyPrinting().create();
 
         ObjectMapper objectMapper = new ObjectMapper();
         JacksonMcpJsonMapper mcpJsonMapper = new JacksonMcpJsonMapper(objectMapper);
@@ -171,54 +177,50 @@ public class ZestMcpHttpServer {
     }
 
     private void registerTools() {
-        ObjectMapper mapper = new ObjectMapper();
-        JacksonMcpJsonMapper jsonMapper = new JacksonMcpJsonMapper(mapper);
+        // Populate the tool registry with all available tools
+        populateToolRegistry();
 
+        // Register only 3 meta-tools with MCP (for lazy loading)
+        registerMetaTools();
+
+        LOG.info("Registered " + toolRegistry.size() + " tools in registry, exposed via 3 meta-tools");
+    }
+
+    /**
+     * Populate the ToolRegistry with all tool definitions.
+     * Tools are NOT registered with MCP directly - they're invoked via callTool meta-tool.
+     */
+    private void populateToolRegistry() {
         // ========== Core IDE Tools ==========
-
-        McpSchema.Tool currentFileTool = McpSchema.Tool.builder()
-                .name("getCurrentFile")
-                .description("Get the currently open file in the editor")
-                .inputSchema(jsonMapper, buildGetCurrentFileSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                currentFileTool,
+        toolRegistry.register(
+                "getCurrentFile",
+                ToolRegistry.Category.IDE,
+                "Get currently open file in editor",
+                buildGetCurrentFileSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     return handleGetCurrentFile(projectPath);
                 }
-        ));
+        );
 
-        McpSchema.Tool lookupClassTool = McpSchema.Tool.builder()
-                .name("lookupClass")
-                .description("Look up class/method signatures. Works with project classes, JARs, and JDK. Use methodName param to filter specific method.")
-                .inputSchema(jsonMapper, buildLookupClassSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                lookupClassTool,
+        toolRegistry.register(
+                "lookupClass",
+                ToolRegistry.Category.IDE,
+                "Look up class/method signatures from project, JARs, JDK",
+                buildLookupClassSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
                     String methodName = (String) arguments.get("methodName");
                     return handleLookupClass(projectPath, className, methodName);
                 }
-        ));
+        );
 
-        McpSchema.Tool getJavaCodeUnderTestTool = McpSchema.Tool.builder()
-                .name("getJavaCodeUnderTest")
-                .description("Get Java class analysis for test generation. " +
-                        "AUTOMATION: Pass 'className' to skip GUI and analyze directly. " +
-                        "INTERACTIVE: Omit 'className' to show GUI for class selection. " +
-                        "Returns source code + static analysis + usage patterns. " +
-                        "Pass testType ('unit'/'integration'/'both') and methodFilter ('save,delete') " +
-                        "to focus the analysis.")
-                .inputSchema(jsonMapper, buildGetJavaCodeUnderTestSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                getJavaCodeUnderTestTool,
+        toolRegistry.register(
+                "getJavaCodeUnderTest",
+                ToolRegistry.Category.TESTING,
+                "Get Java class analysis for test generation",
+                buildGetJavaCodeUnderTestSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
@@ -226,80 +228,171 @@ public class ZestMcpHttpServer {
                     String methodFilter = (String) arguments.get("methodFilter");
                     return handleGetJavaCodeUnderTest(projectPath, className, testType, methodFilter);
                 }
-        ));
+        );
 
-        McpSchema.Tool showFileTool = McpSchema.Tool.builder()
-                .name("showFile")
-                .description("Open a file in IntelliJ editor")
-                .inputSchema(jsonMapper, buildShowFileSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                showFileTool,
+        toolRegistry.register(
+                "showFile",
+                ToolRegistry.Category.IDE,
+                "Open a file in IntelliJ editor",
+                buildShowFileSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String filePath = (String) arguments.get("filePath");
                     return handleShowFile(projectPath, filePath);
                 }
-        ));
+        );
+
+        // ========== Testing & Analysis Tools ==========
+        toolRegistry.register(
+                "validateCode",
+                ToolRegistry.Category.TESTING,
+                "Validate Java code for compilation errors",
+                buildValidateCodeSchema(),
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String code = (String) arguments.get("code");
+                    String className = (String) arguments.get("className");
+                    return handleValidateCode(projectPath, code, className);
+                }
+        );
+
+        toolRegistry.register(
+                "analyzeMethodUsage",
+                ToolRegistry.Category.TESTING,
+                "Analyze method usage patterns in codebase",
+                buildAnalyzeMethodUsageSchema(),
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String className = (String) arguments.get("className");
+                    String memberName = (String) arguments.get("memberName");
+                    return handleAnalyzeMethodUsage(projectPath, className, memberName);
+                }
+        );
+
+        // ========== User Interaction Tools ==========
+        toolRegistry.register(
+                "askUser",
+                ToolRegistry.Category.INTERACTION,
+                "Ask user a question via IntelliJ dialog",
+                buildAskUserSchema(),
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String questionText = (String) arguments.get("questionText");
+                    String questionType = (String) arguments.get("questionType");
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, String>> options = (List<Map<String, String>>) arguments.get("options");
+                    String header = (String) arguments.get("header");
+                    return handleAskUser(projectPath, questionText, questionType, options, header);
+                }
+        );
+
+        // ========== Refactoring Tools ==========
+        toolRegistry.register(
+                "analyzeRefactorability",
+                ToolRegistry.Category.REFACTORING,
+                "Analyze code for refactoring opportunities",
+                buildAnalyzeRefactorabilitySchema(),
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String className = (String) arguments.get("className");
+                    String focusArea = (String) arguments.get("focusArea");
+                    return handleAnalyzeRefactorability(projectPath, className, focusArea);
+                }
+        );
+
+        // ========== Test Coverage Tools ==========
+        toolRegistry.register(
+                "getCoverageData",
+                ToolRegistry.Category.COVERAGE,
+                "Get test coverage data for a class",
+                buildGetCoverageSchema(),
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String className = (String) arguments.get("className");
+                    return handleGetCoverageData(projectPath, className);
+                }
+        );
+
+        toolRegistry.register(
+                "analyzeCoverage",
+                ToolRegistry.Category.COVERAGE,
+                "Analyze coverage and get improvement suggestions",
+                buildGetCoverageSchema(),
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String className = (String) arguments.get("className");
+                    return handleAnalyzeCoverage(projectPath, className);
+                }
+        );
+
+        toolRegistry.register(
+                "getTestInfo",
+                ToolRegistry.Category.TESTING,
+                "Get test class info: framework, test methods",
+                buildGetCoverageSchema(),
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    String className = (String) arguments.get("className");
+                    return handleGetTestInfo(projectPath, className);
+                }
+        );
+
+        // ========== Build Tools ==========
+        toolRegistry.register(
+                "getBuildInfo",
+                ToolRegistry.Category.BUILD,
+                "Get build system info: Gradle/Maven, SDK paths",
+                buildProjectPathSchema(),
+                (exchange, arguments) -> {
+                    String projectPath = (String) arguments.get("projectPath");
+                    return handleGetBuildInfo(projectPath);
+                }
+        );
 
         // ========== PSI Navigation Tools ==========
-
-        McpSchema.Tool findUsagesTool = McpSchema.Tool.builder()
-                .name("findUsages")
-                .description("Find all usages of a class, method, or field in the project")
-                .inputSchema(jsonMapper, buildFindUsagesSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                findUsagesTool,
+        toolRegistry.register(
+                "findUsages",
+                ToolRegistry.Category.IDE,
+                "Find all usages of a class/method/field",
+                buildFindUsagesSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
                     String memberName = (String) arguments.get("memberName");
                     return handleFindUsages(projectPath, className, memberName);
                 }
-        ));
+        );
 
-        McpSchema.Tool findImplementationsTool = McpSchema.Tool.builder()
-                .name("findImplementations")
-                .description("Find implementations of an interface or abstract method")
-                .inputSchema(jsonMapper, buildFindImplementationsSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                findImplementationsTool,
+        toolRegistry.register(
+                "findImplementations",
+                ToolRegistry.Category.IDE,
+                "Find implementations of interface/abstract method",
+                buildFindImplementationsSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
                     String methodName = (String) arguments.get("methodName");
                     return handleFindImplementations(projectPath, className, methodName);
                 }
-        ));
+        );
 
-        McpSchema.Tool getTypeHierarchyTool = McpSchema.Tool.builder()
-                .name("getTypeHierarchy")
-                .description("Get type hierarchy - superclasses, interfaces, and subclasses")
-                .inputSchema(jsonMapper, buildGetTypeHierarchySchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                getTypeHierarchyTool,
+        toolRegistry.register(
+                "getTypeHierarchy",
+                ToolRegistry.Category.IDE,
+                "Get type hierarchy: supers, interfaces, subclasses",
+                buildGetTypeHierarchySchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
                     return handleGetTypeHierarchy(projectPath, className);
                 }
-        ));
+        );
 
-        McpSchema.Tool getCallHierarchyTool = McpSchema.Tool.builder()
-                .name("getCallHierarchy")
-                .description("Get call hierarchy - callers or callees of a method")
-                .inputSchema(jsonMapper, buildGetCallHierarchySchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                getCallHierarchyTool,
+        toolRegistry.register(
+                "getCallHierarchy",
+                ToolRegistry.Category.IDE,
+                "Get call hierarchy: callers or callees of a method",
+                buildGetCallHierarchySchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
@@ -307,18 +400,14 @@ public class ZestMcpHttpServer {
                     Boolean callers = (Boolean) arguments.getOrDefault("callers", true);
                     return handleGetCallHierarchy(projectPath, className, methodName, callers);
                 }
-        ));
+        );
 
         // ========== Refactoring Tools ==========
-
-        McpSchema.Tool renameTool = McpSchema.Tool.builder()
-                .name("rename")
-                .description("Rename a CLASS-LEVEL member (class, method, or field). Updates all usages. NOTE: Cannot rename local variables - only class/method/field declarations.")
-                .inputSchema(jsonMapper, buildRenameSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                renameTool,
+        toolRegistry.register(
+                "rename",
+                ToolRegistry.Category.REFACTORING,
+                "Rename class/method/field with usage updates",
+                buildRenameSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
@@ -326,64 +415,42 @@ public class ZestMcpHttpServer {
                     String newName = (String) arguments.get("newName");
                     return handleRename(projectPath, className, memberName, newName);
                 }
-        ));
+        );
 
-        McpSchema.Tool getMethodBodyTool = McpSchema.Tool.builder()
-                .name("getMethodBody")
-                .description("Get method body with code blocks for refactoring analysis")
-                .inputSchema(jsonMapper, buildGetMethodBodySchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                getMethodBodyTool,
+        toolRegistry.register(
+                "getMethodBody",
+                ToolRegistry.Category.REFACTORING,
+                "Get method body with line numbers for refactoring",
+                buildGetMethodBodySchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
                     String methodName = (String) arguments.get("methodName");
                     return handleGetMethodBody(projectPath, className, methodName);
                 }
-        ));
+        );
 
-        // ========== New Refactoring Tools ==========
-
-        // Extract Constant tool - fully automated with string extraction support
-        McpSchema.Tool extractConstantTool = McpSchema.Tool.builder()
-                .name("extractConstant")
-                .description("Extract a literal (string/number) to a static final constant. " +
-                        "FIRST: Call getMethodBody to see line numbers. " +
-                        "className: Supports simple name (e.g., 'MyClass') or fully qualified (e.g., 'com.example.MyClass'). " +
-                        "lineNumber: 1-based (from getMethodBody), tolerates ±1 offset. " +
-                        "targetValue (optional): Extract substring from within a string literal.")
-                .inputSchema(jsonMapper, buildExtractConstantSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                extractConstantTool,
+        toolRegistry.register(
+                "extractConstant",
+                ToolRegistry.Category.REFACTORING,
+                "Extract literal to static final constant",
+                buildExtractConstantSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
                     String methodName = (String) arguments.get("methodName");
                     int lineNumber = ((Number) arguments.get("lineNumber")).intValue();
                     String constantName = (String) arguments.get("constantName");
-                    String targetValue = (String) arguments.get("targetValue"); // Optional
+                    String targetValue = (String) arguments.get("targetValue");
                     return handleExtractConstant(projectPath, className, methodName, lineNumber, constantName, targetValue);
                 }
-        ));
+        );
 
-        // Extract Method tool - uses IntelliJ's native ExtractMethodProcessor
-        McpSchema.Tool extractMethodTool = McpSchema.Tool.builder()
-                .name("extractMethod")
-                .description("Extract code lines into a new method (IntelliJ's native refactoring). " +
-                        "FIRST: Call getMethodBody to see line numbers for each statement. " +
-                        "className: Supports simple name or fully qualified. " +
-                        "startLine/endLine: 1-based line numbers (from getMethodBody). " +
-                        "AUTO-HANDLES: return values, parameters, exceptions. " +
-                        "If extraction fails, error message lists available methods.")
-                .inputSchema(jsonMapper, buildExtractMethodSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                extractMethodTool,
+        toolRegistry.register(
+                "extractMethod",
+                ToolRegistry.Category.REFACTORING,
+                "Extract code lines into a new method",
+                buildExtractMethodSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
@@ -393,191 +460,249 @@ public class ZestMcpHttpServer {
                     String newMethodName = (String) arguments.get("newMethodName");
                     return handleExtractMethod(projectPath, className, sourceMethodName, startLine, endLine, newMethodName);
                 }
-        ));
+        );
 
-        // Safe Delete tool
-        McpSchema.Tool safeDeleteTool = McpSchema.Tool.builder()
-                .name("safeDelete")
-                .description("Safely delete a class-level field or method if unused. " +
-                        "RECOMMENDED: Call findDeadCode first to identify unused members. " +
-                        "className: Supports simple name or fully qualified. " +
-                        "memberName: Name of method or field (not local variables). " +
-                        "Returns: Success if deleted, or list of usages preventing deletion.")
-                .inputSchema(jsonMapper, buildSafeDeleteSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                safeDeleteTool,
+        toolRegistry.register(
+                "safeDelete",
+                ToolRegistry.Category.REFACTORING,
+                "Safely delete unused method/field",
+                buildSafeDeleteSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
                     String memberName = (String) arguments.get("memberName");
                     return handleSafeDelete(projectPath, className, memberName);
                 }
-        ));
+        );
 
-        // Find Dead Code tool
-        McpSchema.Tool findDeadCodeTool = McpSchema.Tool.builder()
-                .name("findDeadCode")
-                .description("Find unused methods and fields in a class. " +
-                        "className: Supports simple name or fully qualified. " +
-                        "Returns: List of private methods/fields with zero usages. " +
-                        "Use with safeDelete to clean up dead code.")
-                .inputSchema(jsonMapper, buildFindDeadCodeSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                findDeadCodeTool,
+        toolRegistry.register(
+                "findDeadCode",
+                ToolRegistry.Category.REFACTORING,
+                "Find unused methods and fields in a class",
+                buildFindDeadCodeSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
                     return handleFindDeadCode(projectPath, className);
                 }
-        ));
+        );
 
-        // Move Class tool
-        McpSchema.Tool moveClassTool = McpSchema.Tool.builder()
-                .name("moveClass")
-                .description("Move a class to a different package (updates all imports and references). " +
-                        "className: Supports simple name or fully qualified. " +
-                        "targetPackage: Full package name (e.g., 'com.example.newpackage'). " +
-                        "Creates target package if it doesn't exist.")
-                .inputSchema(jsonMapper, buildMoveClassSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                moveClassTool,
+        toolRegistry.register(
+                "moveClass",
+                ToolRegistry.Category.REFACTORING,
+                "Move class to different package",
+                buildMoveClassSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String className = (String) arguments.get("className");
                     String targetPackage = (String) arguments.get("targetPackage");
                     return handleMoveClass(projectPath, className, targetPackage);
                 }
-        ));
+        );
 
-        // Check Compile Java tool - uses IntelliJ's CodeSmellDetector for real compilation checking
-        McpSchema.Tool checkCompileJavaTool = McpSchema.Tool.builder()
-                .name("checkCompileJava")
-                .description("Check Java file for compilation errors. " +
-                        "Uses IntelliJ's CodeSmellDetector - finds real errors like missing imports, " +
-                        "type mismatches, syntax errors. " +
-                        "WORKFLOW: 1) Save code to file, 2) Call checkCompileJava, 3) Fix errors if any. " +
-                        "Returns: ✅ if compiles, or list of errors with line numbers.")
-                .inputSchema(jsonMapper, buildCheckCompileJavaSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                checkCompileJavaTool,
+        // ========== Build Tools ==========
+        toolRegistry.register(
+                "checkCompileJava",
+                ToolRegistry.Category.BUILD,
+                "Check Java file for compilation errors",
+                buildCheckCompileJavaSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String filePath = (String) arguments.get("filePath");
                     return handleCheckCompileJava(projectPath, filePath);
                 }
-        ));
+        );
 
-        // Optimize Imports tool - uses IntelliJ's static analysis to auto-fix imports
-        McpSchema.Tool optimizeImportsTool = McpSchema.Tool.builder()
-                .name("optimizeImports")
-                .description("Auto-fix imports in a Java file using IntelliJ's static analysis. " +
-                        "Adds missing imports, removes unused imports, and organizes import order. " +
-                        "MUCH more reliable than LLM guessing imports. " +
-                        "WORKFLOW: 1) Write test file, 2) Call optimizeImports, 3) Call checkCompileJava. " +
-                        "Returns: Summary of imports added/removed, or error if class not found in project.")
-                .inputSchema(jsonMapper, buildCheckCompileJavaSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                optimizeImportsTool,
+        toolRegistry.register(
+                "optimizeImports",
+                ToolRegistry.Category.BUILD,
+                "Auto-fix imports in a Java file",
+                buildCheckCompileJavaSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     String filePath = (String) arguments.get("filePath");
                     return handleOptimizeImports(projectPath, filePath);
                 }
-        ));
+        );
 
-        // Get Project Dependencies tool - reads build.gradle/pom.xml to detect available libraries
-        McpSchema.Tool getProjectDependenciesTool = McpSchema.Tool.builder()
-                .name("getProjectDependencies")
-                .description("Get project dependencies from build.gradle, pom.xml, or .idea/libraries (local JARs). " +
-                        "CRITICAL: Call this BEFORE writing tests to know what libraries are available. " +
-                        "Returns: build system type, all dependencies, and test library availability " +
-                        "(JUnit 5, Testcontainers, WireMock, AssertJ, etc.). " +
-                        "If required libraries are missing, STOP and tell user to add them - don't try to fix imports!")
-                .inputSchema(jsonMapper, buildGetProjectDependenciesSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                getProjectDependenciesTool,
+        toolRegistry.register(
+                "getProjectDependencies",
+                ToolRegistry.Category.BUILD,
+                "Get project dependencies from build files",
+                buildGetProjectDependenciesSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     return handleGetProjectDependencies(projectPath);
                 }
-        ));
+        );
 
-        // Get Project JDK tool - returns JDK path for shell commands
-        McpSchema.Tool getProjectJdkTool = McpSchema.Tool.builder()
-                .name("getProjectJdk")
-                .description("Get the JDK configured for the project in IntelliJ. " +
-                        "Returns JAVA_HOME path that can be used for shell commands. " +
-                        "Use this when you need to run java, javac, mvn, or gradle commands. " +
-                        "Example: export JAVA_HOME=\"<path>\" && mvn test")
-                .inputSchema(jsonMapper, buildGetProjectDependenciesSchema())
-                .build();
-
-        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
-                getProjectJdkTool,
+        toolRegistry.register(
+                "getProjectJdk",
+                ToolRegistry.Category.BUILD,
+                "Get JDK path configured for the project",
+                buildGetProjectDependenciesSchema(),
                 (exchange, arguments) -> {
                     String projectPath = (String) arguments.get("projectPath");
                     return handleGetProjectJdk(projectPath);
                 }
-        ));
+        );
 
-        LOG.info("Registered 19 MCP tools: getCurrentFile, lookupClass, getJavaCodeUnderTest, showFile, findUsages, findImplementations, getTypeHierarchy, getCallHierarchy, rename, getMethodBody, extractConstant, extractMethod, safeDelete, findDeadCode, moveClass, checkCompileJava, optimizeImports, getProjectDependencies, getProjectJdk");
-    }
-
-    private void registerPrompts() {
-        // All prompts loaded dynamically from resources/prompts/*.md
-        // Override by placing files in ~/.zest/dev-prompts/ or ${PROJECT}/.zest/prompts/
-
-        registerDynamicPrompt("review", "Smart code review with focus options",
-                List.of(), PromptLoader.PromptName.REVIEW);
-
-        registerDynamicPrompt("explain", "Smart code explainer with auto-detection",
-                List.of(), PromptLoader.PromptName.EXPLAIN);
-
-        registerDynamicPrompt("commit", "Smart hands-free git commit assistant",
-                List.of(), PromptLoader.PromptName.COMMIT);
-
-        registerDynamicPrompt("zest-test", "Smart test generation with sub-agents",
-                List.of(), PromptLoader.PromptName.TEST_GENERATION);
-
-        LOG.info("Registered 4 MCP prompts (all dynamic): review, explain, commit, zest-test");
+        // ========== Prompt Tools ==========
+        toolRegistry.register(
+                "readPrompt",
+                ToolRegistry.Category.INTERACTION,
+                "Read prompt file content from ~/.zest/prompts/",
+                buildReadPromptSchema(),
+                (exchange, arguments) -> {
+                    String promptName = (String) arguments.get("promptName");
+                    return handleReadPrompt(promptName);
+                }
+        );
     }
 
     /**
-     * Register prompt with dynamic loading from PromptLoader.
-     * Prompts are loaded at request time, not at registration time.
-     * Uses static method since MCP prompts don't have project context.
+     * Register the 3 meta-tools with MCP for lazy loading.
+     * These are the only tools visible to clients - all other tools are invoked via callTool.
      */
-    private void registerDynamicPrompt(String name, String description, List<McpSchema.PromptArgument> arguments, PromptLoader.PromptName promptName) {
+    private void registerMetaTools() {
+        ObjectMapper mapper = new ObjectMapper();
+        JacksonMcpJsonMapper jsonMapper = new JacksonMcpJsonMapper(mapper);
+
+        // Meta-tool 1: Get available tools (compact index)
+        McpSchema.Tool getAvailableToolsTool = McpSchema.Tool.builder()
+                .name("getAvailableTools")
+                .description("Get list of all available tools grouped by category. " +
+                        "Returns compact JSON with tool names and summaries (~200 tokens vs ~13,500 for full schemas). " +
+                        "Call getToolSchema(toolName) to get full parameter schema for a specific tool.")
+                .inputSchema(jsonMapper, buildEmptySchema())
+                .build();
+
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
+                getAvailableToolsTool,
+                (exchange, arguments) -> {
+                    String json = toolRegistry.getAvailableToolsJson();
+                    return new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(json)), false);
+                }
+        ));
+
+        // Meta-tool 2: Get tool schema (full schema on-demand)
+        McpSchema.Tool getToolSchemaTool = McpSchema.Tool.builder()
+                .name("getToolSchema")
+                .description("Get full JSON schema for a specific tool. " +
+                        "Use after calling getAvailableTools to see what tools exist. " +
+                        "Returns: name, category, summary, and full inputSchema with all parameters.")
+                .inputSchema(jsonMapper, buildGetToolSchemaSchema())
+                .build();
+
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
+                getToolSchemaTool,
+                (exchange, arguments) -> {
+                    String toolName = (String) arguments.get("toolName");
+                    String json = toolRegistry.getToolSchema(toolName);
+                    return new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(json)), false);
+                }
+        ));
+
+        // Meta-tool 3: Call tool (invoke any registered tool)
+        McpSchema.Tool callToolTool = McpSchema.Tool.builder()
+                .name("callTool")
+                .description("Invoke any registered tool by name. " +
+                        "WORKFLOW: 1) getAvailableTools → see tools, 2) getToolSchema → get params, 3) callTool → execute. " +
+                        "Pass toolName and arguments object matching the tool's schema.")
+                .inputSchema(jsonMapper, buildCallToolSchema())
+                .build();
+
+        addToolToBoth(new McpServerFeatures.SyncToolSpecification(
+                callToolTool,
+                (exchange, arguments) -> {
+                    String toolName = (String) arguments.get("toolName");
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> toolArgs = (Map<String, Object>) arguments.get("arguments");
+                    if (toolArgs == null) {
+                        toolArgs = new HashMap<>();
+                    }
+                    return toolRegistry.invoke(toolName, exchange, toolArgs);
+                }
+        ));
+
+        LOG.info("Registered 3 meta-tools: getAvailableTools, getToolSchema, callTool");
+    }
+
+    private void registerPrompts() {
+        // Prompts are lazy-loaded: we return file path, agent reads on-demand
+        // Files stored in ~/.zest/prompts/ (initialized from bundled resources)
+
+        // Ensure prompt files exist in ~/.zest/prompts/
+        initializePromptFiles();
+
+        registerLazyPrompt("review", "Code review prompt - reads from file",
+                List.of(), PromptLoader.PromptName.REVIEW);
+
+        registerLazyPrompt("explain", "Code explainer prompt - reads from file",
+                List.of(), PromptLoader.PromptName.EXPLAIN);
+
+        registerLazyPrompt("commit", "Git commit prompt - reads from file",
+                List.of(), PromptLoader.PromptName.COMMIT);
+
+        registerLazyPrompt("zest-test", "Test generation prompt - reads from file",
+                List.of(), PromptLoader.PromptName.TEST_GENERATION);
+
+        LOG.info("Registered 4 MCP prompts (lazy-loaded from ~/.zest/prompts/)");
+    }
+
+    /**
+     * Initialize prompt files in ~/.zest/prompts/ from bundled resources.
+     */
+    private void initializePromptFiles() {
+        Path promptsDir = Paths.get(System.getProperty("user.home"), ".zest", "prompts");
+        try {
+            Files.createDirectories(promptsDir);
+
+            for (PromptLoader.PromptName name : PromptLoader.PromptName.values()) {
+                Path targetPath = promptsDir.resolve(name.getFileName());
+                if (!Files.exists(targetPath)) {
+                    String content = PromptLoader.getPromptStatic(name);
+                    Files.writeString(targetPath, content);
+                    LOG.info("Initialized prompt file: " + targetPath);
+                }
+            }
+        } catch (IOException e) {
+            LOG.warn("Failed to initialize prompt files", e);
+        }
+    }
+
+    /**
+     * Register prompt that instructs agent to load full content via readPrompt tool.
+     * This reduces initial token usage - full prompt loaded on-demand.
+     */
+    private void registerLazyPrompt(String name, String description, List<McpSchema.PromptArgument> arguments, PromptLoader.PromptName promptName) {
         McpSchema.Prompt prompt = new McpSchema.Prompt(name, description, arguments);
 
         addPromptToBoth(new McpServerFeatures.SyncPromptSpecification(
                 prompt,
                 (exchange, request) -> {
-                    // Load prompt dynamically from ~/.zest/dev-prompts/ or bundled
-                    String promptTemplate = PromptLoader.getPromptStatic(promptName);
-                    String filledPrompt = promptTemplate;
+                    // Return strict instruction to load prompt via tool
+                    String lazyContent = String.format("""
+                            # CRITICAL: Load Full Prompt First
 
-                    if (request.arguments() != null) {
-                        for (var entry : request.arguments().entrySet()) {
-                            String placeholder = "{{" + entry.getKey() + "}}";
-                            String value = String.valueOf(entry.getValue());
-                            filledPrompt = filledPrompt.replace(placeholder, value);
-                        }
-                    }
+                            **You MUST call the readPrompt tool before proceeding.**
 
-                    McpSchema.TextContent textContent = new McpSchema.TextContent(filledPrompt);
+                            ## Step 1: Load the prompt (REQUIRED)
+                            ```
+                            callTool("readPrompt", {"promptName": "%s"})
+                            ```
+
+                            ## Step 2: Follow instructions strictly
+                            After loading, you MUST follow the prompt instructions exactly as written.
+                            Do NOT improvise or skip steps. The prompt file contains critical workflow details.
+
+                            ---
+                            **DO NOT PROCEED WITHOUT READING THE FULL PROMPT FILE.**
+                            **DO NOT MAKE ASSUMPTIONS ABOUT WHAT THE PROMPT CONTAINS.**
+                            """,
+                            name);
+
+                    McpSchema.TextContent textContent = new McpSchema.TextContent(lazyContent);
                     McpSchema.PromptMessage message = new McpSchema.PromptMessage(McpSchema.Role.USER, textContent);
 
                     return new McpSchema.GetPromptResult(description, List.of(message));
@@ -589,7 +714,7 @@ public class ZestMcpHttpServer {
         return """
                 {
                   "type": "object",
-                  "properties": {
+                  "properties": {   
                     "projectPath": {
                       "type": "string",
                       "description": "Absolute path to the IntelliJ project"
@@ -916,15 +1041,21 @@ public class ZestMcpHttpServer {
             String testFilePath = testRoot + "/" + packageName.replace('.', '/') + "/" + simpleClassName + "Test.java";
 
             StringBuilder response = new StringBuilder();
-            response.append("## ⚠️ TEST FILE LOCATION\n\n");
+            response.append("## ⚠️ WRITE TEST TO THIS PATH\n\n");
             response.append("```\n").append(testFilePath).append("\n```\n\n");
-            response.append("## Context\n\n");
-            response.append("| Key | Value |\n");
-            response.append("|-----|-------|\n");
-            response.append("| Context file | `").append(filePath).append("` |\n");
-            response.append("| Test type | ").append(effectiveTestType).append(" |\n");
-            response.append("| Methods | ").append(methodsToInclude.isEmpty() ? "all public" : String.join(", ", methodsToInclude)).append(" |\n\n");
-            response.append("Follow `zest-test` instructions.\n");
+            response.append("## Files Already Created (DO NOT recreate)\n\n");
+            response.append("| File | Status |\n");
+            response.append("|------|--------|\n");
+            response.append("| `").append(filePath).append("` | ✅ Context file (read this) |\n");
+            response.append("| `.zest/prompts/agents/*.md` | ✅ Agent prompts (read-only) |\n");
+            response.append("| `.zest/agents/` | 📁 Output directory for agents |\n\n");
+            response.append("## Settings\n\n");
+            response.append("- Test type: ").append(effectiveTestType).append("\n");
+            response.append("- Methods: ").append(methodsToInclude.isEmpty() ? "all public" : String.join(", ", methodsToInclude)).append("\n\n");
+            response.append("## ⚠️ IMPORTANT\n\n");
+            response.append("**DO NOT create .md files** - they are already created above.\n");
+            response.append("**DO** spawn sub-agents as per `zest-test` instructions.\n");
+            response.append("**DO** read the context file for source code and imports.\n");
 
             return new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(response.toString())), false);
 
@@ -961,6 +1092,149 @@ public class ZestMcpHttpServer {
                     }
                   },
                   "required": ["projectPath", "filePath"]
+                }
+                """;
+    }
+
+    private String buildValidateCodeSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to IntelliJ project"
+                    },
+                    "code": {
+                      "type": "string",
+                      "description": "Java code to validate"
+                    },
+                    "className": {
+                      "type": "string",
+                      "description": "Expected class name in the code"
+                    }
+                  },
+                  "required": ["projectPath", "code", "className"]
+                }
+                """;
+    }
+
+    private String buildAnalyzeMethodUsageSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to IntelliJ project"
+                    },
+                    "className": {
+                      "type": "string",
+                      "description": "Fully qualified class name"
+                    },
+                    "memberName": {
+                      "type": "string",
+                      "description": "Method or field name to analyze"
+                    }
+                  },
+                  "required": ["projectPath", "className", "memberName"]
+                }
+                """;
+    }
+
+    private String buildAskUserSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to IntelliJ project"
+                    },
+                    "questionText": {
+                      "type": "string",
+                      "description": "Question to ask the user"
+                    },
+                    "questionType": {
+                      "type": "string",
+                      "enum": ["SINGLE_CHOICE", "MULTI_CHOICE", "FREE_TEXT"],
+                      "description": "Type of question"
+                    },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": { "type": "string" },
+                          "description": { "type": "string" }
+                        }
+                      },
+                      "description": "Options for choice questions"
+                    },
+                    "header": {
+                      "type": "string",
+                      "description": "Optional header/title for the dialog"
+                    }
+                  },
+                  "required": ["projectPath", "questionText", "questionType"]
+                }
+                """;
+    }
+
+    private String buildAnalyzeRefactorabilitySchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to IntelliJ project"
+                    },
+                    "className": {
+                      "type": "string",
+                      "description": "Fully qualified class name to analyze"
+                    },
+                    "focusArea": {
+                      "type": "string",
+                      "enum": ["ALL", "TESTABILITY", "COMPLEXITY", "CODE_SMELLS"],
+                      "description": "Focus area for analysis"
+                    }
+                  },
+                  "required": ["projectPath", "className"]
+                }
+                """;
+    }
+
+    private String buildGetCoverageSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to IntelliJ project"
+                    },
+                    "className": {
+                      "type": "string",
+                      "description": "Fully qualified class name to get coverage for"
+                    }
+                  },
+                  "required": ["projectPath", "className"]
+                }
+                """;
+    }
+
+    private String buildProjectPathSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "projectPath": {
+                      "type": "string",
+                      "description": "Absolute path to IntelliJ project"
+                    }
+                  },
+                  "required": ["projectPath"]
                 }
                 """;
     }
@@ -1006,6 +1280,280 @@ public class ZestMcpHttpServer {
         }
     }
 
+    // ========== Testgen & Analysis Handlers ==========
+
+    private McpSchema.CallToolResult handleValidateCode(String projectPath, String code, String className) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            TestCodeValidator.ValidationResult validation =
+                    TestCodeValidator.validate(project, code, className);
+
+            StringBuilder result = new StringBuilder();
+            result.append("## Validation Result: ").append(className).append("\n\n");
+
+            if (validation.compiles()) {
+                result.append("**Status:** Code compiles successfully\n");
+                result.append("**Errors:** 0\n");
+            } else {
+                result.append("**Status:** Compilation errors found\n");
+                result.append("**Errors:** ").append(validation.getErrorCount()).append("\n\n");
+                result.append("### Error Details\n\n");
+                for (TestCodeValidator.CompilationError error : validation.getErrors()) {
+                    result.append("- Line ").append(error.getStartLine())
+                          .append(": ").append(error.getMessage()).append("\n");
+                }
+            }
+
+            return new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(result.toString())), false);
+
+        } catch (Exception e) {
+            LOG.error("Error validating code", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    private McpSchema.CallToolResult handleAnalyzeMethodUsage(String projectPath, String className, String memberName) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            if (memberName == null || memberName.trim().isEmpty()) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("ERROR: memberName is required for usage analysis")),
+                        true
+                );
+            }
+
+            String result = ApplicationManager.getApplication().runReadAction((Computable<String>) () -> {
+                JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
+                PsiClass psiClass = facade.findClass(className, GlobalSearchScope.allScope(project));
+
+                if (psiClass == null) {
+                    return "Class not found: " + className;
+                }
+
+                PsiMethod[] methods = psiClass.findMethodsByName(memberName, false);
+                if (methods.length > 0) {
+                    UsageAnalyzer analyzer = new UsageAnalyzer(project);
+                    UsageContext usageContext = analyzer.analyzeMethod(methods[0]);
+                    return usageContext.formatForLLM();
+                }
+
+                PsiField field = psiClass.findFieldByName(memberName, false);
+                if (field != null) {
+                    return "Field found: " + field.getName() + " (type: " + field.getType().getPresentableText() + ")\n" +
+                           "Note: Usage analysis is currently only available for methods.";
+                }
+
+                return "Member not found: " + memberName + " in class " + className;
+            });
+
+            return new McpSchema.CallToolResult(List.of(new McpSchema.TextContent(result)), false);
+
+        } catch (Exception e) {
+            LOG.error("Error analyzing method usage", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    // ========== Refactoring Handlers ==========
+
+    private McpSchema.CallToolResult handleAskUser(
+            String projectPath,
+            String questionText,
+            String questionType,
+            List<Map<String, String>> options,
+            String header
+    ) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.AskUserToolHandler.askUser(
+                    project, questionText, questionType, options, header
+            );
+
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
+
+        } catch (Exception e) {
+            LOG.error("Error in askUser", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to ask user: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    private McpSchema.CallToolResult handleAnalyzeRefactorability(
+            String projectPath,
+            String className,
+            String focusArea
+    ) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.RefactorabilityAnalyzer.analyze(
+                    project, className, focusArea
+            );
+
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
+
+        } catch (Exception e) {
+            LOG.error("Error in analyzeRefactorability", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to analyze refactorability: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    // ========== Test Coverage Handlers ==========
+
+    private McpSchema.CallToolResult handleGetCoverageData(String projectPath, String className) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.TestCoverageToolHandler.getCoverageData(
+                    project, className
+            );
+
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
+
+        } catch (Exception e) {
+            LOG.error("Error in getCoverageData", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to get coverage data: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    private McpSchema.CallToolResult handleAnalyzeCoverage(String projectPath, String className) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.TestCoverageToolHandler.analyzeCoverage(
+                    project, className
+            );
+
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
+
+        } catch (Exception e) {
+            LOG.error("Error in analyzeCoverage", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to analyze coverage: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    private McpSchema.CallToolResult handleGetTestInfo(String projectPath, String className) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.TestCoverageToolHandler.getTestInfo(
+                    project, className
+            );
+
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
+
+        } catch (Exception e) {
+            LOG.error("Error in getTestInfo", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to get test info: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
+    private McpSchema.CallToolResult handleGetBuildInfo(String projectPath) {
+        try {
+            Project project = findProject(projectPath);
+            if (project == null) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Project not found: " + projectPath)),
+                        false
+                );
+            }
+
+            com.google.gson.JsonObject result = com.zps.zest.mcp.refactor.BuildToolDetector.detectBuildInfo(project);
+
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(result.toString())),
+                    false
+            );
+
+        } catch (Exception e) {
+            LOG.error("Error in getBuildInfo", e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("ERROR: Failed to get build info: " + e.getMessage())),
+                    true
+            );
+        }
+    }
+
     /**
      * Formats comprehensive test context for a class.
      * Includes: source code, user-selected dependencies, additional files, rules, examples.
@@ -1025,9 +1573,12 @@ public class ZestMcpHttpServer {
         result.append("# Test Context: `").append(fqn).append("`\n\n");
         result.append("> Pre-computed via static analysis. Context Agent: find what's MISSING (config, SQL, scripts).\n\n");
 
-        // === SECTION 1: Test Location (prompt references this name) ===
-        result.append("## Test Location\n\n");
+        // === SECTION 1: Test File Location - IMPORTANT ===
+        result.append("## **OUTPUT: Write Test File To**\n\n");
+        result.append("**You MUST write the generated test to this exact path:**\n\n");
         result.append("```\n").append(testFilePath).append("\n```\n\n");
+        result.append("- Package: `").append(packageName).append("`\n");
+        result.append("- Test class name: `").append(simpleClassName).append("Test`\n\n");
 
         // === SECTION 2: Imports (prompt references this name) ===
         result.append("## Imports\n\n```java\n");
@@ -1704,6 +2255,110 @@ public class ZestMcpHttpServer {
                   "required": ["projectPath"]
                 }
                 """;
+    }
+
+    // ========== Meta-Tool Schemas (for lazy loading) ==========
+
+    private String buildEmptySchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {},
+                  "required": []
+                }
+                """;
+    }
+
+    private String buildGetToolSchemaSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "toolName": {
+                      "type": "string",
+                      "description": "Name of the tool to get schema for (from getAvailableTools)"
+                    }
+                  },
+                  "required": ["toolName"]
+                }
+                """;
+    }
+
+    private String buildCallToolSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "toolName": {
+                      "type": "string",
+                      "description": "Name of the tool to invoke"
+                    },
+                    "arguments": {
+                      "type": "object",
+                      "description": "Arguments object matching the tool's schema (get via getToolSchema)"
+                    }
+                  },
+                  "required": ["toolName", "arguments"]
+                }
+                """;
+    }
+
+    private String buildReadPromptSchema() {
+        return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "promptName": {
+                      "type": "string",
+                      "description": "Name of the prompt to read: review, explain, commit, or test-generation"
+                    }
+                  },
+                  "required": ["promptName"]
+                }
+                """;
+    }
+
+    // ========== Prompt Handler ==========
+
+    private McpSchema.CallToolResult handleReadPrompt(String promptName) {
+        try {
+            // Map prompt name to file name
+            String fileName = switch (promptName.toLowerCase()) {
+                case "review" -> "review.md";
+                case "explain" -> "explain.md";
+                case "commit" -> "commit.md";
+                case "test-generation", "zest-test", "test" -> "test-generation.md";
+                default -> promptName.endsWith(".md") ? promptName : promptName + ".md";
+            };
+
+            Path promptPath = Paths.get(System.getProperty("user.home"), ".zest", "prompts", fileName);
+
+            if (!Files.exists(promptPath)) {
+                // Try to initialize from bundled
+                initializePromptFiles();
+            }
+
+            if (!Files.exists(promptPath)) {
+                return new McpSchema.CallToolResult(
+                        List.of(new McpSchema.TextContent("Prompt not found: " + promptName +
+                                "\nAvailable: review, explain, commit, test-generation")),
+                        true
+                );
+            }
+
+            String content = Files.readString(promptPath);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent(content)),
+                    false
+            );
+
+        } catch (Exception e) {
+            LOG.error("Error reading prompt: " + promptName, e);
+            return new McpSchema.CallToolResult(
+                    List.of(new McpSchema.TextContent("Error reading prompt: " + e.getMessage())),
+                    true
+            );
+        }
     }
 
     // ========== PSI Navigation Tool Handlers ==========
